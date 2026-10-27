@@ -3357,11 +3357,7 @@ async fn pi_ws_handler(
         .into_response()
 }
 
-async fn close_pi_socket<S>(
-    ws_sender: &mut S,
-    code: u16,
-    reason: &'static str,
-) -> bool
+async fn close_pi_socket<S>(ws_sender: &mut S, code: u16, reason: &'static str) -> bool
 where
     S: Sink<Message> + Unpin,
 {
@@ -7679,16 +7675,15 @@ mod pi_relay_tests {
     use std::sync::OnceLock;
     use tokio_tungstenite::tungstenite::Message as WsMessage;
 
-    type TestWebSocket =
-        tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+    type TestWebSocket = tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >;
 
     fn pi_test_runtime_dir() -> &'static Path {
         static DIR: OnceLock<PathBuf> = OnceLock::new();
         DIR.get_or_init(|| {
-            let dir = std::env::temp_dir().join(format!(
-                "herdr-web-pi-relay-test-{}",
-                std::process::id()
-            ));
+            let dir = std::env::temp_dir()
+                .join(format!("herdr-web-pi-relay-test-{}", std::process::id()));
             std::fs::create_dir_all(dir.join("pi-bridge")).unwrap();
             std::env::set_var("XDG_RUNTIME_DIR", &dir);
             dir
@@ -7783,9 +7778,7 @@ mod pi_relay_tests {
             terminal_sessions: Arc::new(Mutex::new(TerminalSessions::default())),
             selected_pane_id: Arc::new(Mutex::new(None)),
             agent_activity: Arc::new(AgentActivityManager::new()),
-            agent_pins: Arc::new(
-                AgentPinsManager::for_test(base.join("pins"), "test").unwrap(),
-            ),
+            agent_pins: Arc::new(AgentPinsManager::for_test(base.join("pins"), "test").unwrap()),
             launcher_presets: Arc::new(LauncherPresetStore::load(None).unwrap()),
             notes: Arc::new(NotesManager::for_test(base.join("notes"), "test").unwrap()),
             ui_event_tx: tokio::sync::broadcast::channel(256).0,
@@ -7956,9 +7949,7 @@ mod pi_relay_tests {
 
         let mut client = connect_pi_client(&url, &pane_id).await;
         client
-            .send(WsMessage::Text(
-                "x".repeat(PI_MAX_RECORD_BYTES + 1).into(),
-            ))
+            .send(WsMessage::Text("x".repeat(PI_MAX_RECORD_BYTES + 1).into()))
             .await
             .unwrap();
         expect_close(&mut client, PI_CLOSE_RECORD_TOO_LARGE).await;
