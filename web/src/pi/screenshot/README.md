@@ -1,7 +1,7 @@
 # Screenshot Editor
 
 Isolated image annotation surface for Pi mode. It opens from an Attachment Chip
-(ticket #11 owns the chips), lets the user crop, redact and annotate with touch or
+(the Attachment Chips mount it), lets the user crop, redact and annotate with touch or
 mouse, and returns one PNG that replaces the chip image.
 
 Everything here is self-contained: no imports from the terminal, the bridge or the

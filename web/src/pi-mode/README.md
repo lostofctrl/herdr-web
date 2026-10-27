@@ -33,9 +33,9 @@ Evidence:
   CLI `@file` arguments (called from `main.js:176`), not for interactive prompts.
 
 Consequence for Attachment Chips: uploading first and pasting the uploaded paths
-ahead of the draft is Pi's real image delivery path (user story 53 says exactly
-that). There is no source evidence for an editor-level conversion, so this module
-does not claim one.
+ahead of the draft is Pi's real image delivery path: the prompt carries the path and
+Pi's own `read` tool turns it into an image block. There is no source evidence for an
+editor-level conversion, so this module does not claim one.
 
 ## Attachment Chips
 
@@ -63,6 +63,5 @@ Cancel keeps the original. Export is always PNG, so the chip is renamed to `.png
 before upload.
 
 Known limit: upload names may contain spaces (the bridge sanitizer keeps them), and
-paths are pasted space-separated per the ticket, so such a path is ambiguous to the
-`read` tool. Pi's own clipboard paste uses newlines for this reason; if this bites,
+paths are pasted space-separated, so such a path is ambiguous to the `read` tool. Pi's own clipboard paste uses newlines for this reason; if this bites,
 switch `piComposerPromptText` to newline separation.
