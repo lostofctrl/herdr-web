@@ -92,3 +92,31 @@ client limits to 200 (default 50). Its `result` is `{files: [{path}]}`.
   connection or a closed relay means no Pi Bridge is reachable.
 - Unknown `type` values and malformed records are answered with
   `{ok: false, error: "<reason>"}` when an `id` is present, and ignored otherwise.
+
+## Relay over the herdr-web bridge
+
+The browser never touches the Unix socket. It opens one authenticated WebSocket per Pi
+Pane:
+
+```text
+GET /ws/pi?pane_id=<pane_id>
+```
+
+`pane_id` must be in the bridge's current pane list; anything else is rejected before the
+socket is opened. The relay connects to
+`$XDG_RUNTIME_DIR/pi-bridge/<pane_id>.sock` (or the same `${TMPDIR:-/tmp}` fallback) and
+forwards each JSONL record in both directions as one WebSocket text frame without the
+trailing newline. It never inspects or rewrites a record beyond the 1 MiB cap.
+
+Relay-level failures are WebSocket close codes, not protocol records:
+
+| Code | Reason | Meaning |
+| --- | --- | --- |
+| 4500 | `bridge_offline` | socket missing or refused; the client shows Bridge Offline |
+| 4501 | `unknown_pane` | pane is not in this bridge's pane list |
+| 4502 | `record_too_large` | a record exceeded 1 MiB |
+| 1011 | relay error | unexpected I/O failure after connect |
+
+The browser reconnects with backoff, sends `get_snapshot` after every successful
+reconnect and on app resume, and treats any close as Bridge Offline until the next
+successful `hello`. The terminal WebSocket on the same pane is unaffected.
