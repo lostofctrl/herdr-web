@@ -6,6 +6,11 @@
 
 ### Added
 
+- Pi mode: Attachment Chips above the Composer, with gallery/camera input and paste or
+  drag-drop images. Sending uploads each image through the existing upload endpoint, waits
+  for the uploads, then pastes the uploaded paths ahead of the draft in chip order. Chips
+  open the Screenshot Editor; Save replaces that chip's image before upload.
+
 ### Changed
 
 ### Fixed

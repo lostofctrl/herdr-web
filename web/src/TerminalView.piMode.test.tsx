@@ -114,7 +114,7 @@ async function renderTerminalView({
         pane={pane}
         connectionKey="test-connection"
         resumeToken={0}
-        httpUrl={(path) => path}
+        httpUrl={(path, params) => (params ? `${path}?${params}` : path)}
         wsUrl={(path) => path}
         autoFocus={false}
         mobileControls={mobile}
@@ -324,5 +324,375 @@ describe("TerminalView Pi Composer (Seam 3)", () => {
       );
     });
     expect(container.querySelector('[aria-label="Pi prompt"]')).toBeNull();
+  });
+});
+
+type UploadResponseStub = {
+  name: string;
+  path: string;
+  size: number;
+  mime: string | null;
+};
+
+/** Fake /api/uploads endpoint that the TerminalView upload flow already targets. */
+function stubUploads() {
+  const pending: Array<{
+    name: string;
+    body: unknown;
+    resolve: () => void;
+    reject: (error: Error) => void;
+  }> = [];
+  const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+    const name =
+      (init?.body instanceof File ? init.body.name : null) ??
+      new URL(url, "http://herdr.test").searchParams.get("name") ??
+      "image.png";
+    return new Promise((resolve, reject) => {
+      pending.push({
+        name,
+        body: init?.body,
+        resolve: () =>
+          resolve({
+            status: 200,
+            ok: true,
+            json: async () => ({ file: uploadStub(name) }),
+          }),
+        reject,
+      });
+    });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return { fetchMock, pending };
+}
+
+function uploadStub(name: string): UploadResponseStub {
+  return {
+    name,
+    path: `/tmp/uploads/${name}`,
+    size: 3,
+    mime: "image/png",
+  };
+}
+
+function pngFile(name: string) {
+  return new File([new Uint8Array([1, 2, 3])], name, { type: "image/png" });
+}
+
+async function dropFiles(target: Element, files: File[]) {
+  const event = new Event("drop", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "dataTransfer", {
+    value: {
+      files,
+      types: ["Files"],
+      items: files.map((file) => ({ kind: "file", type: file.type, getAsFile: () => file })),
+    },
+  });
+  await act(async () => {
+    target.dispatchEvent(event);
+  });
+}
+
+async function pasteFiles(target: Element, files: File[]) {
+  const event = new Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", {
+    value: {
+      files,
+      types: ["Files"],
+      items: files.map((file) => ({ kind: "file", type: file.type, getAsFile: () => file })),
+    },
+  });
+  await act(async () => {
+    target.dispatchEvent(event);
+  });
+}
+
+function composerRoot(container: HTMLElement) {
+  const root = container.querySelector<HTMLElement>(".pi-composer");
+  if (!root) {
+    throw new Error("Missing Pi Composer root");
+  }
+  return root;
+}
+
+function attachmentChips(container: HTMLElement) {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>('[data-pi-attachment="chip"]'),
+  );
+}
+
+async function flushAsync() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+describe("TerminalView Pi Composer attachments (Seam 3)", () => {
+  beforeEach(() => {
+    Object.assign(URL, {
+      createObjectURL: vi.fn(() => "blob:pi-attachment"),
+      revokeObjectURL: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (URL as any).createObjectURL;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (URL as any).revokeObjectURL;
+  });
+
+  it("uploads an attached image before pasting its path ahead of the draft", async () => {
+    const { pending } = stubUploads();
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    const socket = await openSocket();
+
+    await dropFiles(composerRoot(container), [pngFile("shot.png")]);
+    expect(attachmentChips(container)).toHaveLength(1);
+
+    await typePrompt(promptField(container), "what is wrong?");
+    await clickButton(container, "Send prompt");
+    await flushAsync();
+
+    // The upload must finish before anything reaches Pi's editor.
+    expect(pending).toHaveLength(1);
+    expect(pending[0].name).toBe("shot.png");
+    expect(sentTerminalInput(socket)).toEqual([]);
+
+    await act(async () => pending[0].resolve());
+    await flushAsync();
+
+    const paste = "\x1b[200~/tmp/uploads/shot.png what is wrong?\x1b[201~";
+    expect(sentTerminalInput(socket)).toEqual([paste]);
+    await act(async () => vi.advanceTimersByTime(40));
+    expect(sentTerminalInput(socket)).toEqual([paste, "\r"]);
+    expect(promptField(container).value).toBe("");
+    expect(attachmentChips(container)).toHaveLength(0);
+  });
+
+  it("uploads in chip order and pastes the paths in that order", async () => {
+    const { pending } = stubUploads();
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    const socket = await openSocket();
+
+    await dropFiles(composerRoot(container), [pngFile("first.png"), pngFile("second.png")]);
+    await typePrompt(promptField(container), "compare");
+    await clickButton(container, "Send prompt");
+    await flushAsync();
+
+    // Sequential uploads: the second request starts only after the first resolves.
+    expect(pending.map((entry) => entry.name)).toEqual(["first.png"]);
+    await act(async () => pending[0].resolve());
+    await flushAsync();
+    expect(pending.map((entry) => entry.name)).toEqual(["first.png", "second.png"]);
+    expect(sentTerminalInput(socket)).toEqual([]);
+
+    await act(async () => pending[1].resolve());
+    await flushAsync();
+
+    expect(sentTerminalInput(socket)).toEqual([
+      "\x1b[200~/tmp/uploads/first.png /tmp/uploads/second.png compare\x1b[201~",
+    ]);
+  });
+
+  it("keeps the draft and chips with a visible error when an upload fails", async () => {
+    const { pending } = stubUploads();
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    const socket = await openSocket();
+
+    await dropFiles(composerRoot(container), [pngFile("broken.png")]);
+    await typePrompt(promptField(container), "still here");
+    await clickButton(container, "Send prompt");
+    await flushAsync();
+
+    await act(async () => pending[0].reject(new Error("Upload failed (500)")));
+    await flushAsync();
+
+    const error = container.querySelector('[role="alert"]');
+    expect(error?.textContent).toContain("Upload failed (500)");
+    expect(sentTerminalInput(socket)).toEqual([]);
+    expect(promptField(container).value).toBe("still here");
+    expect(attachmentChips(container)).toHaveLength(1);
+    expect(
+      window.localStorage.getItem(piComposerDraftKey(BRIDGE_ID, PANE_A)),
+    ).toBe("still here");
+  });
+
+  it("removes an attachment chip before sending", async () => {
+    const { fetchMock } = stubUploads();
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    const socket = await openSocket();
+
+    await pasteFiles(composerRoot(container), [pngFile("drop-me.png")]);
+    expect(attachmentChips(container)).toHaveLength(1);
+
+    await clickButton(container, "Remove attachment");
+    expect(attachmentChips(container)).toHaveLength(0);
+
+    await typePrompt(promptField(container), "no images");
+    await clickButton(container, "Send prompt");
+    await flushAsync();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(sentTerminalInput(socket)).toEqual(["\x1b[200~no images\x1b[201~"]);
+  });
+
+  it("leaves the existing non-Pi pane upload path untouched", async () => {
+    const { pending } = stubUploads();
+    const { pane, paneId } = testPane(PANE_A, { agent: "claude" });
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    const socket = await openSocket();
+
+    await dropFiles(container.querySelector("section") ?? container, [pngFile("plain.png")]);
+    await flushAsync();
+
+    expect(pending.map((entry) => entry.name)).toEqual(["plain.png"]);
+    expect(attachmentChips(container)).toHaveLength(0);
+
+    await act(async () => pending[0].resolve());
+    await flushAsync();
+
+    expect(sentTerminalInput(socket)).toEqual(["/tmp/uploads/plain.png"]);
+  });
+});
+
+class TestImage {
+  static instances: TestImage[] = [];
+  naturalWidth = 40;
+  naturalHeight = 30;
+  width = 40;
+  height = 30;
+  decoding = "";
+  onload: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  constructor() {
+    TestImage.instances.push(this);
+  }
+  set src(_value: string) {
+    queueMicrotask(() => this.onload?.());
+  }
+}
+
+function fakeCanvasContext() {
+  return new Proxy(
+    {},
+    {
+      get: (_target, property) =>
+        property === "measureText" ? () => ({ width: 10 }) : () => {},
+      set: () => true,
+    },
+  ) as unknown as CanvasRenderingContext2D;
+}
+
+async function clickTextButton(container: HTMLElement, text: string) {
+  const button = Array.from(container.querySelectorAll("button")).find(
+    (candidate) => candidate.textContent?.trim() === text,
+  );
+  if (!button) {
+    throw new Error(`Missing button with text: ${text}`);
+  }
+  await act(async () => button.click());
+}
+
+function screenshotEditorDialog(container: HTMLElement) {
+  return container.querySelector<HTMLElement>(
+    '[role="dialog"][aria-label="Screenshot Editor"]',
+  );
+}
+
+describe("TerminalView Pi Composer Screenshot Editor (Seam 3)", () => {
+  beforeEach(() => {
+    Object.assign(URL, {
+      createObjectURL: vi.fn((blob: Blob) => `blob:pi-attachment-${blob.type}`),
+      revokeObjectURL: vi.fn(),
+    });
+    TestImage.instances = [];
+    vi.stubGlobal("Image", TestImage);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
+      () => fakeCanvasContext(),
+    );
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(
+      "data:image/png;base64,AQID",
+    );
+  });
+
+  afterEach(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (URL as any).createObjectURL;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (URL as any).revokeObjectURL;
+    vi.restoreAllMocks();
+  });
+
+  it("opens the editor from a chip and uploads the edited PNG on save", async () => {
+    const { pending } = stubUploads();
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    const socket = await openSocket();
+
+    await dropFiles(composerRoot(container), [pngFile("shot.jpg")]);
+    expect(attachmentChips(container)).toHaveLength(1);
+
+    await clickButton(container, "Edit shot.jpg");
+    await flushAsync();
+    expect(screenshotEditorDialog(container)).not.toBeNull();
+
+    await clickTextButton(container, "Save");
+    await flushAsync();
+    expect(screenshotEditorDialog(container)).toBeNull();
+
+    const chip = attachmentChips(container)[0];
+    expect(chip.querySelector(".pi-attachment-name")?.textContent).toBe("shot.png");
+
+    await typePrompt(promptField(container), "after edit");
+    await clickButton(container, "Send prompt");
+    await flushAsync();
+
+    expect(pending).toHaveLength(1);
+    const body = pending[0].body as File;
+    expect(pending[0].name).toBe("shot.png");
+    expect(body.type).toBe("image/png");
+    expect(body.size).toBe(3);
+
+    await act(async () => pending[0].resolve());
+    await flushAsync();
+    expect(
+      socket.send.mock.calls.some(
+        ([data]) => JSON.parse(data as string).data === "\x1b[200~/tmp/uploads/shot.png after edit\x1b[201~",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps the original chip image when the editor is cancelled", async () => {
+    const { pending } = stubUploads();
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    await openSocket();
+
+    await dropFiles(composerRoot(container), [pngFile("keep.jpg")]);
+    await clickButton(container, "Edit keep.jpg");
+    await flushAsync();
+    expect(screenshotEditorDialog(container)).not.toBeNull();
+
+    await clickTextButton(container, "Cancel");
+    await flushAsync();
+    expect(screenshotEditorDialog(container)).toBeNull();
+    expect(
+      attachmentChips(container)[0].querySelector(".pi-attachment-name")?.textContent,
+    ).toBe("keep.jpg");
+
+    await typePrompt(promptField(container), "unchanged");
+    await clickButton(container, "Send prompt");
+    await flushAsync();
+    expect(pending).toHaveLength(1);
+    expect((pending[0].body as File).type).toBe("image/png");
+
+    await act(async () => pending[0].resolve());
+    await flushAsync();
   });
 });

@@ -1349,9 +1349,17 @@ export function TerminalView({
     }
   };
 
+  const piPane = isPiPane(pane);
+
+  // Pi mode owns image paste/drop in the Composer so images become Attachment
+  // Chips instead of an immediate upload-and-paste. Non-image files and every
+  // non-Pi pane keep the existing upload path.
+  const piComposerHandlesPayload = (files: UploadCandidate[]) =>
+    piPane && files.some((file) => file.blob.type.startsWith("image/"));
+
   const handlePaste = (event: ClipboardEvent<HTMLElement>) => {
     const files = uploadCandidatesFromClipboard(event.clipboardData);
-    if (files.length === 0) {
+    if (files.length === 0 || piComposerHandlesPayload(files)) {
       return;
     }
     event.preventDefault();
@@ -1361,7 +1369,7 @@ export function TerminalView({
 
   const handleDrop = (event: DragEvent<HTMLElement>) => {
     const files = uploadCandidatesFromFileList(event.dataTransfer.files);
-    if (files.length === 0) {
+    if (files.length === 0 || piComposerHandlesPayload(files)) {
       return;
     }
     event.preventDefault();
@@ -1394,7 +1402,22 @@ export function TerminalView({
     return true;
   };
 
-  const piPane = isPiPane(pane);
+  /** Pi Composer image uploads: same endpoint, conflict prompt and order rules. */
+  const uploadPiComposerImages = async (files: UploadCandidate[]) => {
+    const uploaded: UploadedFile[] = [];
+    for (const file of files) {
+      uploaded.push(
+        await uploadWithOverwritePrompt(
+          httpUrl,
+          file,
+          autoRenameUploadConflicts,
+          confirmUploadReplace,
+        ),
+      );
+    }
+    return uploaded;
+  };
+
   const showCommandControls = mobileControls || desktopCommandComposer || piPane;
 
   return (
@@ -1466,6 +1489,7 @@ export function TerminalView({
           inputRef={piComposerInputRef}
           focusToken={focusToken}
           onSend={(parts) => enqueueTerminalInput(parts)}
+          onUploadImages={uploadPiComposerImages}
           onTerminalFocus={() => rendererRef.current?.focusTextInput()}
           onControlsHeightChange={setCommandControlsHeight}
         />

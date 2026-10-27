@@ -37,3 +37,84 @@
 .pi-composer .pi-composer-close {
   align-self: stretch;
 }
+
+.pi-composer-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 0;
+}
+
+.pi-composer .pi-attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pi-composer .pi-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 4px 6px 4px 4px;
+  border: 1px solid var(--term-border, #3a3a3a);
+  border-radius: 10px;
+  background: var(--term-panel, rgba(255, 255, 255, 0.06));
+}
+
+.pi-composer .pi-attachment-preview {
+  display: inline-flex;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.pi-composer .pi-attachment-thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 7px;
+  object-fit: cover;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.pi-composer .pi-attachment-name {
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pi-composer .pi-attachment-remove {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  color: inherit;
+  cursor: pointer;
+}
+
+.pi-composer .pi-attachment-error {
+  color: var(--term-danger, #ff8080);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.pi-composer .pi-attachment-input {
+  display: none;
+}
+
+.pi-composer .pi-composer-attach {
+  align-self: stretch;
+}
