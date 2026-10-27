@@ -47,6 +47,13 @@ import {
   type ModelLike,
 } from "./state.ts";
 
+/**
+ * How long a phone answer waits for rpiv to confirm it before the bridge reports
+ * that the questionnaire did not answer the request. rpiv usually answers on the
+ * same tick; the bound only covers a host that never replies.
+ */
+const ASK_USER_VERDICT_TIMEOUT_MS = 2000;
+
 export interface PiBridgeOptions {
   env?: Record<string, string | undefined>;
   /** Override the resolved socket path; `null` disables the bridge. */
@@ -103,6 +110,10 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
   const openQuestions = new Map<string, { dialog: QuestionDialog; requestId: string | null; cancel: boolean }>();
   const previewArgs = new Map<string, unknown>();
   const pendingVerdicts = new Map<string, AskUserAnswerResultPayload>();
+  const pendingAnswerReplies = new Map<
+    string,
+    { reply: RecordSender; id: string; timer: ReturnType<typeof setTimeout> }
+  >();
   const eventDisposers: (() => void)[] = [];
 
   function busyState(): BridgeBusy {
@@ -359,19 +370,29 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
     entry.requestId = requestId;
     entry.cancel = cancel;
     pendingVerdicts.delete(requestId);
+    // rpiv may answer synchronously or on a later tick, so the verdict is
+    // awaited with a bound instead of read straight after the emit.
+    const timer = setTimeout(() => {
+      pendingAnswerReplies.delete(requestId);
+      reply(errorResponse(id, "ask_user_question did not answer the request"));
+    }, ASK_USER_VERDICT_TIMEOUT_MS);
+    pendingAnswerReplies.set(requestId, { reply, id, timer });
     events.emit(ASK_USER_ANSWER_EVENT, {
       toolCallId: dialogId,
       requestId,
       ...(cancel ? { cancel: true } : { answers }),
       ...(!cancel && notesFromValue(request.value) ? { globalNote: notesFromValue(request.value) } : {}),
     });
-    const verdict = pendingVerdicts.get(requestId) ?? null;
-    pendingVerdicts.delete(requestId);
-    if (!verdict) {
-      reply(errorResponse(id, "ask_user_question did not answer the request"));
+  }
+
+  function settleAnswerReply(requestId: string, accepted: boolean): void {
+    const waiter = pendingAnswerReplies.get(requestId);
+    if (!waiter) {
       return;
     }
-    reply(okResponse(id, { accepted: verdict.ok === true }));
+    pendingAnswerReplies.delete(requestId);
+    clearTimeout(waiter.timer);
+    waiter.reply(okResponse(waiter.id, { accepted }));
   }
 
   function handleQuestionPrompt(payload: AskUserPromptPayload): void {
@@ -401,7 +422,9 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
       return;
     }
     pendingVerdicts.set(payload.requestId, payload);
-    if (payload.ok !== true || typeof payload.toolCallId !== "string") {
+    const accepted = payload.ok === true;
+    settleAnswerReply(payload.requestId, accepted);
+    if (!accepted || typeof payload.toolCallId !== "string") {
       return;
     }
     const entry = openQuestions.get(payload.toolCallId);
@@ -475,6 +498,11 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
     openQuestions.clear();
     previewArgs.clear();
     pendingVerdicts.clear();
+    for (const [requestId, waiter] of pendingAnswerReplies) {
+      clearTimeout(waiter.timer);
+      waiter.reply(errorResponse(waiter.id, "ask_user_question did not answer the request"));
+      pendingAnswerReplies.delete(requestId);
+    }
     currentModel = ctx.model ?? null;
     latestAssistant = latestAssistantFromEntries(ctx.sessionManager?.getEntries?.() ?? []);
     await ensureServer();

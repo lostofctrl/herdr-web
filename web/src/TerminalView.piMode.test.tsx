@@ -554,6 +554,24 @@ describe("TerminalView Pi Composer attachments (Seam 3)", () => {
     expect(sentTerminalInput(socket)).toEqual(["\x1b[200~no images\x1b[201~"]);
   });
 
+  it("uploads an image dropped on the terminal of a Pi pane", async () => {
+    const { pending } = stubUploads();
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: false });
+    const socket = await openSocket();
+
+    await dropFiles(container.querySelector(".terminal-host") ?? container, [pngFile("desk.png")]);
+    await flushAsync();
+
+    expect(pending.map((entry) => entry.name)).toEqual(["desk.png"]);
+    expect(attachmentChips(container)).toHaveLength(0);
+
+    await act(async () => pending[0].resolve());
+    await flushAsync();
+
+    expect(sentTerminalInput(socket)).toEqual(["/tmp/uploads/desk.png"]);
+  });
+
   it("leaves the existing non-Pi pane upload path untouched", async () => {
     const { pending } = stubUploads();
     const { pane, paneId } = testPane(PANE_A, { agent: "claude" });
@@ -989,6 +1007,12 @@ describe("TerminalView Reader Sheet (Seam 3)", () => {
 
   async function openPi(current: TestSocket) {
     await act(async () => current.dispatchEvent(new Event("open")));
+    // The Reader Sheet is a capability-gated surface, so the bridge announces it.
+    await sendPi(current, {
+      type: "hello",
+      protocol_version: 1,
+      capabilities: { assistant_message: true, generic_dialogs: true },
+    });
   }
 
   function snapshotId(current: TestSocket) {

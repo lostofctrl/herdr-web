@@ -193,6 +193,87 @@ describe("TerminalView Pi bridge (Seam 3)", () => {
     expect(container.querySelector("[data-pi-question-card]")).toBeNull();
   });
 
+  it("sends the phone answer for a question card over the Pi socket", async () => {
+    const { container } = await renderTerminalView(testPane(PANE_ID, "pi"), true);
+    const pi = piSockets()[0];
+    await act(async () => pi.dispatchEvent(new Event("open")));
+    await act(async () => {
+      pi.dispatchEvent(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "dialog_open",
+            dialog: {
+              id: "tool-1",
+              kind: "question",
+              timeout_ms: null,
+              questions: [
+                {
+                  question: "Pick one",
+                  header: "Choice",
+                  multiSelect: false,
+                  options: [{ label: "A", description: "First", preview: "" }],
+                },
+              ],
+            },
+          }),
+        }),
+      );
+    });
+
+    const option = [...container.querySelectorAll<HTMLButtonElement>(".pi-question-option")][0];
+    await act(async () => option.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const submit = container.querySelector<HTMLButtonElement>(".pi-question-submit");
+    await act(async () => submit?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+
+    const records = pi.send.mock.calls.map(
+      ([data]) => JSON.parse(data as string) as Record<string, unknown>,
+    );
+    const answer = records.find((record) => record.type === "dialog_answer");
+    expect(answer).toMatchObject({ dialog_id: "tool-1" });
+    expect(answer?.value).toEqual({ answers: [{ questionIndex: 0, optionIndexes: [0] }] });
+  });
+
+  it("renders a generic select card and answers it over the Pi socket", async () => {
+    const { container } = await renderTerminalView(testPane(PANE_ID, "pi"), true);
+    const pi = piSockets()[0];
+    await act(async () => pi.dispatchEvent(new Event("open")));
+    await act(async () => {
+      pi.dispatchEvent(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "hello", protocol_version: 1, capabilities: { generic_dialogs: true } }),
+        }),
+      );
+    });
+    await act(async () => {
+      pi.dispatchEvent(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "dialog_open",
+            dialog: {
+              id: "generic-1",
+              kind: "select",
+              title: "Choose a mode",
+              message: "Pick one",
+              options: [{ label: "Safe" }, { label: "Fast" }],
+            },
+          }),
+        }),
+      );
+    });
+
+    expect(container.querySelector("[data-pi-dialog-card]")).not.toBeNull();
+    const fast = [...container.querySelectorAll<HTMLButtonElement>(".pi-dialog-card-option")].find(
+      (button) => button.textContent?.includes("Fast"),
+    );
+    await act(async () => fast?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+
+    const records = pi.send.mock.calls.map(
+      ([data]) => JSON.parse(data as string) as Record<string, unknown>,
+    );
+    const answer = records.find((record) => record.type === "dialog_answer");
+    expect(answer).toMatchObject({ dialog_id: "generic-1", value: "Fast" });
+  });
+
   it("opens no Pi bridge socket on a non-Pi pane", async () => {
     await renderTerminalView(testPane(PANE_ID, "claude"), true);
     await act(async () => vi.advanceTimersByTime(10_000));

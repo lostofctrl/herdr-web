@@ -253,4 +253,18 @@ describe("PiDialogCards (Seam 3)", () => {
     expect(container.querySelector("[data-pi-question-card]")).not.toBeNull();
     expect(container.textContent).toContain("Which layout should the card use?");
   });
+
+  it("tells the user once on the web surface when the wrap is unavailable", async () => {
+    const { container } = await renderCards({ generic_dialogs: false });
+    expect(container.querySelectorAll("[data-pi-dialog-notice]")).toHaveLength(1);
+    expect(container.textContent).toContain("Answer them in the terminal.");
+
+    await send({ type: "dialog_open", dialog: SELECT });
+    expect(container.querySelectorAll("[data-pi-dialog-notice]")).toHaveLength(1);
+  });
+
+  it("stays quiet when the wrap is available", async () => {
+    const { container } = await renderCards({ generic_dialogs: true });
+    expect(container.querySelector("[data-pi-dialog-notice]")).toBeNull();
+  });
 });

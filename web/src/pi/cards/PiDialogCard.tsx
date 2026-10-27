@@ -44,6 +44,11 @@ export function PiDialogCard({ dialog, answerDialog }: PiDialogCardProps) {
   const [text, setText] = useState("");
   const [remaining, setRemaining] = useState(() => secondsRemaining(dialog.timeout_ms));
 
+  // A reconnect snapshot can carry a refreshed timeout for the same dialog id.
+  useEffect(() => {
+    setRemaining(secondsRemaining(dialog.timeout_ms));
+  }, [dialog.timeout_ms]);
+
   useEffect(() => {
     if (remaining === null || remaining <= 0) {
       return;
@@ -186,23 +191,35 @@ export function PiDialogCards({ paneId }: { paneId: string }) {
   if (!bridge) {
     return null;
   }
-  const dialogs = visiblePiDialogs(bridge.dialogs, bridge.capabilities.generic_dialogs === true);
+  const genericEnabled = bridge.capabilities.generic_dialogs === true;
+  // When the wrap could not be installed, say so once on the surface the user is
+  // actually looking at; Pi only warns in its own terminal.
+  const wrapNotice =
+    bridge.status === "online" && bridge.capabilities.generic_dialogs === false ? (
+      <p className="pi-dialog-notice" role="status" data-pi-dialog-notice="generic-dialogs-off">
+        This Pi could not hand its dialogs to the phone. Answer them in the terminal.
+      </p>
+    ) : null;
+  const dialogs = visiblePiDialogs(bridge.dialogs, genericEnabled);
   if (dialogs.length === 0) {
-    return null;
+    return wrapNotice;
   }
   return (
-    <div className="pi-dialog-cards" data-pi-dialog-cards="true">
-      {dialogs.map((dialog) =>
-        dialog.kind === "question" ? (
-          <PiQuestionCard key={dialog.id} dialog={dialog} answerDialog={bridge.answerDialog} />
-        ) : (
-          <PiDialogCard
-            key={dialog.id}
-            dialog={dialog as GenericDialog}
-            answerDialog={bridge.answerDialog}
-          />
-        ),
-      )}
-    </div>
+    <>
+      {wrapNotice}
+      <div className="pi-dialog-cards" data-pi-dialog-cards="true">
+        {dialogs.map((dialog) =>
+          dialog.kind === "question" ? (
+            <PiQuestionCard key={dialog.id} dialog={dialog} answerDialog={bridge.answerDialog} />
+          ) : (
+            <PiDialogCard
+              key={dialog.id}
+              dialog={dialog as GenericDialog}
+              answerDialog={bridge.answerDialog}
+            />
+          ),
+        )}
+      </div>
+    </>
   );
 }

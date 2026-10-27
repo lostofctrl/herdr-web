@@ -21,6 +21,9 @@
   The draft survives pane switches and reloads.
 - Pi mode: a Reader Sheet that opens the last assistant answer from the Pull-up Sheet, with
   copy and Close actions.
+- Pi mode: a touch Screenshot Editor behind every Attachment Chip. It crops, redacts with an
+  opaque fill, and draws arrows, circles and text, with undo and redo; Save replaces the chip
+  image with the exported PNG and Cancel keeps the original.
 - Pi mode: Attachment Chips above the Composer, with gallery/camera input and paste or
   drag-drop images. Sending uploads each image through the existing upload endpoint, waits
   for the uploads, then pastes the uploaded paths ahead of the draft in chip order. Chips

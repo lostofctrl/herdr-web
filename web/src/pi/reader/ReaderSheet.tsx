@@ -17,7 +17,9 @@ export function ReaderSheet({ paneId }: { paneId: string }) {
   const bridge = usePiBridge(paneId);
   const [open, setOpen] = useState(false);
 
-  if (!bridge || bridge.status !== "online") {
+  // Hide the whole surface unless the bridge is online and can deliver the
+  // last assistant message; a capability of false is the protocol's "hide it".
+  if (!bridge || bridge.status !== "online" || bridge.capabilities.assistant_message !== true) {
     return null;
   }
 

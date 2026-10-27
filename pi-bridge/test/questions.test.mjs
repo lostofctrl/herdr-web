@@ -270,3 +270,36 @@ test("an answer from the terminal removes the card without a phone request", asy
 
   await started.cleanup();
 });
+
+test("a verdict that arrives on a later tick still accepts the answer", async () => {
+  const started = await startBridge();
+  await openQuestionnaire(started.fake);
+  await started.connection.next((record) => record.type === "dialog_open");
+
+  started.fake.pi.events.on("rpiv:ask-user:answer", (payload) => {
+    // rpiv answers asynchronously: the reply must wait instead of reporting a
+    // failure while the answer is still landing.
+    setTimeout(() => {
+      started.fake.pi.events.emit("rpiv:ask-user:answer-result", {
+        ok: true,
+        requestId: payload.requestId,
+        toolCallId: payload.toolCallId,
+      });
+    }, 10);
+  });
+
+  started.connection.send({
+    type: "dialog_answer",
+    id: "answer-async",
+    dialog_id: "tool-1",
+    value: { answers: [{ questionIndex: 0, optionIndexes: [1] }] },
+  });
+
+  const response = await started.connection.next(
+    (record) => record.type === "response" && record.id === "answer-async",
+  );
+  assert.equal(response.ok, true);
+  assert.deepEqual(response.result, { accepted: true });
+
+  await started.cleanup();
+});

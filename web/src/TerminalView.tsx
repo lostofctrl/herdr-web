@@ -1357,15 +1357,19 @@ export function TerminalView({
 
   const piPane = isPiPane(pane);
 
-  // Pi mode owns image paste/drop in the Composer so images become Attachment
-  // Chips instead of an immediate upload-and-paste. Non-image files and every
-  // non-Pi pane keep the existing upload path.
-  const piComposerHandlesPayload = (files: UploadCandidate[]) =>
-    piPane && files.some((file) => file.blob.type.startsWith("image/"));
+  // Pi mode owns image paste/drop that lands on the Composer so images become
+  // Attachment Chips instead of an immediate upload-and-paste. An image dropped
+  // or pasted anywhere else in a Pi pane keeps the existing upload path, so
+  // desktop users with the Composer closed do not lose the gesture.
+  const piComposerHandlesPayload = (target: EventTarget | null, files: UploadCandidate[]) =>
+    piPane &&
+    files.some((file) => file.blob.type.startsWith("image/")) &&
+    target instanceof Element &&
+    target.closest(".pi-composer") !== null;
 
   const handlePaste = (event: ClipboardEvent<HTMLElement>) => {
     const files = uploadCandidatesFromClipboard(event.clipboardData);
-    if (files.length === 0 || piComposerHandlesPayload(files)) {
+    if (files.length === 0 || piComposerHandlesPayload(event.target, files)) {
       return;
     }
     event.preventDefault();
@@ -1375,7 +1379,7 @@ export function TerminalView({
 
   const handleDrop = (event: DragEvent<HTMLElement>) => {
     const files = uploadCandidatesFromFileList(event.dataTransfer.files);
-    if (files.length === 0 || piComposerHandlesPayload(files)) {
+    if (files.length === 0 || piComposerHandlesPayload(event.target, files)) {
       return;
     }
     event.preventDefault();
