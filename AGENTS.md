@@ -30,6 +30,11 @@ This is a lightweight internal onboarding note for agents working in this repo.
 
 ## Testing
 
+- For interactive acceptance tests, create a new disposable Pi/Herdr session and a uniquely
+  named browser session. Keep default and existing user sessions untouched; never send test
+  prompts or dialog triggers to them. Clean up only sessions and test data created by the test.
+  If an isolated session cannot be provisioned safely, report the check as blocked.
+
 - Run `npm install --prefix web` if dependencies are missing.
 - Run `npm run vendor:check` to verify the vendored layout.
 - Run `npm run lint:web` for ESLint.
