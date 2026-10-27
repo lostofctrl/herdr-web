@@ -47,6 +47,7 @@ export function createFakeExtension(options = {}) {
   const entries = options.entries ?? [];
   const cwd = options.cwd ?? "/work/repo";
   const handlers = new Map();
+  const eventHandlers = new Map();
   const registered = [];
   const calls = { setModel: [], setThinkingLevel: [], exec: [] };
 
@@ -106,6 +107,25 @@ export function createFakeExtension(options = {}) {
     setThinkingLevel(level) {
       calls.setThinkingLevel.push(level);
       currentThinking = level;
+    },
+    events: {
+      emit(channel, data) {
+        for (const handler of [...(eventHandlers.get(channel) ?? [])]) {
+          handler(data);
+        }
+      },
+      on(channel, handler) {
+        const list = eventHandlers.get(channel) ?? [];
+        list.push(handler);
+        eventHandlers.set(channel, list);
+        return () => {
+          const current = eventHandlers.get(channel) ?? [];
+          const index = current.indexOf(handler);
+          if (index >= 0) {
+            current.splice(index, 1);
+          }
+        };
+      },
     },
     async exec(command, args, execOptions) {
       calls.exec.push({ command, args, options: execOptions });

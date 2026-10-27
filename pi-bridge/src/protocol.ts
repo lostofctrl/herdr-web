@@ -63,7 +63,8 @@ export interface CatalogPayload {
 /**
  * Feature switches advertised by `hello`. A client hides a feature whose
  * capability is false or absent. `generic_dialogs` stays false until the
- * Native Card dialog wrapping from ADR 0002 is installed.
+ * Native Card dialog wrapping from ADR 0002 is installed; `ask_user_question`
+ * question dialogs are relayed independently of it.
  */
 export interface BridgeCapabilities {
   generic_dialogs: boolean;

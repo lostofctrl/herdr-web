@@ -127,6 +127,72 @@ describe("TerminalView Pi bridge (Seam 3)", () => {
     expect(sent).toEqual([{ type: "get_snapshot", id: expect.any(String) }]);
   });
 
+  it("mounts a Native Card for an ask_user_question dialog and removes it on dialog_closed", async () => {
+    const { container } = await renderTerminalView(testPane(PANE_ID, "pi"), true);
+    const pi = piSockets()[0];
+    await act(async () => pi.dispatchEvent(new Event("open")));
+    const snapshot = pi.send.mock.calls
+      .map(([data]) => JSON.parse(data as string) as Record<string, unknown>)
+      .find((record) => record.type === "get_snapshot");
+    await act(async () => {
+      pi.dispatchEvent(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "response",
+            id: snapshot?.id,
+            ok: true,
+            result: {
+              state: {
+                busy: "dialog",
+                model: null,
+                thinking_level: "medium",
+                models: [],
+                thinking_levels: ["medium"],
+                cwd: "/repo",
+              },
+              catalog: { commands: [], skills: [] },
+              dialogs: [],
+              assistant_message: null,
+            },
+          }),
+        }),
+      );
+    });
+
+    await act(async () => {
+      pi.dispatchEvent(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "dialog_open",
+            dialog: {
+              id: "tool-1",
+              kind: "question",
+              timeout_ms: null,
+              questions: [
+                {
+                  question: "Pick one",
+                  header: "Choice",
+                  multiSelect: false,
+                  options: [{ label: "A", description: "First", preview: "" }],
+                },
+              ],
+            },
+          }),
+        }),
+      );
+    });
+    expect(container.querySelector("[data-pi-question-card]")).not.toBeNull();
+
+    await act(async () => {
+      pi.dispatchEvent(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "dialog_closed", id: "tool-1", resolution: "terminal" }),
+        }),
+      );
+    });
+    expect(container.querySelector("[data-pi-question-card]")).toBeNull();
+  });
+
   it("opens no Pi bridge socket on a non-Pi pane", async () => {
     await renderTerminalView(testPane(PANE_ID, "claude"), true);
     await act(async () => vi.advanceTimersByTime(10_000));

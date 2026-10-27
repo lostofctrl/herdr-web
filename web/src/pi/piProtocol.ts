@@ -23,12 +23,26 @@ export type PiCatalog = {
   skills_note?: string;
 };
 
+export type PiQuestionOption = {
+  label: string;
+  description?: string;
+  preview?: string;
+};
+
+/** One `ask_user_question` question, including every option and preview. */
+export type PiQuestion = {
+  question: string;
+  header?: string;
+  multiSelect?: boolean;
+  options: PiQuestionOption[];
+};
+
 export type PiDialog = {
   id: string;
   kind: "question" | "select" | "confirm" | "input";
   title?: string;
   message?: string;
-  questions?: unknown[];
+  questions?: PiQuestion[];
   options?: { label: string; description?: string; preview?: string }[];
   placeholder?: string;
   timeout_ms?: number | null;

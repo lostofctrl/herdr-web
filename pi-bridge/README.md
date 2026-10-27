@@ -26,16 +26,22 @@ not import `lostofctrl/pi-ext` or any unpublished package.
 
 Implemented as `docs/pi-mode-protocol.md` version 1:
 
-- Bridge → client: `hello`, `state`, `catalog`, `assistant_message`, `response`.
+- Bridge → client: `hello`, `state`, `catalog`, `dialog_open`, `dialog_closed`,
+  `assistant_message`, `response`.
 - Client → bridge: `get_snapshot`, `set_model`, `set_thinking_level`,
   `list_files`, `dialog_answer`.
 - `hello.capabilities` is currently
   `{generic_dialogs: false, assistant_message: true, list_files: true, skills_catalog}`.
-  `dialog_answer` therefore answers `{accepted: false}`; Native Cards and their
-  dialog wrapping belong to the follow-up ticket.
+  `generic_dialogs` covers wrapped `ctx.ui` dialogs (follow-up ticket); question
+  dialogs are relayed from `ask_user_question` independently.
+- `ask_user_question` questionnaires are relayed through Pi's extension event bus:
+  `rpiv:ask-user:prompt` becomes `dialog_open` with the full question set (options,
+  descriptions, previews, multi-select), `dialog_answer` becomes
+  `rpiv:ask-user:answer`, and `rpiv:ask-user:blocked {active:false}` or an accepted
+  answer emits `dialog_closed`. First answer wins across phone, desktop and terminal.
 - `state.busy` is `idle`, `busy` or `dialog`. It follows `agent_start` /
   `agent_end` and `ui_prompt_start` / `ui_prompt_end`.
-- `get_snapshot` always returns `dialogs: []` in this version.
+- `get_snapshot.dialogs` lists open question dialogs.
 
 ## Pi API surface
 
@@ -55,6 +61,8 @@ Only declared Pi 1.4.0 surfaces are used. Paths are relative to
 | `pi.on("ui_prompt_start" / "ui_prompt_end")` | `state.busy = "dialog"` | `types.d.ts:1212-1213`, events at `types.d.ts:808-820` |
 | `pi.on("model_select" / "thinking_level_select")` | fresh `state` broadcast | `types.d.ts:1222-1223` |
 | `pi.on("message_end")` | `assistant_message` | `types.d.ts:1218`, event at `types.d.ts:848` |
+| `pi.on("tool_execution_start")` | full `ask_user_question` previews | `types.d.ts:1219`, event at `types.d.ts:853-859` |
+| `pi.events` (EventBus) | rpiv prompt/blocked/answer-result, answer | `types.d.ts:1406`, `core/event-bus.d.ts:1` |
 | `pi.getCommands()` | `catalog.commands` | `types.d.ts:1293`, `core/slash-commands.d.ts:3-9` |
 | `pi.setModel()` | `set_model` | `types.d.ts:1298` |
 | `pi.getThinkingLevel()` / `pi.setThinkingLevel()` | `state.thinking_level`, `set_thinking_level` | `types.d.ts:1300`, `types.d.ts:1305` |

@@ -6,6 +6,20 @@
  * It is deliberately inert outside a pane: no handlers, no socket, no timers.
  */
 import { BridgeSocketInUseError, createBridgeServer, type BridgeServer, type RecordSender } from "./server.ts";
+import {
+  ASK_USER_ANSWER_EVENT,
+  ASK_USER_ANSWER_RESULT_EVENT,
+  ASK_USER_BLOCKED_EVENT,
+  ASK_USER_PROMPT_EVENT,
+  ASK_USER_TOOL_NAME,
+  answerEntries,
+  notesFromValue,
+  questionDialog,
+  type AskUserAnswerResultPayload,
+  type AskUserBlockedPayload,
+  type AskUserPromptPayload,
+  type QuestionDialog,
+} from "./ask-user.ts";
 import { listTrackedFiles, type ExecLike } from "./files.ts";
 import { resolveSocketPath } from "./pane.ts";
 import {
@@ -46,8 +60,14 @@ export interface PiBridge {
   stop(): Promise<void>;
 }
 
+interface EventBusLike {
+  emit(channel: string, data: unknown): void;
+  on(channel: string, handler: (data: unknown) => void): () => void;
+}
+
 interface ExtensionApiLike {
   on(event: string, handler: (event: any, ctx: any) => unknown): () => void;
+  events?: EventBusLike;
   getCommands?: () => { name: string; description?: string; source: string }[];
   getThinkingLevel?: () => string;
   setModel?: (model: ModelLike) => Promise<boolean> | boolean;
@@ -70,14 +90,36 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
   let latestAssistant: string | null = null;
   let currentModel: ModelLike | null = null;
   let busy: "idle" | "busy" = "idle";
-  let dialogOpen = false;
+  let uiPromptActive = false;
   let initialized = false;
+  let answerSequence = 0;
+  const openQuestions = new Map<string, { dialog: QuestionDialog; requestId: string | null; cancel: boolean }>();
+  const previewArgs = new Map<string, unknown>();
+  const pendingVerdicts = new Map<string, AskUserAnswerResultPayload>();
+  const eventDisposers: (() => void)[] = [];
 
   function busyState(): BridgeBusy {
-    if (dialogOpen) {
+    if (openQuestions.size > 0 || uiPromptActive) {
       return "dialog";
     }
     return busy;
+  }
+
+  function openDialogs(): QuestionDialog[] {
+    return [...openQuestions.values()].map((entry) => entry.dialog);
+  }
+
+  function broadcastDialogClosed(id: string, resolution: "answered" | "cancelled" | "terminal"): void {
+    server?.broadcast({ type: "dialog_closed", id, resolution });
+  }
+
+  function closeQuestion(id: string, resolution: "answered" | "cancelled" | "terminal"): boolean {
+    if (!openQuestions.delete(id)) {
+      return false;
+    }
+    broadcastDialogClosed(id, resolution);
+    broadcastState();
+    return true;
   }
 
   function statePayload(): PiStatePayload {
@@ -124,6 +166,9 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
     if (latestAssistant !== null) {
       send({ type: "assistant_message", text: latestAssistant });
     }
+    for (const dialog of openDialogs()) {
+      send({ type: "dialog_open", dialog });
+    }
   }
 
   function broadcastState(): void {
@@ -157,7 +202,7 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
           okResponse(id, {
             state: statePayload(),
             catalog: catalog(),
-            dialogs: [],
+            dialogs: openDialogs(),
             assistant_message: latestAssistant,
           }),
         );
@@ -176,8 +221,7 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
         return;
       }
       case "dialog_answer": {
-        // Native Cards are not installed in this version (generic_dialogs:false).
-        reply(okResponse(id, { accepted: false }));
+        handleDialogAnswer(id, message as { dialog_id?: unknown; value?: unknown; cancel?: unknown }, reply);
         return;
       }
       default: {
@@ -267,6 +311,92 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
     }
   }
 
+  function handleDialogAnswer(
+    id: string,
+    request: { dialog_id?: unknown; value?: unknown; cancel?: unknown },
+    reply: RecordSender,
+  ): void {
+    const dialogId = typeof request.dialog_id === "string" ? request.dialog_id : null;
+    const entry = dialogId ? openQuestions.get(dialogId) : undefined;
+    if (!dialogId || !entry) {
+      reply(okResponse(id, { accepted: false }));
+      return;
+    }
+    const cancel = request.cancel === true;
+    const answers = cancel ? undefined : answerEntries(request.value);
+    if (!cancel && !answers) {
+      reply(errorResponse(id, "dialog_answer requires answers or cancel"));
+      return;
+    }
+    const events = pi.events;
+    if (!events) {
+      reply(errorResponse(id, "ask_user_question is not available in this Pi"));
+      return;
+    }
+    const requestId = `question-${++answerSequence}`;
+    entry.requestId = requestId;
+    entry.cancel = cancel;
+    pendingVerdicts.delete(requestId);
+    events.emit(ASK_USER_ANSWER_EVENT, {
+      toolCallId: dialogId,
+      requestId,
+      ...(cancel ? { cancel: true } : { answers }),
+      ...(!cancel && notesFromValue(request.value) ? { globalNote: notesFromValue(request.value) } : {}),
+    });
+    const verdict = pendingVerdicts.get(requestId) ?? null;
+    pendingVerdicts.delete(requestId);
+    if (!verdict) {
+      reply(errorResponse(id, "ask_user_question did not answer the request"));
+      return;
+    }
+    reply(okResponse(id, { accepted: verdict.ok === true }));
+  }
+
+  function handleQuestionPrompt(payload: AskUserPromptPayload): void {
+    const toolCallId = typeof payload.toolCallId === "string" ? payload.toolCallId : "";
+    if (!toolCallId) {
+      return;
+    }
+    const dialog = questionDialog(toolCallId, payload, previewArgs.get(toolCallId));
+    previewArgs.delete(toolCallId);
+    if (!dialog) {
+      return;
+    }
+    openQuestions.set(toolCallId, { dialog, requestId: null, cancel: false });
+    server?.broadcast({ type: "dialog_open", dialog });
+    broadcastState();
+  }
+
+  function handleQuestionBlocked(payload: AskUserBlockedPayload): void {
+    if (payload.active !== false || typeof payload.toolCallId !== "string") {
+      return;
+    }
+    closeQuestion(payload.toolCallId, "terminal");
+  }
+
+  function handleAnswerResult(payload: AskUserAnswerResultPayload): void {
+    if (typeof payload.requestId !== "string") {
+      return;
+    }
+    pendingVerdicts.set(payload.requestId, payload);
+    if (payload.ok !== true || typeof payload.toolCallId !== "string") {
+      return;
+    }
+    const entry = openQuestions.get(payload.toolCallId);
+    if (!entry || entry.requestId !== payload.requestId) {
+      return;
+    }
+    closeQuestion(payload.toolCallId, entry.cancel ? "cancelled" : "answered");
+  }
+
+  function bindEvent(channel: string, handler: (payload: any) => void): void {
+    const events = pi.events;
+    if (!events) {
+      return;
+    }
+    eventDisposers.push(events.on(channel, handler));
+  }
+
   function bind(event: string, handler: (event: any, ctx: ContextLike) => unknown): void {
     pi.on(event, async (payload, ctx) => {
       context = ctx;
@@ -308,7 +438,13 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
 
   bind("session_start", async (_event, ctx) => {
     busy = "idle";
-    dialogOpen = false;
+    uiPromptActive = false;
+    for (const id of openQuestions.keys()) {
+      broadcastDialogClosed(id, "terminal");
+    }
+    openQuestions.clear();
+    previewArgs.clear();
+    pendingVerdicts.clear();
     currentModel = ctx.model ?? null;
     latestAssistant = latestAssistantFromEntries(ctx.sessionManager?.getEntries?.() ?? []);
     await ensureServer();
@@ -334,13 +470,37 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
   });
 
   bind("ui_prompt_start", () => {
-    dialogOpen = true;
+    uiPromptActive = true;
     broadcastState();
   });
 
   bind("ui_prompt_end", () => {
-    dialogOpen = false;
+    uiPromptActive = false;
     broadcastState();
+  });
+
+  bind("tool_execution_start", (event) => {
+    if (event?.toolName !== ASK_USER_TOOL_NAME || typeof event.toolCallId !== "string") {
+      return;
+    }
+    previewArgs.set(event.toolCallId, event.args);
+    while (previewArgs.size > 32) {
+      const oldest = previewArgs.keys().next().value;
+      if (typeof oldest !== "string") {
+        break;
+      }
+      previewArgs.delete(oldest);
+    }
+  });
+
+  bindEvent(ASK_USER_PROMPT_EVENT, (payload) => {
+    handleQuestionPrompt((payload ?? {}) as AskUserPromptPayload);
+  });
+  bindEvent(ASK_USER_BLOCKED_EVENT, (payload) => {
+    handleQuestionBlocked((payload ?? {}) as AskUserBlockedPayload);
+  });
+  bindEvent(ASK_USER_ANSWER_RESULT_EVENT, (payload) => {
+    handleAnswerResult((payload ?? {}) as AskUserAnswerResultPayload);
   });
 
   bind("model_select", (event) => {
@@ -366,6 +526,9 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
     socketPath,
     isRunning: () => Boolean(initialized && server?.isRunning()),
     stop: async () => {
+      for (const dispose of eventDisposers.splice(0)) {
+        dispose();
+      }
       await stopServer();
     },
   };

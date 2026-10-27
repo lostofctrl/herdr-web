@@ -27,6 +27,7 @@ import type { MobileTerminalChordKey } from "./mobileTerminalControls";
 import { MobileTerminalKeyButton } from "./MobileTerminalKeyButton";
 import { ConfirmDialog } from "./overlays";
 import { PiComposer } from "./pi-mode/PiComposer";
+import { PiQuestionCards } from "./pi/cards/PiQuestionCard";
 import { isPiPane } from "./pi-mode/piPane";
 import { PiBridgeProvider } from "./pi/PiBridgeContext";
 import { PiKeyBar } from "./pi/keybar/PiKeyBar";
@@ -1482,6 +1483,7 @@ export function TerminalView({
           <Paperclip size={16} />
         </button>
       ) : null}
+      {pane && piPane ? <PiQuestionCards paneId={pane.pane_id} /> : null}
       {showCommandControls && pane && piPane ? (
         <PiKeyBar
           key={JSON.stringify(["keybar", bridgeId, pane.pane_id])}

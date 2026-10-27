@@ -37,7 +37,9 @@ Every message is an object with a `type`.
 
 `capabilities` is an object of booleans: `generic_dialogs`, `assistant_message`,
 `list_files`, `skills_catalog`. A client hides a feature whose capability is `false` or
-absent.
+absent. `generic_dialogs` covers wrapped `ctx.ui` dialogs only (ADR 0002); a
+`dialog_open` with `kind: "question"` is delivered whenever the installed
+`ask_user_question` extension emits its prompt, regardless of that capability.
 
 `state.busy` is one of `idle`, `busy`, `dialog`. `state.model` is
 `{provider, id}` or `null`; `models` is an array of `{provider, id, label}`. `thinking_level`
@@ -51,17 +53,21 @@ read from a supported Pi API; clients then show commands only.
 `dialog` is one of:
 
 ```json
-{"id":"d1","kind":"question","questions":[...],"timeout_ms":null}
+{"id":"d1","kind":"question","timeout_ms":null,"questions":[{"question":"Which layout?","header":"Layout","multiSelect":false,"options":[{"label":"Stack","description":"One column","preview":"<optional markdown>"}]}]}
 {"id":"d1","kind":"select","title":"Pick","message":"","options":[{"label":"a","description":"","preview":""}],"timeout_ms":null}
 {"id":"d1","kind":"confirm","title":"Continue?","message":"...","timeout_ms":null}
 {"id":"d1","kind":"input","title":"Name","placeholder":"...","timeout_ms":null}
 ```
 
 `questions` for `ask_user_question` uses Pi's question shape and carries every option,
-description, preview and multi-select flag the tool provides. `timeout_ms` is the Pi-owned
-timeout when the dialog has one; clients render a countdown but never enforce it.
+description, preview and multi-select flag the tool provides. `preview` is `""` when the
+option has none. `timeout_ms` is the Pi-owned timeout when the dialog has one; clients
+render a countdown but never enforce it.
 
 `dialog_closed.resolution` is one of `answered`, `cancelled`, `timeout`, `terminal`.
+`answered` and `cancelled` mean the Pi Bridge relayed the winning answer or decline;
+`terminal` means the questionnaire settled inside Pi's own dialog (an answer or Esc).
+`timeout` is reserved for Pi-owned generic dialogs.
 
 ## Messages: client to Pi Bridge
 
@@ -75,13 +81,35 @@ Every request carries a client-chosen `id` (string), echoed on its `response`.
 | `set_thinking_level` | `id`, `level` |
 | `list_files` | `id`, `query`, `limit` |
 
-`get_snapshot` responds with `{state, catalog, dialogs, assistant_message}` in `result`.
+`get_snapshot` responds with `{state, catalog, dialogs, assistant_message}` in `result`;
+`dialogs` lists every open question dialog so a reconnecting client can render it again.
 `dialog_answer` responds with `{accepted}`; answering an already settled dialog is
-`ok: true` with `accepted: false` because another surface won the race. `list_files`
+`ok: true` with `accepted: false` because another surface won the race. For a question
+dialog, `value` is `{answers:[{questionIndex, optionIndexes?, text?}], globalNote?}` with
+every question answered exactly once, or `cancel: true` to decline like Esc. `list_files`
 answers from tracked files in Pi's `cwd`, filters by `query`, and caps at `limit`, which the
 client limits to 200 (default 50). Its `result` is `{files: [{path}]}`.
 
 `set_model` and `set_thinking_level` change Pi and cause a fresh `state` broadcast.
+
+## `ask_user_question` relay
+
+The Pi Bridge listens on Pi's shared extension event bus (`pi.events`) for the
+`@juicesharp/rpiv-ask-user-question` contract:
+
+| rpiv channel | Direction | Bridge use |
+| --- | --- | --- |
+| `rpiv:ask-user:prompt` | subscribe | build `dialog_open` (`kind: "question"`), `id` = `toolCallId` |
+| `rpiv:ask-user:blocked` | subscribe | `{active:false}` for that `toolCallId` emits `dialog_closed` with `terminal` |
+| `rpiv:ask-user:answer` | emit | relay a `dialog_answer` as `{toolCallId, requestId, answers}` or `{cancel:true}` |
+| `rpiv:ask-user:answer-result` | subscribe | correlate the verdict by `requestId`; `ok:false` means the terminal won and the request answers `accepted:false` |
+
+The prompt payload deliberately ships only `hasPreview` and not the preview text
+(`@juicesharp/rpiv-ask-user-question/events.ts`). The bridge fills `preview` from the
+matching `ask_user_question` tool arguments captured on Pi's `tool_execution_start`
+event (`dist/core/extensions/types.d.ts:853-859`). Answer validation stays with the
+extension: it accepts only a complete, in-range answer set, so a malformed
+`dialog_answer` gets `accepted:false` and the card stays open.
 
 ## Rules both sides rely on
 
