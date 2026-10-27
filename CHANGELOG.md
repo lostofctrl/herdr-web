@@ -6,6 +6,16 @@
 
 ### Added
 
+- Pi mode: panes running Pi get a native Composer, a Key Bar and live Pi State instead of
+  typing shortcuts into the terminal. A new in-repo `pi-bridge` package publishes Pi State,
+  the command and skill catalog, dialogs and the assistant's last answer on a per-pane Unix
+  socket, and the bridge relays that socket to the browser over `/ws/pi`, so the phone sees
+  what Pi is doing and can answer it.
+- Pi mode: a native Composer that sends the whole prompt as one bracketed paste followed by a
+  separate Enter, so Pi decides between prompt, steer, follow-up, `/command` and `!bash`.
+  The draft survives pane switches and reloads.
+- Pi mode: a Reader Sheet that opens the last assistant answer from the Pull-up Sheet, with
+  copy and Close actions.
 - Pi mode: Attachment Chips above the Composer, with gallery/camera input and paste or
   drag-drop images. Sending uploads each image through the existing upload endpoint, waits
   for the uploads, then pastes the uploaded paths ahead of the draft in chip order. Chips
