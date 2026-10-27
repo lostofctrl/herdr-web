@@ -6,6 +6,11 @@
 
 ### Added
 
+- Pi mode: a collapsible Side Panel for the selected Pi Pane with model and thinking pickers,
+  a searchable command and skill browser that inserts `/name` and `/skill:name` triggers into
+  the persistent Composer draft, and quick actions for abort, compact, new session and resume.
+  The panel shows Bridge Offline and hides bridge-only controls while the Composer and Key Bar
+  stay usable.
 - Pi mode: panes running Pi get a native Composer, a Key Bar and live Pi State instead of
   typing shortcuts into the terminal. A new in-repo `pi-bridge` package publishes Pi State,
   the command and skill catalog, dialogs and the assistant's last answer on a per-pane Unix

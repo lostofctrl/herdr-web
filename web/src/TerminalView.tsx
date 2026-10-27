@@ -28,6 +28,7 @@ import { MobileTerminalKeyButton } from "./MobileTerminalKeyButton";
 import { ConfirmDialog } from "./overlays";
 import { PiComposer } from "./pi-mode/PiComposer";
 import { PiQuestionCards } from "./pi/cards/PiQuestionCard";
+import { PiSidePanel } from "./pi/sidepanel/PiSidePanel";
 import { isPiPane } from "./pi-mode/piPane";
 import { PiBridgeProvider } from "./pi/PiBridgeContext";
 import { PiKeyBar } from "./pi/keybar/PiKeyBar";
@@ -1439,7 +1440,20 @@ export function TerminalView({
       onDropCapture={handleDrop}
       onPasteCapture={handlePaste}
     >
-      <div ref={hostRef} className="terminal-host" />
+      {piPane ? (
+        <div className="pi-terminal-workspace">
+          <div ref={hostRef} className="terminal-host" />
+          {pane && selected ? (
+            <PiSidePanel
+              key={JSON.stringify([bridgeId, pane.pane_id])}
+              bridgeId={bridgeId}
+              paneId={pane.pane_id}
+              disabled={connectionState !== "attached"}
+              onSend={enqueueTerminalInput}
+            />
+          ) : null}
+        </div>
+      ) : <div ref={hostRef} className="terminal-host" />}
       {pane && terminalScreenReaderText ? (
         <div
           className="terminal-accessible-screen sr-only"
