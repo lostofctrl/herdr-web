@@ -18,6 +18,11 @@
   skills with descriptions, `@` searches tracked files after a 200 ms debounce, and
   dedicated `/` and `@` buttons open the same popup. Picking a row inserts it at the cursor,
   keeps the rest of the draft, and the popup hides when the Pi Bridge is offline.
+- Pi mode: Native Cards for `ask_user_question`. A questionnaire opened by Pi appears as a
+  touch card with single or multi-select options, option previews and free text, and an
+  answer from the phone settles the same dialog the terminal is showing — first answer wins,
+  and the cards disappear when the dialog closes anywhere. Question dialogs are also
+  included in a reconnecting client's snapshot.
 
 ### Changed
 
