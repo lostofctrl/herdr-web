@@ -1,0 +1,21 @@
+{
+  "name": "@herdr-web/pi-bridge",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Pi extension that publishes Pi State and accepts actions over a per-pane Unix socket.",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./protocol": "./src/protocol.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}

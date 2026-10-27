@@ -12,3 +12,6 @@
 *.log
 *.swp
 .DS_Store
+
+# Pi Bridge package (self-contained, no runtime deps)
+/pi-bridge/node_modules/
