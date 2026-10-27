@@ -1,6 +1,7 @@
 import ReactMarkdown from "react-markdown";
-import type { UrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+import { safeMarkdownUrl } from "./markdown";
 
 export type NoteMarkdownPreviewProps = {
   body: string;
@@ -32,15 +33,3 @@ export default function NoteMarkdownPreview({ body }: NoteMarkdownPreviewProps) 
     </ReactMarkdown>
   );
 }
-
-const safeMarkdownUrl: UrlTransform = (url, key) => {
-  if (key !== "href") {
-    return null;
-  }
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : null;
-  } catch {
-    return null;
-  }
-};

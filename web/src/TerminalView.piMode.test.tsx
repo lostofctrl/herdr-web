@@ -37,10 +37,12 @@ class TestSocket extends EventTarget {
   static OPEN = 1;
   static instances: TestSocket[] = [];
   readyState = 1;
+  readonly url: string;
   send = vi.fn();
   close = vi.fn();
-  constructor() {
+  constructor(url = "") {
     super();
+    this.url = url;
     TestSocket.instances.push(this);
   }
 }
@@ -694,5 +696,139 @@ describe("TerminalView Pi Composer Screenshot Editor (Seam 3)", () => {
 
     await act(async () => pending[0].resolve());
     await flushAsync();
+  });
+});
+
+describe("TerminalView Reader Sheet (Seam 3)", () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+
+  beforeEach(() => {
+    writeText.mockClear();
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "clipboard");
+  });
+
+  function piSocket() {
+    const current = TestSocket.instances.find((socket) => "url" in socket && String(socket.url).startsWith("/ws/pi"));
+    if (!current) {
+      throw new Error("Expected a Pi bridge WebSocket");
+    }
+    return current;
+  }
+
+  async function sendPi(current: TestSocket, record: Record<string, unknown>) {
+    await act(async () => {
+      current.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(record) }));
+    });
+  }
+
+  async function openPi(current: TestSocket) {
+    await act(async () => current.dispatchEvent(new Event("open")));
+  }
+
+  function snapshotId(current: TestSocket) {
+    const frame = current.send.mock.calls
+      .map(([data]) => JSON.parse(data as string) as Record<string, unknown>)
+      .find((record) => record.type === "get_snapshot");
+    if (!frame) {
+      throw new Error("Expected a get_snapshot frame");
+    }
+    return frame.id as string;
+  }
+
+  async function closePi(current: TestSocket, code: number) {
+    await act(async () => {
+      const event = new Event("close") as CloseEvent;
+      Object.defineProperty(event, "code", { value: code });
+      Object.defineProperty(event, "reason", { value: "" });
+      current.dispatchEvent(event);
+    });
+  }
+
+  async function snapshotWith(message: string | null) {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    const pi = piSocket();
+    await openPi(pi);
+    await sendPi(pi, {
+      type: "response",
+      id: snapshotId(pi),
+      ok: true,
+      result: {
+        state: {
+          busy: "idle",
+          model: null,
+          thinking_level: "off",
+          models: [],
+          thinking_levels: ["off"],
+          cwd: "/repo",
+        },
+        catalog: { commands: [], skills: [] },
+        dialogs: [],
+        assistant_message: message,
+      },
+    });
+    return { container, pi };
+  }
+
+  it("shows the snapshot message as formatted Markdown and updates on a new message", async () => {
+    const { container } = await snapshotWith(
+      "# First answer\n\nRead **this** carefully.\n\n```ts\nconst answer = 42;\n```",
+    );
+
+    await clickButton(container, "Open Reader Sheet");
+    expect(container.querySelector(".reader-markdown h1")?.textContent).toBe("First answer");
+    expect(container.querySelector(".reader-markdown strong")?.textContent).toBe("this");
+    expect(container.querySelector(".reader-markdown pre code")?.textContent).toContain(
+      "const answer = 42;",
+    );
+
+    const pi = piSocket();
+    await sendPi(pi, { type: "assistant_message", text: "## Updated answer\n\nNew body." });
+
+    expect(container.querySelector(".reader-markdown h2")?.textContent).toBe("Updated answer");
+    expect(container.querySelector(".reader-markdown p")?.textContent).toBe("New body.");
+    expect(container.querySelector(".reader-markdown h1")).toBeNull();
+  });
+
+  it("copies one code block from the sheet", async () => {
+    const { container } = await snapshotWith(
+      "Use this:\n\n```sh\nnpm --prefix web test\n```\n",
+    );
+
+    await clickButton(container, "Open Reader Sheet");
+    const copy = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Copy code block"]',
+    );
+    expect(copy).not.toBeNull();
+    await act(async () => copy?.click());
+
+    expect(writeText).toHaveBeenCalledWith("npm --prefix web test");
+  });
+
+  it("hides the Reader Sheet when the Pi Bridge goes offline", async () => {
+    const { container } = await snapshotWith("Latest answer");
+    expect(container.querySelector('[aria-label="Open Reader Sheet"]')).not.toBeNull();
+
+    await clickButton(container, "Open Reader Sheet");
+    expect(container.querySelector(".reader-sheet")).not.toBeNull();
+
+    await closePi(piSocket(), 4500);
+
+    expect(container.querySelector(".reader-sheet")).toBeNull();
+    expect(container.querySelector('[aria-label="Open Reader Sheet"]')).toBeNull();
+  });
+
+  it("does not offer the Reader Sheet on a non-Pi pane", async () => {
+    const { pane, paneId } = testPane(PANE_A, { agent: "claude" });
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    await openSocket();
+    expect(container.querySelector('[aria-label="Open Reader Sheet"]')).toBeNull();
   });
 });

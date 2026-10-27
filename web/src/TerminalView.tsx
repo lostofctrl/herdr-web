@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ChangeEvent, ClipboardEvent, DragEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, RefObject } from "react";
+import { copyToClipboard } from "./clipboard";
 import { autosizeMobileCommandTextarea } from "./mobileCommandTextarea";
 import {
   encodeMobileTerminalChord,
@@ -28,6 +29,7 @@ import { ConfirmDialog } from "./overlays";
 import { PiComposer } from "./pi-mode/PiComposer";
 import { isPiPane } from "./pi-mode/piPane";
 import { PiBridgeProvider } from "./pi/PiBridgeContext";
+import { ReaderSheet } from "./pi/reader/ReaderSheet";
 import { addNativeResumeHandler } from "./native";
 import { shellQuote } from "./shell";
 import {
@@ -1516,6 +1518,7 @@ export function TerminalView({
           onSubmitCommand={(command) => enqueueTerminalInput([command, "\r"])}
         />
       ) : null}
+      {pane && piPane ? <ReaderSheet paneId={pane.pane_id} /> : null}
       {mobileSelectionAction ? (
         <MobileSelectionActions
           action={mobileSelectionAction}
@@ -2149,28 +2152,6 @@ function terminalSocketUrl(
     params.set("output_encoding", "gzip");
   }
   return wsUrl("/ws/terminal", params);
-}
-
-async function copyToClipboard(text: string) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "fixed";
-  textarea.style.left = "-10000px";
-  textarea.style.top = "0";
-  document.body.appendChild(textarea);
-  textarea.select();
-  try {
-    if (!document.execCommand("copy")) {
-      throw new Error("execCommand copy failed");
-    }
-  } finally {
-    textarea.remove();
-  }
 }
 
 function uploadCandidatesFromFileList(files: FileList | null): UploadCandidate[] {
