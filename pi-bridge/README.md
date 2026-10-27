@@ -9,6 +9,18 @@ The wire contract is [`docs/pi-mode-protocol.md`](../../docs/pi-mode-protocol.md
 (version 1). This package is self-contained: it has no npm dependencies and does
 not import `lostofctrl/pi-ext` or any unpublished package.
 
+## Install it in Pi
+
+Pi loads a directory extension from its `index.ts`, so no build step is needed:
+
+- One session, for a quick try: `pi --extension /path/to/herdr-web/pi-bridge/src/index.ts`
+- Every session: copy or link `pi-bridge/` (the whole directory, not only `src/`) into
+  `~/.pi/agent/extensions/pi-bridge`, or add an explicit `"extensions"` path entry in
+  `~/.pi/agent/settings.json`. See Pi's `docs/extensions.md` for the conventional locations.
+
+Reload Pi after installing. The package is inert until it sees `HERDR_PANE_ID`, so a normal
+Pi outside Herdr behaves exactly as before: no socket, no events, no extra output.
+
 ## Activation and socket
 
 - Activates only when `HERDR_PANE_ID` is set (verified with Herdr 0.9.3).
