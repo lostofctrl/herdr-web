@@ -24,6 +24,9 @@ navigation, multi-client viewing, mobile input controls, and synchronized pane s
 - Mobile-friendly text input with stage/send actions, configurable tap focus, and extended
   terminal key controls.
 - Agent-focused sidebar with styled icons for detected Codex/OpenAI, Claude, Pi, Grok, and OpenCode panes.
+- Pi mode for panes running Pi: live Pi State, a native Composer, a Key Bar that follows Pi's
+  state, command and file suggestions, Attachment Chips with a Screenshot Editor, Native Cards
+  for Pi dialogs and `ask_user_question`, and a Reader Sheet for the last answer.
 - Image and file uploads from the terminal toolbar, paste, or drag/drop, with uploaded paths inserted
   into the active terminal input.
 - Context menus for renaming, closing, splitting, and moving panes between tabs or spaces.
@@ -48,6 +51,7 @@ navigation, multi-client viewing, mobile input controls, and synchronized pane s
 web/                 React + Vite browser app
 android/             Capacitor Android shell for the bundled web app
 bridge/              Slim Rust HTTP/WebSocket bridge executable
+pi-bridge/           Pi-side package that publishes Pi State on a per-pane Unix socket
 vendor/herdr-compat/ minimal Herdr protocol/API compatibility crate
 scripts/run-bridge.sh
 scripts/check-vendor.sh
@@ -165,6 +169,7 @@ npm run build:web
 npm run bridge:fmt
 npm run bridge:test
 npm run bridge:build
+npm run pi-bridge:test
 npm run android:sync
 npm run android:build:debug
 scripts/package-tarball.sh vX.Y.Z linux-x86_64
@@ -177,6 +182,19 @@ The Android app is a Capacitor shell around the bundled `web/dist` assets. It st
 and uses the Bridge area in Settings to save one or more Herdr bridge URLs. Browser-served builds
 still default to the same-origin bridge that served the page. See [docs/android.md](docs/android.md)
 for HTTP/cleartext behavior, Android SDK setup, and APK verification notes.
+
+## Pi Mode
+
+Pi mode turns a pane running Pi into a native surface. It needs two local pieces:
+
+- `pi-bridge/` runs inside the Pi process for that pane (`npm --prefix pi-bridge test` covers it).
+  It publishes Pi State, the command and skill catalog, dialogs and the last assistant answer as
+  JSONL records on `$XDG_RUNTIME_DIR/pi-bridge/<HERDR_PANE_ID>.sock`, with a `/tmp` fallback.
+- The Rust bridge relays that socket to the browser at `/ws/pi?pane_id=...`, one WebSocket text
+  frame per record, and refuses panes that are not in its allowlist.
+
+`docs/pi-mode-protocol.md` is the v1 contract and `docs/adr/0001-*.md`, `docs/adr/0002-*.md` record
+the architecture decisions. The web side lives in `web/src/pi/` and `web/src/pi-mode/`.
 
 ## Settings
 
