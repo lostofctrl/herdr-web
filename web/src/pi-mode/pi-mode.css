@@ -1,0 +1,39 @@
+.pi-composer-row {
+  align-items: flex-end;
+}
+
+.pi-composer-input {
+  min-height: 40px;
+  max-height: 40vh;
+  resize: none;
+}
+
+.pi-composer .pi-composer-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  align-self: stretch;
+  width: auto;
+  min-width: 56px;
+  padding: 0 14px;
+  font-weight: 600;
+}
+
+.pi-composer[data-mobile-controls="true"] .pi-composer-send {
+  min-width: 104px;
+  min-height: 44px;
+  font-size: 15px;
+}
+
+.pi-composer .pi-composer-send-label {
+  white-space: nowrap;
+}
+
+.pi-composer .pi-composer-open {
+  margin-left: auto;
+}
+
+.pi-composer .pi-composer-close {
+  align-self: stretch;
+}

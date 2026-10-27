@@ -25,6 +25,8 @@ import {
 import type { MobileTerminalChordKey } from "./mobileTerminalControls";
 import { MobileTerminalKeyButton } from "./MobileTerminalKeyButton";
 import { ConfirmDialog } from "./overlays";
+import { PiComposer } from "./pi-mode/PiComposer";
+import { isPiPane } from "./pi-mode/piPane";
 import { addNativeResumeHandler } from "./native";
 import { shellQuote } from "./shell";
 import {
@@ -204,6 +206,7 @@ export function TerminalView({
   const stageRef = useRef<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mobileCommandInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const piComposerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const rendererRef = useRef<TerminalRenderer | null>(null);
   const rendererGenerationRef = useRef(0);
   const rendererReadyRef = useRef<TerminalRendererReady | null>(null);
@@ -263,6 +266,11 @@ export function TerminalView({
   terminalIdRef.current = pane?.terminal_id ?? null;
 
   const focusCommandInput = useCallback(() => {
+    const piInput = piComposerInputRef.current;
+    if (piInput) {
+      piInput.focus();
+      return true;
+    }
     if (!mobileControlsRef.current && !desktopCommandComposerRef.current) {
       return false;
     }
@@ -1386,7 +1394,8 @@ export function TerminalView({
     return true;
   };
 
-  const showCommandControls = mobileControls || desktopCommandComposer;
+  const piPane = isPiPane(pane);
+  const showCommandControls = mobileControls || desktopCommandComposer || piPane;
 
   return (
     <section
@@ -1446,7 +1455,22 @@ export function TerminalView({
           <Paperclip size={16} />
         </button>
       ) : null}
-      {showCommandControls && pane ? (
+      {showCommandControls && pane && piPane ? (
+        <PiComposer
+          key={JSON.stringify([bridgeId, pane.pane_id])}
+          bridgeId={bridgeId}
+          paneId={pane.pane_id}
+          mobile={mobileControls}
+          active={selected || pane.focused}
+          disabled={connectionState !== "attached"}
+          inputRef={piComposerInputRef}
+          focusToken={focusToken}
+          onSend={(parts) => enqueueTerminalInput(parts)}
+          onTerminalFocus={() => rendererRef.current?.focusTextInput()}
+          onControlsHeightChange={setCommandControlsHeight}
+        />
+      ) : null}
+      {showCommandControls && pane && !piPane ? (
         <TerminalCommandControls
           key={JSON.stringify([bridgeId, pane.pane_id])}
           bridgeId={bridgeId}
