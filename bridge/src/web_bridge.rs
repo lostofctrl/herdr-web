@@ -10,7 +10,7 @@ use std::thread;
 use std::time::Duration;
 
 use axum::body::Bytes;
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{DefaultBodyLimit, Path as AxumPath, Query, State};
 use axum::http::header::{
     ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN,
@@ -26,6 +26,8 @@ use flate2::Compression;
 use futures_util::{Sink, SinkExt, StreamExt};
 use herdr_compat::TryClone as _;
 use serde::{Deserialize, Serialize};
+#[cfg(unix)]
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::time::Instant;
 use tower::ServiceBuilder;
 use tower_http::compression::CompressionLayer;
@@ -68,6 +70,11 @@ const MIN_HERDR_VERSION_LABEL: &str = "0.9.0";
 const MAX_UPLOAD_BYTES: usize = 25 * 1024 * 1024;
 const MAX_NOTES_REQUEST_BYTES: usize = 512 * 1024;
 const MAX_TERMINAL_INPUT_CHUNK_BYTES: usize = 768 * 1024;
+const PI_MAX_RECORD_BYTES: usize = 1024 * 1024;
+const PI_CLOSE_BRIDGE_OFFLINE: u16 = 4500;
+const PI_CLOSE_UNKNOWN_PANE: u16 = 4501;
+const PI_CLOSE_RECORD_TOO_LARGE: u16 = 4502;
+const PI_CLOSE_RELAY_ERROR: u16 = 1011;
 const MAX_QUEUED_TERMINAL_INPUT_BYTES: usize = 8 * 1024 * 1024;
 const TERMINAL_DETACH_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_TERMINAL_DETACH_DRAIN_WAITS: usize = 4;
@@ -210,6 +217,11 @@ struct TerminalQuery {
     output_encoding: Option<TerminalOutputWireEncoding>,
     #[serde(default)]
     takeover: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct PiRelayQuery {
+    pane_id: String,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -1116,6 +1128,7 @@ async fn run_server(options: BridgeOptions) -> io::Result<()> {
         .route("/ws/activity", get(activity_ws_handler))
         .route("/ws/ui-events", get(ui_events_ws_handler))
         .route("/ws/terminal", get(terminal_ws_handler))
+        .route("/ws/pi", get(pi_ws_handler))
         .fallback_service(
             ServiceBuilder::new()
                 .layer(middleware::from_fn(add_static_cache_headers))
@@ -3261,6 +3274,36 @@ fn observe_agent_activity_snapshot(state: &BridgeState, panes: &[PaneInfo]) {
     }
 }
 
+#[cfg(unix)]
+fn pi_bridge_socket_dir() -> PathBuf {
+    let runtime_dir = env::var_os("XDG_RUNTIME_DIR")
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from);
+    match runtime_dir {
+        Some(dir) => dir.join("pi-bridge"),
+        None => {
+            let uid = unsafe { libc::getuid() };
+            env::temp_dir().join(format!("pi-bridge-{uid}"))
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn pi_bridge_socket_dir() -> PathBuf {
+    env::temp_dir().join("pi-bridge")
+}
+
+fn pi_socket_path(pane_id: &str) -> Option<PathBuf> {
+    if pane_id.is_empty()
+        || pane_id.contains('/')
+        || pane_id.contains('\\')
+        || pane_id.contains("..")
+    {
+        return None;
+    }
+    Some(pi_bridge_socket_dir().join(format!("{pane_id}.sock")))
+}
+
 fn current_panes(api: &ApiClient) -> Result<Vec<PaneInfo>, BridgeError> {
     match api_request(
         api,
@@ -3299,6 +3342,206 @@ fn api_request(api: &ApiClient, id: &str, method: Method) -> Result<ResponseResu
             method,
         })?
         .result)
+}
+
+async fn pi_ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<BridgeState>,
+    Query(query): Query<PiRelayQuery>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(err) = ensure_allowed_request(&headers, &state.request_policy) {
+        return err.into_response();
+    }
+    ws.on_upgrade(move |socket| handle_pi_socket(socket, state, query))
+        .into_response()
+}
+
+async fn close_pi_socket<S>(
+    ws_sender: &mut S,
+    code: u16,
+    reason: &'static str,
+) -> bool
+where
+    S: Sink<Message> + Unpin,
+{
+    send_websocket_message(
+        ws_sender,
+        Message::Close(Some(CloseFrame {
+            code,
+            reason: reason.into(),
+        })),
+        "pi",
+    )
+    .await
+    .is_ok()
+}
+
+async fn pi_pane_exists(state: &BridgeState, pane_id: &str) -> Result<bool, BridgeError> {
+    let pane_id = pane_id.to_string();
+    run_store_task(state.clone(), move |state| {
+        Ok(current_panes(&state.api)?
+            .iter()
+            .any(|pane| pane.pane_id == pane_id))
+    })
+    .await
+}
+
+#[cfg(unix)]
+enum PiRecordError {
+    TooLarge,
+    Io(io::Error),
+}
+
+#[cfg(unix)]
+async fn read_pi_record<R>(reader: &mut R) -> Result<Option<Vec<u8>>, PiRecordError>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    let mut record = Vec::new();
+    loop {
+        let available = reader.fill_buf().await.map_err(PiRecordError::Io)?;
+        if available.is_empty() {
+            return if record.is_empty() {
+                Ok(None)
+            } else {
+                Err(PiRecordError::Io(io::Error::new(
+                    ErrorKind::UnexpectedEof,
+                    "incomplete Pi Bridge record",
+                )))
+            };
+        }
+        if let Some(index) = available.iter().position(|byte| *byte == b'\n') {
+            if record.len() + index > PI_MAX_RECORD_BYTES {
+                return Err(PiRecordError::TooLarge);
+            }
+            record.extend_from_slice(&available[..index]);
+            reader.consume(index + 1);
+            return Ok(Some(record));
+        }
+        if record.len() + available.len() > PI_MAX_RECORD_BYTES {
+            return Err(PiRecordError::TooLarge);
+        }
+        let len = available.len();
+        record.extend_from_slice(available);
+        reader.consume(len);
+    }
+}
+
+#[cfg(unix)]
+async fn relay_pi_socket(socket: WebSocket, stream: tokio::net::UnixStream) {
+    let (read_half, mut write_half) = stream.into_split();
+    let mut reader = tokio::io::BufReader::new(read_half);
+    let (mut ws_sender, mut ws_receiver) = socket.split();
+    let mut close: Option<(u16, &'static str)> = None;
+
+    loop {
+        tokio::select! {
+            record = read_pi_record(&mut reader) => {
+                match record {
+                    Ok(Some(bytes)) => {
+                        let Ok(text) = String::from_utf8(bytes) else {
+                            close = Some((PI_CLOSE_RELAY_ERROR, "relay_error"));
+                            break;
+                        };
+                        if send_websocket_message(
+                            &mut ws_sender,
+                            Message::Text(text.into()),
+                            "pi",
+                        )
+                        .await
+                        .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Ok(None) => {
+                        close = Some((1000, "bridge_closed"));
+                        break;
+                    }
+                    Err(PiRecordError::TooLarge) => {
+                        close = Some((PI_CLOSE_RECORD_TOO_LARGE, "record_too_large"));
+                        break;
+                    }
+                    Err(PiRecordError::Io(err)) => {
+                        warn!(error = %err, "pi relay socket read failed");
+                        close = Some((PI_CLOSE_RELAY_ERROR, "relay_error"));
+                        break;
+                    }
+                }
+            }
+            message = ws_receiver.next() => {
+                match message {
+                    Some(Ok(Message::Text(text))) => {
+                        if text.len() > PI_MAX_RECORD_BYTES {
+                            close = Some((PI_CLOSE_RECORD_TOO_LARGE, "record_too_large"));
+                            break;
+                        }
+                        let write = async {
+                            write_half.write_all(text.as_bytes()).await?;
+                            write_half.write_all(b"\n").await
+                        };
+                        if let Err(err) = write.await {
+                            warn!(error = %err, "pi relay socket write failed");
+                            close = Some((PI_CLOSE_RELAY_ERROR, "relay_error"));
+                            break;
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    if let Some((code, reason)) = close {
+        let _ = close_pi_socket(&mut ws_sender, code, reason).await;
+    }
+}
+
+#[cfg(unix)]
+async fn handle_pi_socket(mut socket: WebSocket, state: BridgeState, query: PiRelayQuery) {
+    let pane_id = query.pane_id.trim().to_string();
+    let Some(path) = pi_socket_path(&pane_id) else {
+        let _ = close_pi_socket(&mut socket, PI_CLOSE_UNKNOWN_PANE, "unknown_pane").await;
+        return;
+    };
+    match pi_pane_exists(&state, &pane_id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            let _ = close_pi_socket(&mut socket, PI_CLOSE_UNKNOWN_PANE, "unknown_pane").await;
+            return;
+        }
+        Err(err) => {
+            warn!(error = %err, pane_id = %pane_id, "pi relay pane lookup failed");
+            let _ = close_pi_socket(&mut socket, PI_CLOSE_RELAY_ERROR, "relay_error").await;
+            return;
+        }
+    }
+    let stream = match tokio::net::UnixStream::connect(&path).await {
+        Ok(stream) => stream,
+        Err(err)
+            if matches!(
+                err.kind(),
+                ErrorKind::NotFound | ErrorKind::ConnectionRefused | ErrorKind::PermissionDenied
+            ) =>
+        {
+            debug!(error = %err, pane_id = %pane_id, "pi bridge offline");
+            let _ = close_pi_socket(&mut socket, PI_CLOSE_BRIDGE_OFFLINE, "bridge_offline").await;
+            return;
+        }
+        Err(err) => {
+            warn!(error = %err, pane_id = %pane_id, "pi relay connect failed");
+            let _ = close_pi_socket(&mut socket, PI_CLOSE_RELAY_ERROR, "relay_error").await;
+            return;
+        }
+    };
+    relay_pi_socket(socket, stream).await;
+}
+
+#[cfg(not(unix))]
+async fn handle_pi_socket(mut socket: WebSocket, _state: BridgeState, _query: PiRelayQuery) {
+    let _ = close_pi_socket(&mut socket, PI_CLOSE_BRIDGE_OFFLINE, "bridge_offline").await;
 }
 
 async fn terminal_ws_handler(
@@ -7425,3 +7668,326 @@ mod tests {
 
 #[cfg(all(test, unix))]
 mod subscription_tests;
+
+#[cfg(all(test, unix))]
+mod pi_relay_tests {
+    use super::tests::test_pane;
+    use super::*;
+    use std::io::{BufRead, BufReader, Read};
+    use std::os::unix::net::UnixListener;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::OnceLock;
+    use tokio_tungstenite::tungstenite::Message as WsMessage;
+
+    type TestWebSocket =
+        tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+    fn pi_test_runtime_dir() -> &'static Path {
+        static DIR: OnceLock<PathBuf> = OnceLock::new();
+        DIR.get_or_init(|| {
+            let dir = std::env::temp_dir().join(format!(
+                "herdr-web-pi-relay-test-{}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(dir.join("pi-bridge")).unwrap();
+            std::env::set_var("XDG_RUNTIME_DIR", &dir);
+            dir
+        })
+    }
+
+    fn unique_pane(prefix: &str) -> String {
+        static COUNTER: AtomicUsize = AtomicUsize::new(0);
+        format!(
+            "{prefix}-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        )
+    }
+
+    struct FakeHerdr {
+        path: PathBuf,
+        stop: Arc<AtomicBool>,
+        handle: Option<thread::JoinHandle<()>>,
+    }
+
+    impl FakeHerdr {
+        fn new(panes: Vec<String>) -> Self {
+            let path = pi_test_runtime_dir().join(format!("api-{}.sock", unique_pane("api")));
+            let listener = UnixListener::bind(&path).unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let stop = Arc::new(AtomicBool::new(false));
+            let thread_stop = stop.clone();
+            let handle = thread::spawn(move || {
+                while !thread_stop.load(Ordering::Relaxed) {
+                    match listener.accept() {
+                        Ok((mut socket, _)) => {
+                            socket
+                                .set_read_timeout(Some(Duration::from_secs(5)))
+                                .unwrap();
+                            let mut line = String::new();
+                            if BufReader::new(socket.try_clone().unwrap())
+                                .read_line(&mut line)
+                                .is_err()
+                            {
+                                continue;
+                            }
+                            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+                            assert_eq!(request["method"], "pane.list");
+                            let panes = panes.iter().map(|id| test_pane(id)).collect();
+                            let result =
+                                serde_json::to_value(ResponseResult::PaneList { panes }).unwrap();
+                            writeln!(
+                                socket,
+                                "{}",
+                                serde_json::json!({"id": request["id"], "result": result})
+                            )
+                            .unwrap();
+                        }
+                        Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+            Self {
+                path,
+                stop,
+                handle: Some(handle),
+            }
+        }
+    }
+
+    impl Drop for FakeHerdr {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::Relaxed);
+            if let Some(handle) = self.handle.take() {
+                handle.join().unwrap();
+            }
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    fn pi_test_state(api_path: PathBuf) -> BridgeState {
+        let base = pi_test_runtime_dir().join(unique_pane("state"));
+        BridgeState {
+            api: ApiClient::for_socket_path(api_path.clone()),
+            client_socket_path: api_path,
+            request_policy: RequestPolicy {
+                bind_host: "127.0.0.1".into(),
+                bind_port: 0,
+                allowed_hosts: vec![],
+                allowed_origins: vec![],
+                allowed_connect_sources: vec![],
+            },
+            terminal_sessions: Arc::new(Mutex::new(TerminalSessions::default())),
+            selected_pane_id: Arc::new(Mutex::new(None)),
+            agent_activity: Arc::new(AgentActivityManager::new()),
+            agent_pins: Arc::new(
+                AgentPinsManager::for_test(base.join("pins"), "test").unwrap(),
+            ),
+            launcher_presets: Arc::new(LauncherPresetStore::load(None).unwrap()),
+            notes: Arc::new(NotesManager::for_test(base.join("notes"), "test").unwrap()),
+            ui_event_tx: tokio::sync::broadcast::channel(256).0,
+            activity_tx: tokio::sync::broadcast::channel(512).0,
+            upload_dir: base.join("uploads"),
+        }
+    }
+
+    async fn start_pi_test_server(state: BridgeState) -> (String, tokio::task::JoinHandle<()>) {
+        let app = Router::new()
+            .route("/ws/pi", get(pi_ws_handler))
+            .with_state(state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (format!("ws://{address}/ws/pi"), server)
+    }
+
+    async fn connect_pi_client(url: &str, pane_id: &str) -> TestWebSocket {
+        tokio_tungstenite::connect_async(format!("{url}?pane_id={pane_id}"))
+            .await
+            .unwrap()
+            .0
+    }
+
+    async fn expect_close(client: &mut TestWebSocket, code: u16) {
+        loop {
+            match client.next().await {
+                Some(Ok(WsMessage::Close(Some(frame)))) => {
+                    assert_eq!(u16::from(frame.code), code);
+                    return;
+                }
+                Some(Ok(_)) => {}
+                other => panic!("expected close {code}, got {other:?}"),
+            }
+        }
+    }
+
+    async fn expect_text(client: &mut TestWebSocket) -> String {
+        loop {
+            match client.next().await {
+                Some(Ok(WsMessage::Text(text))) => return text.to_string(),
+                Some(Ok(_)) => {}
+                other => panic!("expected text, got {other:?}"),
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn pi_relay_forwards_records_both_ways_unchanged() {
+        let pane_id = unique_pane("forward");
+        let api = FakeHerdr::new(vec![pane_id.clone()]);
+        let (url, server) = start_pi_test_server(pi_test_state(api.path.clone())).await;
+        let socket_path = pi_socket_path(&pane_id).unwrap();
+        std::fs::create_dir_all(socket_path.parent().unwrap()).unwrap();
+        let listener = UnixListener::bind(&socket_path).unwrap();
+        let (line_tx, line_rx) = mpsc::channel();
+        let pi_server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut line = String::new();
+            BufReader::new(socket.try_clone().unwrap())
+                .read_line(&mut line)
+                .unwrap();
+            line_tx.send(line).unwrap();
+            socket
+                .write_all(b"{\"type\":\"hello\",\"protocol_version\":1}\n")
+                .unwrap();
+            let mut rest = Vec::new();
+            let _ = socket.read_to_end(&mut rest);
+        });
+
+        let mut client = connect_pi_client(&url, &pane_id).await;
+        let request = r#"{"type":"get_snapshot","id":"1"}"#;
+        client.send(WsMessage::Text(request.into())).await.unwrap();
+        assert_eq!(
+            line_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+            format!("{request}\n")
+        );
+        assert_eq!(
+            expect_text(&mut client).await,
+            r#"{"type":"hello","protocol_version":1}"#
+        );
+
+        drop(client);
+        pi_server.join().unwrap();
+        server.abort();
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[tokio::test]
+    async fn pi_relay_rejects_unknown_pane() {
+        let api = FakeHerdr::new(vec![unique_pane("known")]);
+        let (url, server) = start_pi_test_server(pi_test_state(api.path.clone())).await;
+
+        let mut client = connect_pi_client(&url, &unique_pane("unknown")).await;
+        expect_close(&mut client, PI_CLOSE_UNKNOWN_PANE).await;
+        server.abort();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn pi_relay_reports_bridge_offline_then_recovers() {
+        let pane_id = unique_pane("recover");
+        let api = FakeHerdr::new(vec![pane_id.clone()]);
+        let (url, server) = start_pi_test_server(pi_test_state(api.path.clone())).await;
+        let socket_path = pi_socket_path(&pane_id).unwrap();
+        std::fs::create_dir_all(socket_path.parent().unwrap()).unwrap();
+        let _ = std::fs::remove_file(&socket_path);
+
+        let mut client = connect_pi_client(&url, &pane_id).await;
+        expect_close(&mut client, PI_CLOSE_BRIDGE_OFFLINE).await;
+
+        let listener = UnixListener::bind(&socket_path).unwrap();
+        let (line_tx, line_rx) = mpsc::channel();
+        let pi_server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut line = String::new();
+            BufReader::new(socket.try_clone().unwrap())
+                .read_line(&mut line)
+                .unwrap();
+            line_tx.send(line).unwrap();
+            socket
+                .write_all(b"{\"type\":\"hello\",\"protocol_version\":1}\n")
+                .unwrap();
+            let mut rest = Vec::new();
+            let _ = socket.read_to_end(&mut rest);
+        });
+
+        let mut client = connect_pi_client(&url, &pane_id).await;
+        let request = r#"{"type":"get_snapshot","id":"2"}"#;
+        client.send(WsMessage::Text(request.into())).await.unwrap();
+        assert_eq!(
+            line_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+            format!("{request}\n")
+        );
+        assert_eq!(
+            expect_text(&mut client).await,
+            r#"{"type":"hello","protocol_version":1}"#
+        );
+
+        drop(client);
+        pi_server.join().unwrap();
+        server.abort();
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[tokio::test]
+    async fn pi_relay_rejects_oversized_client_record() {
+        let pane_id = unique_pane("oversize-client");
+        let api = FakeHerdr::new(vec![pane_id.clone()]);
+        let (url, server) = start_pi_test_server(pi_test_state(api.path.clone())).await;
+        let socket_path = pi_socket_path(&pane_id).unwrap();
+        std::fs::create_dir_all(socket_path.parent().unwrap()).unwrap();
+        let listener = UnixListener::bind(&socket_path).unwrap();
+        let pi_server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut rest = Vec::new();
+            let _ = socket.read_to_end(&mut rest);
+        });
+
+        let mut client = connect_pi_client(&url, &pane_id).await;
+        client
+            .send(WsMessage::Text(
+                "x".repeat(PI_MAX_RECORD_BYTES + 1).into(),
+            ))
+            .await
+            .unwrap();
+        expect_close(&mut client, PI_CLOSE_RECORD_TOO_LARGE).await;
+
+        drop(client);
+        pi_server.join().unwrap();
+        server.abort();
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[tokio::test]
+    async fn pi_relay_rejects_oversized_pi_record() {
+        let pane_id = unique_pane("oversize-pi");
+        let api = FakeHerdr::new(vec![pane_id.clone()]);
+        let (url, server) = start_pi_test_server(pi_test_state(api.path.clone())).await;
+        let socket_path = pi_socket_path(&pane_id).unwrap();
+        std::fs::create_dir_all(socket_path.parent().unwrap()).unwrap();
+        let listener = UnixListener::bind(&socket_path).unwrap();
+        let pi_server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let _ = socket.write_all(&vec![b'x'; PI_MAX_RECORD_BYTES + 1]);
+        });
+
+        let mut client = connect_pi_client(&url, &pane_id).await;
+        expect_close(&mut client, PI_CLOSE_RECORD_TOO_LARGE).await;
+
+        drop(client);
+        pi_server.join().unwrap();
+        server.abort();
+        let _ = std::fs::remove_file(socket_path);
+    }
+}
