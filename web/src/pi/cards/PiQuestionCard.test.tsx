@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PiBridgeProvider } from "../PiBridgeContext";
-import { PiQuestionCards } from "./PiQuestionCard";
+import { PiDialogCards } from "./PiDialogCard";
 
 class TestSocket extends EventTarget {
   static OPEN = 1;
@@ -128,7 +128,7 @@ async function renderCards() {
         connectionKey="connection-1"
         wsUrl={(path) => path}
       >
-        <PiQuestionCards paneId={PANE_ID} />
+        <PiDialogCards paneId={PANE_ID} />
       </PiBridgeProvider>,
     );
   });
@@ -267,3 +267,4 @@ describe("PiQuestionCards (Seam 3)", () => {
     expect(container.textContent).toContain("Which layout should the card use?");
   });
 });
+

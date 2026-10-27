@@ -20,6 +20,7 @@ import {
   type AskUserPromptPayload,
   type QuestionDialog,
 } from "./ask-user.ts";
+import { createGenericDialogs } from "./dialogs.ts";
 import { listTrackedFiles, type ExecLike } from "./files.ts";
 import { resolveSocketPath } from "./pane.ts";
 import {
@@ -40,7 +41,7 @@ import {
   extractAssistantText,
   latestAssistantFromEntries,
   modelRef,
-  readSkills,
+  skillsFromCommands,
   thinkingLevelsFor,
   type ContextLike,
   type ModelLike,
@@ -93,23 +94,29 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
   let uiPromptActive = false;
   let initialized = false;
   let answerSequence = 0;
+  let genericDialogsAvailable = false;
+  let wrapWarningShown = false;
+  const genericDialogs = createGenericDialogs(
+    (dialog) => { server?.broadcast({ type: "dialog_open", dialog }); broadcastState(); },
+    (id, resolution) => { broadcastDialogClosed(id, resolution); broadcastState(); },
+  );
   const openQuestions = new Map<string, { dialog: QuestionDialog; requestId: string | null; cancel: boolean }>();
   const previewArgs = new Map<string, unknown>();
   const pendingVerdicts = new Map<string, AskUserAnswerResultPayload>();
   const eventDisposers: (() => void)[] = [];
 
   function busyState(): BridgeBusy {
-    if (openQuestions.size > 0 || uiPromptActive) {
+    if (openQuestions.size > 0 || genericDialogs.snapshot().length > 0 || uiPromptActive) {
       return "dialog";
     }
     return busy;
   }
 
-  function openDialogs(): QuestionDialog[] {
-    return [...openQuestions.values()].map((entry) => entry.dialog);
+  function openDialogs() {
+    return [...[...openQuestions.values()].map((entry) => entry.dialog), ...genericDialogs.snapshot()];
   }
 
-  function broadcastDialogClosed(id: string, resolution: "answered" | "cancelled" | "terminal"): void {
+  function broadcastDialogClosed(id: string, resolution: "answered" | "cancelled" | "terminal" | "timeout"): void {
     server?.broadcast({ type: "dialog_closed", id, resolution });
   }
 
@@ -144,18 +151,29 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
     return context?.thinkingLevel ?? null;
   }
 
+  function readCommands(): { name: string; description?: string; source: string }[] | null {
+    if (typeof pi.getCommands !== "function") {
+      return null;
+    }
+    try {
+      return pi.getCommands() ?? [];
+    } catch {
+      return null;
+    }
+  }
+
   function catalog(): CatalogPayload {
-    const skills = readSkills(context);
-    const commands = typeof pi.getCommands === "function" ? pi.getCommands() : [];
-    return buildCatalog(commands, skills.skills, skills.available ? undefined : skills.note);
+    const commands = readCommands();
+    const skills = skillsFromCommands(commands);
+    return buildCatalog(commands ?? [], skills.skills, skills.available ? undefined : skills.note);
   }
 
   function capabilities(): BridgeCapabilities {
     return {
-      generic_dialogs: false,
+      generic_dialogs: genericDialogsAvailable,
       assistant_message: true,
       list_files: exec !== null,
-      skills_catalog: readSkills(context).available,
+      skills_catalog: readCommands() !== null,
     };
   }
 
@@ -317,6 +335,10 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
     reply: RecordSender,
   ): void {
     const dialogId = typeof request.dialog_id === "string" ? request.dialog_id : null;
+    if (dialogId && genericDialogs.snapshot().some((dialog) => dialog.id === dialogId)) {
+      reply(okResponse(id, { accepted: genericDialogs.answer(dialogId, request.value, request.cancel === true) }));
+      return;
+    }
     const entry = dialogId ? openQuestions.get(dialogId) : undefined;
     if (!dialogId || !entry) {
       reply(okResponse(id, { accepted: false }));
@@ -437,6 +459,14 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
   }
 
   bind("session_start", async (_event, ctx) => {
+    genericDialogs.stop();
+    genericDialogsAvailable = ctx.mode === "tui" && ctx.hasUI === true && genericDialogs.install(ctx.ui);
+    if (!genericDialogsAvailable && !wrapWarningShown) {
+      wrapWarningShown = true;
+      const warning = "Pi Bridge could not wrap shared ctx.ui dialogs; generic Native Cards are disabled. Use the terminal dialog or Key Bar.";
+      ctx.ui?.notify?.(warning, "warning");
+      log(warning);
+    }
     busy = "idle";
     uiPromptActive = false;
     for (const id of openQuestions.keys()) {
@@ -450,12 +480,14 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
     await ensureServer();
     // A session replacement keeps the same pane socket; refresh connected clients.
     if (server?.isRunning()) {
+      server.broadcast({ type: "hello", protocol_version: PROTOCOL_VERSION, capabilities: capabilities() });
       broadcastState();
       server.broadcast({ type: "catalog", ...catalog() });
     }
   });
 
   bind("session_shutdown", async () => {
+    genericDialogs.stop();
     await stopServer();
   });
 
@@ -526,6 +558,7 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
     socketPath,
     isRunning: () => Boolean(initialized && server?.isRunning()),
     stop: async () => {
+      genericDialogs.stop();
       for (const dispose of eventDisposers.splice(0)) {
         dispose();
       }

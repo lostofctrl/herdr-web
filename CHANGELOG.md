@@ -18,10 +18,23 @@
   skills with descriptions, `@` searches tracked files after a 200 ms debounce, and
   dedicated `/` and `@` buttons open the same popup. Picking a row inserts it at the cursor,
   keeps the rest of the draft, and the popup hides when the Pi Bridge is offline.
+- Pi mode: Native Cards for Pi's shared `ctx.ui.select`, `confirm` and `input` dialogs,
+  not only `ask_user_question` questionnaires. The Pi Bridge wraps the shared UI
+  context, sends the title, message, options and Pi-owned timeout, and shows touch-first
+  option rows, Yes/No, an input field, a countdown and Cancel on the phone. The first
+  answer wins: a phone answer aborts the terminal dialog and returns the value to the
+  calling extension, while a terminal answer or timeout closes the card everywhere. A
+  startup self-check disables these cards and notifies once when the installed Pi version
+  no longer supports the wrap; terminal dialogs and the dialog Key Bar keep working.
 
 ### Changed
 
 ### Fixed
+
+- Pi mode: the skills catalog now lists entries from `pi.getCommands()` whose source is
+  `skill`, so Composer `/` suggestions include skills instead of reporting an empty
+  catalog. Skills are not duplicated as commands, and a host without `getCommands()`
+  advertises `skills_catalog: false` with a note.
 
 ### Removed
 

@@ -30,10 +30,12 @@ Implemented as `docs/pi-mode-protocol.md` version 1:
   `assistant_message`, `response`.
 - Client → bridge: `get_snapshot`, `set_model`, `set_thinking_level`,
   `list_files`, `dialog_answer`.
-- `hello.capabilities` is currently
-  `{generic_dialogs: false, assistant_message: true, list_files: true, skills_catalog}`.
-  `generic_dialogs` covers wrapped `ctx.ui` dialogs (follow-up ticket); question
-  dialogs are relayed from `ask_user_question` independently.
+- `hello.capabilities` is
+  `{generic_dialogs, assistant_message: true, list_files, skills_catalog}`.
+  `generic_dialogs` is true only when the startup self-check installed the shared
+  `ctx.ui` wrap (ADR 0002); question dialogs are relayed from `ask_user_question`
+  independently. If the wrap fails, the bridge notifies once and the terminal dialog
+  plus the dialog Key Bar keep working.
 - `ask_user_question` questionnaires are relayed through Pi's extension event bus:
   `rpiv:ask-user:prompt` becomes `dialog_open` with the full question set (options,
   descriptions, previews, multi-select), `dialog_answer` becomes
@@ -41,7 +43,7 @@ Implemented as `docs/pi-mode-protocol.md` version 1:
   answer emits `dialog_closed`. First answer wins across phone, desktop and terminal.
 - `state.busy` is `idle`, `busy` or `dialog`. It follows `agent_start` /
   `agent_end` and `ui_prompt_start` / `ui_prompt_end`.
-- `get_snapshot.dialogs` lists open question dialogs.
+- `get_snapshot.dialogs` lists open question and generic dialogs.
 
 ## Pi API surface
 
@@ -63,22 +65,23 @@ Only declared Pi 1.4.0 surfaces are used. Paths are relative to
 | `pi.on("message_end")` | `assistant_message` | `types.d.ts:1218`, event at `types.d.ts:848` |
 | `pi.on("tool_execution_start")` | full `ask_user_question` previews | `types.d.ts:1219`, event at `types.d.ts:853-859` |
 | `pi.events` (EventBus) | rpiv prompt/blocked/answer-result, answer | `types.d.ts:1406`, `core/event-bus.d.ts:1` |
-| `pi.getCommands()` | `catalog.commands` | `types.d.ts:1293`, `core/slash-commands.d.ts:3-9` |
+| `ctx.ui.select/confirm/input` | wrapped generic Native Cards | `types.d.ts:70-79`, `core/extensions/runner.js:355-364` |
+| `pi.getCommands()` | `catalog.commands` and `catalog.skills` | `types.d.ts:1293`, `core/slash-commands.d.ts:3-9`, `core/agent-session.js:2749-2760` |
 | `pi.setModel()` | `set_model` | `types.d.ts:1298` |
 | `pi.getThinkingLevel()` / `pi.setThinkingLevel()` | `state.thinking_level`, `set_thinking_level` | `types.d.ts:1300`, `types.d.ts:1305` |
 | `pi.exec()` | `git ls-files -z` for `list_files` | `types.d.ts:1280` |
 | `ThinkingLevel` union | validation, `thinking_levels` | `@earendil-works/pi-agent-core/dist/types.d.ts:300` |
 | `Model` (`id`, `name`, `provider`, `thinkingLevelMap`) | state payloads | `@earendil-works/pi-ai/dist/types.d.ts:630-655` |
 
-### Known API risk: skills catalog
+### Skills catalog
 
-Pi 1.4.0 has no public skills API. The bridge reads the internal
-`sessionManager.resourceLoader.getSkills()` (declared only on
-`core/resource-loader.d.ts:34`, not on `ReadonlySessionManager`) inside a
-`try/catch`. If it is unavailable or throws, `catalog.skills` is `[]`,
-`catalog.skills_note` explains why, and `capabilities.skills_catalog` is `false`.
-A Pi upgrade may move or remove that internal surface; the fallback keeps the
-protocol valid.
+Skills come from the public `pi.getCommands()` list, which includes prompt templates,
+extension commands and skills (`source: "skill"`, `name: "skill:<name>"`). The bridge
+strips the `skill:` prefix in `catalog.skills` and keeps those entries out of
+`catalog.commands`, so the Composer can insert `/skill:<name>` from one entry.
+`capabilities.skills_catalog` is true whenever `pi.getCommands()` is callable, even with
+an empty list. Only a host without that method reports `skills_catalog: false` with a
+`skills_note`, and clients then show commands only.
 
 ## Tests
 

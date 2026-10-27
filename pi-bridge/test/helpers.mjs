@@ -22,7 +22,7 @@ export const DEFAULT_MODELS = [makeModel("claude-sonnet-4"), makeModel("claude-o
 export const DEFAULT_COMMANDS = [
   { name: "compact", description: "Compact the session", source: "prompt" },
   { name: "deploy", description: "Deploy the app", source: "extension" },
-  { name: "brainstorm", description: "Brainstorm ideas", source: "skill" },
+  { name: "skill:brainstorm", description: "Brainstorm ideas", source: "skill" },
 ];
 
 const DEFAULT_SKILLS = [
@@ -39,7 +39,7 @@ const DEFAULT_SKILLS = [
 /**
  * Fake of the real Pi extension API/context (src/core/extensions/types.d.ts).
  * Only the surfaces the bridge is allowed to touch are implemented.
- * `options.skills = null` hides Pi's internal resourceLoader to test fallback.
+ * `options.commands = null` omits `pi.getCommands()` to test the skills fallback.
  */
 export function createFakeExtension(options = {}) {
   const models = options.models ?? DEFAULT_MODELS;
@@ -97,7 +97,7 @@ export function createFakeExtension(options = {}) {
       handlers.set(event, list);
       return () => {};
     },
-    getCommands: () => commands,
+    ...(options.commands === null ? {} : { getCommands: () => commands }),
     getThinkingLevel: () => currentThinking,
     async setModel(model) {
       calls.setModel.push(model);

@@ -76,7 +76,7 @@ test("hello advertises protocol version 1 and capabilities, then sends the snaps
   const hello = await connection.next((record) => record.type === "hello");
   assert.equal(hello.protocol_version, 1);
   assert.deepEqual(hello.capabilities, {
-    generic_dialogs: false,
+    generic_dialogs: true,
     assistant_message: true,
     list_files: true,
     skills_catalog: true,
@@ -149,8 +149,31 @@ test("get_snapshot returns state, catalog, dialogs and the latest assistant mess
   await stopBridge(started);
 });
 
-test("catalog reports skills_note and hides skills_catalog when Pi exposes no API", async () => {
-  const started = await startBridge({ skills: null });
+test("catalog lists a skill from pi.getCommands() once and advertises the capability", async () => {
+  const started = await startBridge();
+  const connection = await connect(started.socketPath);
+  const hello = await connection.next((record) => record.type === "hello");
+  assert.equal(hello.capabilities.skills_catalog, true);
+
+  connection.send({ type: "get_snapshot", id: "snap-skills" });
+  const response = await connection.next(
+    (record) => record.type === "response" && record.id === "snap-skills",
+  );
+  assert.deepEqual(response.result.catalog.skills, [
+    { name: "brainstorm", description: "Brainstorm ideas", source: "skill" },
+  ]);
+  assert.deepEqual(
+    response.result.catalog.commands.map((command) => command.name),
+    ["compact", "deploy"],
+  );
+  assert.equal(response.result.catalog.skills_note, undefined);
+
+  await connection.close();
+  await stopBridge(started);
+});
+
+test("a host without pi.getCommands() hides skills_catalog and explains why", async () => {
+  const started = await startBridge({ commands: null });
   const connection = await connect(started.socketPath);
   await connection.next((record) => record.type === "hello");
 
@@ -159,7 +182,7 @@ test("catalog reports skills_note and hides skills_catalog when Pi exposes no AP
     (record) => record.type === "response" && record.id === "snap-skills",
   );
   assert.deepEqual(response.result.catalog.skills, []);
-  assert.match(response.result.catalog.skills_note, /skills catalog/i);
+  assert.match(response.result.catalog.skills_note, /getCommands/);
 
   await connection.close();
   await stopBridge(started);

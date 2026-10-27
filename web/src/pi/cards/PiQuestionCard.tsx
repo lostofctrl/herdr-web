@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 
-import { usePiBridge, type PiBridgeApi } from "../PiBridgeContext";
+import type { PiBridgeApi } from "../PiBridgeContext";
 import type { PiDialog, PiQuestion } from "../piProtocol";
 import "./cards.css";
 
@@ -176,25 +176,5 @@ export function PiQuestionCard({ dialog, answerDialog }: QuestionCardProps) {
         </button>
       </div>
     </section>
-  );
-}
-
-/**
- * Renders every open `question` dialog for one Pi Pane. `dialog_closed` removes
- * the dialog from the shared client state, so the card disappears on every
- * client that sees the close.
- */
-export function PiQuestionCards({ paneId }: { paneId: string }) {
-  const bridge = usePiBridge(paneId);
-  const questions = bridge?.dialogs.filter((dialog) => dialog.kind === "question") ?? [];
-  if (!bridge || questions.length === 0) {
-    return null;
-  }
-  return (
-    <div className="pi-dialog-cards" data-pi-dialog-cards="true">
-      {questions.map((dialog) => (
-        <PiQuestionCard key={dialog.id} dialog={dialog} answerDialog={bridge.answerDialog} />
-      ))}
-    </div>
   );
 }

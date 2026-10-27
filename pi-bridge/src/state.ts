@@ -22,6 +22,9 @@ export interface SessionEntryLike {
 
 export interface ContextLike {
   cwd: string;
+  mode?: string;
+  hasUI?: boolean;
+  ui?: import("./dialogs.ts").SharedUI;
   model?: ModelLike | null;
   scopedModels?: readonly { model: ModelLike }[];
   modelRegistry?: {
@@ -31,7 +34,6 @@ export interface ContextLike {
   thinkingLevel?: string | null;
   sessionManager?: {
     getEntries?: () => SessionEntryLike[];
-    resourceLoader?: { getSkills?: () => unknown };
   };
 }
 
@@ -109,42 +111,34 @@ export function latestAssistantFromEntries(entries: SessionEntryLike[]): string 
 }
 
 /**
- * Read Pi's skill catalog. Pi 1.4.0 has no public skills API, only the
- * internal `resourceLoader.getSkills()` reached through the session manager,
- * so the whole read sits behind a try/catch and the caller advertises the
- * `skills_catalog` capability accordingly.
+ * Skills come from the public `pi.getCommands()` surface, which lists them with
+ * `source: "skill"` and `name: "skill:<skill>"` (Pi 1.4.0
+ * core/agent-session.js `_bindExtensionCore`). The bridge strips the trigger
+ * prefix so the catalog names the skill; the Composer still inserts `/skill:<name>`.
+ * A host without `getCommands()` cannot report skills at all.
  */
-export function readSkills(context: ContextLike | null): {
+export function skillsFromCommands(commands: readonly { name: string; description?: string; source: string }[] | null): {
   skills: CatalogEntry[];
   available: boolean;
   note?: string;
 } {
-  const note = "Pi did not expose a skills catalog API; showing commands only.";
-  try {
-    const loader = context?.sessionManager?.resourceLoader;
-    const result = loader?.getSkills?.();
-    const rawSkills = Array.isArray(result)
-      ? result
-      : result && typeof result === "object" && Array.isArray((result as { skills?: unknown }).skills)
-        ? (result as { skills: unknown[] }).skills
-        : null;
-    if (!rawSkills) {
-      return { skills: [], available: false, note };
-    }
-    const skills = rawSkills
-      .filter(
-        (skill): skill is { name: string; description?: string } =>
-          Boolean(skill && typeof skill === "object" && typeof (skill as { name?: unknown }).name === "string"),
-      )
-      .map((skill) => ({
-        name: skill.name,
-        description: skill.description ?? "",
-        source: "skill",
-      }));
-    return { skills, available: true };
-  } catch {
-    return { skills: [], available: false, note };
+  if (!commands) {
+    return {
+      skills: [],
+      available: false,
+      note: "Pi did not expose getCommands(); showing commands only.",
+    };
   }
+  return {
+    skills: commands
+      .filter((command) => command.source === "skill")
+      .map((command) => ({
+        name: command.name.replace(/^skill:/, ""),
+        description: command.description ?? "",
+        source: "skill",
+      })),
+    available: true,
+  };
 }
 
 export function buildCatalog(

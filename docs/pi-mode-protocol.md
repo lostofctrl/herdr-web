@@ -47,8 +47,12 @@ is one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, and `thinki
 lists the supported values. `cwd` is Pi's working directory.
 
 `catalog.commands` and `catalog.skills` are arrays of
-`{name, description, source}`. `skills_note` is present when the skill catalog could not be
-read from a supported Pi API; clients then show commands only.
+`{name, description, source}`. Skills come from `pi.getCommands()` entries with
+`source: "skill"`; the bridge strips the `skill:` trigger prefix, so `skill:deploy`
+becomes `{name: "deploy", source: "skill"}` and remains `/skill:deploy` when inserted.
+`skills_note` is present only when Pi does not expose `getCommands()`; clients then show
+commands only and `skills_catalog` is `false`. A host with `getCommands()` advertises
+`skills_catalog: true` even when the skills list is empty.
 
 `dialog` is one of:
 
@@ -82,11 +86,15 @@ Every request carries a client-chosen `id` (string), echoed on its `response`.
 | `list_files` | `id`, `query`, `limit` |
 
 `get_snapshot` responds with `{state, catalog, dialogs, assistant_message}` in `result`;
-`dialogs` lists every open question dialog so a reconnecting client can render it again.
+`dialogs` lists every open question or generic dialog so a reconnecting client can render
+it again. Generic dialogs report `timeout_ms` as the time remaining when the snapshot is
+sent, and `null` when Pi set no timeout.
 `dialog_answer` responds with `{accepted}`; answering an already settled dialog is
 `ok: true` with `accepted: false` because another surface won the race. For a question
 dialog, `value` is `{answers:[{questionIndex, optionIndexes?, text?}], globalNote?}` with
-every question answered exactly once, or `cancel: true` to decline like Esc. `list_files`
+every question answered exactly once, or `cancel: true` to decline like Esc. For a generic
+dialog, `value` is the selected option label for `select`, a boolean for `confirm`, and
+the entered string for `input`; `cancel: true` settles it as `undefined`/`false` like Esc. `list_files`
 answers from tracked files in Pi's `cwd`, filters by `query`, and caps at `limit`, which the
 client limits to 200 (default 50). Its `result` is `{files: [{path}]}`.
 
