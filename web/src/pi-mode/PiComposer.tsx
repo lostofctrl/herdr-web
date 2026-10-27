@@ -20,7 +20,8 @@ import {
 } from "./piComposerAttachments";
 import type { PiComposerAttachment } from "./piComposerAttachments";
 import { piComposerDeliveryParts } from "./piComposerDelivery";
-import { usePiComposerDraft } from "./piComposerDraft";
+import { piComposerDraftKey, usePiComposerDraft } from "./piComposerDraft";
+import { PI_COMPOSER_INSERT_EVENT, type PiComposerInsertDetail } from "../pi/sidepanel/piComposerInsert";
 import "./pi-mode.css";
 
 export type PiComposerProps = {
@@ -218,6 +219,17 @@ export function PiComposer({
     focusOnOpenRef.current = true;
     setOpen(true);
   }, []);
+
+  useEffect(() => {
+    const onInsert = (event: Event) => {
+      const { key, value: next } = (event as CustomEvent<PiComposerInsertDetail>).detail;
+      if (key !== piComposerDraftKey(bridgeId, paneId)) return;
+      setValue(next);
+      openComposer();
+    };
+    window.addEventListener(PI_COMPOSER_INSERT_EVENT, onInsert);
+    return () => window.removeEventListener(PI_COMPOSER_INSERT_EVENT, onInsert);
+  }, [bridgeId, paneId, openComposer, setValue]);
 
   const closeComposer = useCallback(() => {
     setOpen(mobile);

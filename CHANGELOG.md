@@ -6,6 +6,21 @@
 
 ### Added
 
+- Pi mode: a collapsible Side Panel for the selected Pi Pane with model and thinking pickers,
+  a searchable command and skill browser that inserts `/name` and `/skill:name` triggers into
+  the persistent Composer draft, and quick actions for abort, compact, new session and resume.
+  The panel shows Bridge Offline and hides bridge-only controls while the Composer and Key Bar
+  stay usable.
+- Pi mode: panes running Pi get a native Composer, a Key Bar and live Pi State instead of
+  typing shortcuts into the terminal. A new in-repo `pi-bridge` package publishes Pi State,
+  the command and skill catalog, dialogs and the assistant's last answer on a per-pane Unix
+  socket, and the bridge relays that socket to the browser over `/ws/pi`, so the phone sees
+  what Pi is doing and can answer it.
+- Pi mode: a native Composer that sends the whole prompt as one bracketed paste followed by a
+  separate Enter, so Pi decides between prompt, steer, follow-up, `/command` and `!bash`.
+  The draft survives pane switches and reloads.
+- Pi mode: a Reader Sheet that opens the last assistant answer from the Pull-up Sheet, with
+  copy and Close actions.
 - Pi mode: Attachment Chips above the Composer, with gallery/camera input and paste or
   drag-drop images. Sending uploads each image through the existing upload endpoint, waits
   for the uploads, then pastes the uploaded paths ahead of the draft in chip order. Chips
@@ -18,14 +33,19 @@
   skills with descriptions, `@` searches tracked files after a 200 ms debounce, and
   dedicated `/` and `@` buttons open the same popup. Picking a row inserts it at the cursor,
   keeps the rest of the draft, and the popup hides when the Pi Bridge is offline.
-- Pi mode: Native Cards for Pi's shared `ctx.ui.select`, `confirm` and `input` dialogs,
-  not only `ask_user_question` questionnaires. The Pi Bridge wraps the shared UI
-  context, sends the title, message, options and Pi-owned timeout, and shows touch-first
-  option rows, Yes/No, an input field, a countdown and Cancel on the phone. The first
-  answer wins: a phone answer aborts the terminal dialog and returns the value to the
-  calling extension, while a terminal answer or timeout closes the card everywhere. A
-  startup self-check disables these cards and notifies once when the installed Pi version
-  no longer supports the wrap; terminal dialogs and the dialog Key Bar keep working.
+- Pi mode: Native Cards for `ask_user_question` and for Pi's shared
+  `ctx.ui.select`, `confirm` and `input` dialogs. A questionnaire opened by Pi appears as a
+  touch card with single or multi-select options, option previews and free text, and an
+  answer from the phone settles the same dialog the terminal is showing — first answer wins,
+  and the cards disappear when the dialog closes anywhere. Question dialogs are also
+  included in a reconnecting client's snapshot.
+- Pi mode: the Pi Bridge wraps Pi's shared UI context for `select`, `confirm` and `input`,
+  sends the title, message, options and Pi-owned timeout, and shows touch-first option rows,
+  Yes/No, an input field, a countdown and Cancel on the phone. A phone answer aborts the
+  terminal dialog and returns the value to the calling extension, while a terminal answer or
+  timeout closes the card everywhere. A startup self-check disables these cards and notifies
+  once when the installed Pi version no longer supports the wrap; terminal dialogs and the
+  dialog Key Bar keep working.
 
 ### Changed
 
