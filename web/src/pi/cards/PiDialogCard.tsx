@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { usePiBridge, type PiBridgeApi } from "../PiBridgeContext";
 import type { PiDialog } from "../piProtocol";
 import { PiQuestionCard } from "./PiQuestionCard";
+import { visiblePiDialogs } from "./piDialogList";
 import "./cards.css";
 
 type GenericDialog = PiDialog & { kind: "select" | "confirm" | "input" };
@@ -185,15 +186,7 @@ export function PiDialogCards({ paneId }: { paneId: string }) {
   if (!bridge) {
     return null;
   }
-  const genericEnabled = bridge.capabilities.generic_dialogs === true;
-  const seen = new Set<string>();
-  const dialogs = bridge.dialogs.filter((dialog) => {
-    if (seen.has(dialog.id) || (dialog.kind !== "question" && !genericEnabled)) {
-      return false;
-    }
-    seen.add(dialog.id);
-    return true;
-  });
+  const dialogs = visiblePiDialogs(bridge.dialogs, bridge.capabilities.generic_dialogs === true);
   if (dialogs.length === 0) {
     return null;
   }

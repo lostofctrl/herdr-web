@@ -2,6 +2,19 @@
 
 export type PiBusy = "idle" | "busy" | "dialog";
 
+/** Mirrors `THINKING_LEVELS` in pi-bridge/src/protocol.ts and docs/pi-mode-protocol.md. */
+export const PI_THINKING_LEVELS = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+
+export type PiThinkingLevel = (typeof PI_THINKING_LEVELS)[number];
+
 export type PiModelRef = { provider: string; id: string };
 
 export type PiModel = PiModelRef & { label: string };
@@ -9,9 +22,9 @@ export type PiModel = PiModelRef & { label: string };
 export type PiState = {
   busy: PiBusy;
   model: PiModelRef | null;
-  thinking_level: string;
+  thinking_level: PiThinkingLevel;
   models: PiModel[];
-  thinking_levels: string[];
+  thinking_levels: PiThinkingLevel[];
   cwd: string;
 };
 

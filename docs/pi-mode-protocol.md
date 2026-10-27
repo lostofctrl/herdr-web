@@ -21,6 +21,18 @@ current user (`0700` directory, `0600` socket where supported).
 
 A record is capped at 1 MiB in both directions. Larger records are a protocol error.
 
+The path rule is implemented twice on purpose — `pi-bridge/src/pane.ts` for the writer and
+`pi_bridge_socket_dir`/`pi_socket_path` in `bridge/src/web_bridge.rs` for the reader — because
+the writer is a Pi extension and the reader is the Rust bridge. They must agree: change them
+together, and keep `pi-bridge/test/lifecycle.test.mjs` and the relay tests
+in `bridge/src/web_bridge.rs` in step.
+
+The socket is the trust boundary. Any process running as the same user can bind
+`pi-bridge/<pane_id>.sock` and be relayed to the browser, so this protocol assumes the local
+user account is trusted and the runtime directory is not shared. The bridge adds no further
+authentication on the Unix side; it only restricts HTTP/WS access to allowed origins and known
+pane ids.
+
 ## Messages: Pi Bridge to client
 
 Every message is an object with a `type`.

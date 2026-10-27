@@ -1,5 +1,13 @@
 import type { PiBridgeStatus } from "../piClient";
 import type { PiBusy } from "../piProtocol";
+import {
+  PI_ALT_ENTER_KEY,
+  PI_DOWN_KEY,
+  PI_ENTER_KEY,
+  PI_ESCAPE_KEY,
+  PI_SHIFT_TAB_KEY,
+  PI_UP_KEY,
+} from "../piKeys";
 
 /**
  * One Key Bar key: a label a thumb can read plus the exact bytes Pi receives.
@@ -13,18 +21,14 @@ export interface PiKeyBarKey {
   data: string;
 }
 
-/** Escape aborts the current run. */
-const ABORT = "\x1B";
-/** Enter steers the running turn with the Composer's draft. */
-const ENTER = "\r";
-/** Alt+Enter queues the Composer's draft as a follow-up after the run. */
-const QUEUE = "\x1B\r";
-/** Shift+Tab cycles the thinking level. */
-const SHIFT_TAB = "\x1B[Z";
+const ABORT = PI_ESCAPE_KEY;
+const ENTER = PI_ENTER_KEY;
+const QUEUE = PI_ALT_ENTER_KEY;
+const SHIFT_TAB = PI_SHIFT_TAB_KEY;
 /** Ctrl+O collapses or expands tool output. */
 const CTRL_O = "\x0F";
-const UP = "\x1B[A";
-const DOWN = "\x1B[B";
+const UP = PI_UP_KEY;
+const DOWN = PI_DOWN_KEY;
 const SPACE = " ";
 
 /**

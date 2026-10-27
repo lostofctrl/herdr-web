@@ -2,6 +2,7 @@ import { PanelRight } from "lucide-react";
 import { useId, useState } from "react";
 
 import { usePiBridge } from "../PiBridgeContext";
+import { PI_ESCAPE_KEY } from "../piKeys";
 import { piComposerDeliveryParts } from "../../pi-mode/piComposerDelivery";
 import { insertPiComposerText } from "./piComposerInsert";
 import { piCatalogTrigger, piSidePanelEntries } from "./piSidePanelCatalog";
@@ -91,7 +92,7 @@ export function PiSidePanel({ bridgeId, paneId, disabled, onSend }: PiSidePanelP
           ) : null}
           <section aria-label="Pi quick actions" className="pi-side-panel-actions">
             <button type="button" aria-label="Abort Pi" disabled={disabled}
-              onClick={() => onSend(["\x1b"])}>Abort</button>
+              onClick={() => onSend([PI_ESCAPE_KEY])}>Abort</button>
             {[
               ["Compact Pi session", "Compact", "/compact"],
               ["New Pi session", "New session", "/new"],
