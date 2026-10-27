@@ -25,12 +25,13 @@ export type PiKeyBarProps = {
   onInput: (data: string) => void;
 };
 
-// Touch keys act on the focused terminal/input without dismissing its soft
-// keyboard, so a thumb never loses the Composer to the on-screen keyboard.
-function preserveTouchInputFocus(event: ReactPointerEvent<HTMLButtonElement>) {
-  if (event.pointerType === "touch" || event.pointerType === "pen") {
-    event.preventDefault();
-  }
+// Keys act on the focused terminal/input without moving focus, so a thumb never
+// loses the Composer (or closes the soft keyboard) by tapping a key. Every
+// pointer type is covered: a mouse click would otherwise focus the button and
+// send the next keystroke nowhere. Nothing here needs the button to be focusable
+// by pointer, and keyboard users still reach it through Tab.
+function preserveInputFocus(event: ReactPointerEvent<HTMLButtonElement>) {
+  event.preventDefault();
 }
 
 /**
@@ -89,7 +90,7 @@ export function PiKeyBar({ paneId, disabled, onInput }: PiKeyBarProps) {
             aria-label={key.ariaLabel}
             title={key.ariaLabel}
             disabled={disabled}
-            onPointerDown={preserveTouchInputFocus}
+            onPointerDown={preserveInputFocus}
             onClick={() => onInput(key.data)}
           >
             {key.label}
@@ -153,7 +154,7 @@ export function PiKeyBar({ paneId, disabled, onInput }: PiKeyBarProps) {
                   aria-pressed={active}
                   aria-label={`${active ? "Remove" : "Add"} ${modifier.label} modifier`}
                   disabled={disabled}
-                  onPointerDown={preserveTouchInputFocus}
+                  onPointerDown={preserveInputFocus}
                   onClick={() => toggleModifier(modifier.id)}
                 >
                   {modifier.label}
@@ -196,7 +197,7 @@ export function PiKeyBar({ paneId, disabled, onInput }: PiKeyBarProps) {
                 aria-pressed={chordKey?.id === key.id}
                 data-active={chordKey?.id === key.id ? "true" : "false"}
                 disabled={disabled}
-                onPointerDown={preserveTouchInputFocus}
+                onPointerDown={preserveInputFocus}
                 onClick={() => chooseKey(key)}
               >
                 {key.label}

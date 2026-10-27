@@ -263,15 +263,26 @@ describe("TerminalView Pi Key Bar (Seam 3)", () => {
     expect(container.querySelector('[aria-label="Pi key composer"]')).toBeNull();
   });
 
-  it("never moves focus onto the Composer when a key is tapped", async () => {
+  it("keeps keyboard focus where it was when a key is pressed", async () => {
     const { container } = await renderTerminalView();
     await openSockets();
     const field = container.querySelector<HTMLTextAreaElement>('[aria-label="Pi prompt"]');
     expect(field).not.toBeNull();
+    field?.focus();
+    expect(document.activeElement).toBe(field);
 
-    await clickKey(container, "Command");
+    // A pointer press on a Key Bar key must not move focus: a prevented
+    // pointerdown stops the browser from focusing the button, and a mouse click
+    // would otherwise take focus away from the terminal or Composer.
+    const key = container.querySelector<HTMLButtonElement>('button[aria-label="Command"]');
+    expect(key).not.toBeNull();
+    await act(async () => {
+      const press = new MouseEvent("pointerdown", { bubbles: true, cancelable: true });
+      const allowed = key?.dispatchEvent(press);
+      expect(allowed).toBe(false);
+    });
 
-    expect(document.activeElement).not.toBe(field);
+    expect(document.activeElement).toBe(field);
     expect(renderer.focusTextInput).not.toHaveBeenCalled();
   });
 

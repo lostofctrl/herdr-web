@@ -90,6 +90,11 @@ export function PiComposer({
   } | null>(null);
 
   useEffect(() => {
+    // React StrictMode mounts, unmounts and remounts in development. The
+    // cleanup below clears the ref, so the effect body has to claim it back:
+    // otherwise every async handler sees a "stale" component and silently
+    // returns, and a send would stay stuck in `sending` forever.
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       for (const attachment of attachmentsRef.current) {
@@ -555,6 +560,13 @@ export function PiComposer({
             </div>
           ) : null}
         </div>
+      ) : null}
+      {editing ? (
+        <ScreenshotEditor
+          image={editing.image}
+          onSave={saveEditedImage}
+          onCancel={closeScreenshotEditor}
+        />
       ) : null}
       {suggestion.isOpen ? (
         <PiComposerSuggest
