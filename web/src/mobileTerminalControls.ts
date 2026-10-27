@@ -1,6 +1,7 @@
-type MobileTerminalModifier = "ctrl" | "shift" | "alt";
+/** Legacy VT modifiers the mobile key composer can combine with one key. */
+export type MobileTerminalModifier = "ctrl" | "shift" | "alt";
 
-interface MobileTerminalModifierOption {
+export interface MobileTerminalModifierOption {
   id: MobileTerminalModifier;
   label: string;
 }

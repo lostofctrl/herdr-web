@@ -29,6 +29,7 @@ import { ConfirmDialog } from "./overlays";
 import { PiComposer } from "./pi-mode/PiComposer";
 import { isPiPane } from "./pi-mode/piPane";
 import { PiBridgeProvider } from "./pi/PiBridgeContext";
+import { PiKeyBar } from "./pi/keybar/PiKeyBar";
 import { ReaderSheet } from "./pi/reader/ReaderSheet";
 import { addNativeResumeHandler } from "./native";
 import { shellQuote } from "./shell";
@@ -1480,6 +1481,14 @@ export function TerminalView({
         >
           <Paperclip size={16} />
         </button>
+      ) : null}
+      {showCommandControls && pane && piPane ? (
+        <PiKeyBar
+          key={JSON.stringify(["keybar", bridgeId, pane.pane_id])}
+          paneId={pane.pane_id}
+          disabled={connectionState !== "attached"}
+          onInput={(data) => enqueueTerminalInput([data])}
+        />
       ) : null}
       {showCommandControls && pane && piPane ? (
         <PiComposer

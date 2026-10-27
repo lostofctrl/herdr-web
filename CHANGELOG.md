@@ -10,6 +10,10 @@
   drag-drop images. Sending uploads each image through the existing upload endpoint, waits
   for the uploads, then pastes the uploaded paths ahead of the draft in chip order. Chips
   open the Screenshot Editor; Save replaces that chip's image before upload.
+- Pi mode: a Key Bar above the Composer whose keys follow Pi State — shortcuts while idle,
+  abort/steer/queue while Pi works, and arrow/Enter/Esc/Space while a dialog owns the
+  terminal — plus a key composer for any chord. It falls back to the idle keys when the Pi
+  Bridge is offline.
 
 ### Changed
 

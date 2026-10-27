@@ -1,0 +1,53 @@
+/* Context-aware Key Bar for Pi Panes. It sits directly above the Composer and
+   reuses the shared mobile key tokens so both bars read as one control strip. */
+
+.pi-key-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mobile-control-gap);
+  min-width: 0;
+}
+
+.pi-key-bar-row {
+  display: flex;
+  min-width: 0;
+  gap: var(--mobile-control-gap);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.pi-key-bar-row::-webkit-scrollbar {
+  display: none;
+}
+
+.pi-key-bar-key {
+  flex: 1 1 auto;
+  min-width: calc(var(--mobile-key-height) - 2px);
+  min-height: 44px;
+  padding: 0 var(--mobile-key-padding-x);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.pi-key-bar[data-state="busy"] .pi-key-bar-key:first-child {
+  border-color: color-mix(in oklab, var(--danger) 45%, var(--line));
+  color: var(--danger);
+}
+
+.pi-key-bar-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.pi-key-bar-chord-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mobile-control-gap);
+}
+
+.pi-key-bar-chord-keys .term-key {
+  min-width: calc(var(--mobile-key-height) - 2px);
+  min-height: 44px;
+  padding: 0 var(--mobile-key-padding-x);
+}
