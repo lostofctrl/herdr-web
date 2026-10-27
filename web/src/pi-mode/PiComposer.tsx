@@ -561,13 +561,6 @@ export function PiComposer({
           ) : null}
         </div>
       ) : null}
-      {editing ? (
-        <ScreenshotEditor
-          image={editing.image}
-          onSave={saveEditedImage}
-          onCancel={closeScreenshotEditor}
-        />
-      ) : null}
       {suggestion.isOpen ? (
         <PiComposerSuggest
           id={suggestionId}

@@ -131,7 +131,11 @@ describe("PiComposer under StrictMode", () => {
       await Promise.resolve();
     });
 
-    expect(container.querySelector('[role="dialog"][aria-label="Screenshot Editor"]')).not.toBeNull();
+    // Exactly one editor: a duplicated mount would stack two dialogs and make
+    // Cancel close only one of them.
+    expect(
+      container.querySelectorAll('[role="dialog"][aria-label="Screenshot Editor"]'),
+    ).toHaveLength(1);
   });
 
   it("finishes sending an attachment instead of staying in sending", async () => {
