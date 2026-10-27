@@ -1,11 +1,14 @@
 import { ImagePlus, Send, TextCursorInput, X } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, KeyboardEvent, ClipboardEvent, RefObject } from "react";
 
 import { autosizeMobileCommandTextarea } from "../mobileCommandTextarea";
+import { usePiBridge } from "../pi/PiBridgeContext";
 import { ScreenshotEditor } from "../pi/screenshot";
 import type { ScreenshotSaveResult } from "../pi/screenshot";
 import type { UploadCandidate, UploadedFile } from "../terminalUploads";
+import { PiComposerSuggest, usePiComposerSuggest } from "./composer-suggest";
+import type { PiComposerSuggestion } from "./composer-suggest";
 import {
   PI_COMPOSER_MAX_ATTACHMENTS,
   piComposerAttachmentsFromFiles,
@@ -70,6 +73,11 @@ export function PiComposer({
   const composingRef = useRef(false);
   const mountedRef = useRef(true);
   const [value, setValue] = usePiComposerDraft(bridgeId, paneId);
+  const piBridge = usePiBridge(paneId);
+  const [cursor, setCursor] = useState(() => value.length);
+  const suggestion = usePiComposerSuggest({ api: piBridge, draft: value, cursor });
+  const suggestionId = useId();
+  const pendingCaretRef = useRef<number | null>(null);
   const [open, setOpen] = useState(mobile);
   const [attachments, setAttachments] = useState<PiComposerAttachment[]>([]);
   const attachmentsRef = useRef<PiComposerAttachment[]>([]);
@@ -258,6 +266,46 @@ export function PiComposer({
   }, [open, value]);
 
   useLayoutEffect(() => {
+    const caret = pendingCaretRef.current;
+    if (caret === null) {
+      return;
+    }
+    pendingCaretRef.current = null;
+    const field = fieldRef.current;
+    if (field && document.activeElement === field) {
+      field.setSelectionRange(caret, caret);
+    }
+  }, [value]);
+
+  const pickSuggestion = (item: PiComposerSuggestion) => {
+    const next = suggestion.pick(item);
+    if (!next) {
+      return;
+    }
+    pendingCaretRef.current = next.cursor;
+    setValue(next.value);
+    setCursor(next.cursor);
+  };
+
+  const insertSuggestionTrigger = (kind: "slash" | "file") => {
+    const field = fieldRef.current;
+    let start = field?.selectionStart ?? value.length;
+    let end = field?.selectionEnd ?? start;
+    const trigger = kind === "slash" ? "/" : "@";
+    // A slash command must be the draft's first character, so the button
+    // prepends it instead of leaving an unusable token mid-prompt.
+    if (kind === "slash" && !value.startsWith("/")) {
+      start = 0;
+      end = 0;
+    }
+    const nextValue = value.slice(0, start) + trigger + value.slice(end);
+    const nextCursor = start + trigger.length;
+    pendingCaretRef.current = nextCursor;
+    setCursor(nextCursor);
+    setValue(nextValue);
+  };
+
+  useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root) {
       onControlsHeightChange(null);
@@ -338,6 +386,32 @@ export function PiComposer({
   const onFieldKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
       return;
+    }
+    if (suggestion.isOpen) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        suggestion.moveActive(event.key === "ArrowDown" ? 1 : -1);
+        return;
+      }
+      if (
+        suggestion.items.length > 0 &&
+        (event.key === "Enter" || event.key === "Tab") &&
+        !event.shiftKey
+      ) {
+        event.preventDefault();
+        const picked = suggestion.pickActive();
+        if (picked) {
+          pendingCaretRef.current = picked.cursor;
+          setValue(picked.value);
+          setCursor(picked.cursor);
+        }
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        suggestion.close();
+        return;
+      }
     }
     if (event.key === "Escape") {
       event.preventDefault();
@@ -470,6 +544,16 @@ export function PiComposer({
           ) : null}
         </div>
       ) : null}
+      {suggestion.isOpen ? (
+        <PiComposerSuggest
+          id={suggestionId}
+          items={suggestion.items}
+          activeIndex={suggestion.activeIndex}
+          loading={suggestion.loadingFiles}
+          onActiveChange={suggestion.setActiveIndex}
+          onPick={pickSuggestion}
+        />
+      ) : null}
       <form
         className="term-input-row pi-composer-row"
         data-expanding="true"
@@ -491,7 +575,21 @@ export function PiComposer({
           spellCheck
           disabled={disabled}
           value={value}
-          onChange={(event) => setValue(event.target.value)}
+          aria-expanded={suggestion.isOpen}
+          aria-controls={suggestion.isOpen ? suggestionId : undefined}
+          onChange={(event) => {
+            setValue(event.target.value);
+            setCursor(event.target.selectionStart ?? event.target.value.length);
+          }}
+          onSelect={(event) =>
+            setCursor(event.currentTarget.selectionStart ?? event.currentTarget.value.length)
+          }
+          onClick={(event) =>
+            setCursor(event.currentTarget.selectionStart ?? event.currentTarget.value.length)
+          }
+          onKeyUp={(event) =>
+            setCursor(event.currentTarget.selectionStart ?? event.currentTarget.value.length)
+          }
           onCompositionStart={() => {
             composingRef.current = true;
           }}
@@ -500,6 +598,28 @@ export function PiComposer({
           }}
           onKeyDown={onFieldKeyDown}
         />
+        <button
+          className="term-key pi-composer-suggest-trigger"
+          type="button"
+          aria-label="Open slash suggestions"
+          title="Commands and skills (/)"
+          disabled={disabled || sending}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => insertSuggestionTrigger("slash")}
+        >
+          /
+        </button>
+        <button
+          className="term-key pi-composer-suggest-trigger"
+          type="button"
+          aria-label="Open file suggestions"
+          title="Files (@)"
+          disabled={disabled || sending}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => insertSuggestionTrigger("file")}
+        >
+          @
+        </button>
         {onUploadImages ? (
           <>
             <input

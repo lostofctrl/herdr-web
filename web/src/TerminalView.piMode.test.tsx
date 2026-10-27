@@ -134,8 +134,18 @@ async function unmount(root: Root) {
   roots.splice(roots.indexOf(root), 1);
 }
 
+function lastSocket(matches: (socket: TestSocket) => boolean) {
+  for (let index = TestSocket.instances.length - 1; index >= 0; index -= 1) {
+    const candidate = TestSocket.instances[index];
+    if (matches(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
 async function openSocket() {
-  const socket = TestSocket.instances.at(-1);
+  const socket = lastSocket((candidate) => !candidate.url.startsWith("/ws/pi"));
   if (!socket) {
     throw new Error("Expected a terminal WebSocket");
   }
@@ -563,6 +573,253 @@ describe("TerminalView Pi Composer attachments (Seam 3)", () => {
   });
 });
 
+const PI_SUGGEST_SNAPSHOT = {
+  state: {
+    busy: "idle",
+    model: null,
+    thinking_level: "off",
+    models: [],
+    thinking_levels: ["off"],
+    cwd: "/repo",
+  },
+  catalog: {
+    commands: [
+      { name: "/compact", description: "Compact the session", source: "builtin" },
+      { name: "/review", description: "Review the diff", source: "builtin" },
+    ],
+    skills: [{ name: "tdd", description: "Write tests first", source: "skill" }],
+  },
+  dialogs: [],
+  assistant_message: null,
+};
+
+function piBridgeSocket() {
+  const socket = lastSocket((candidate) => candidate.url.startsWith("/ws/pi"));
+  if (!socket) {
+    throw new Error("Missing Pi bridge WebSocket");
+  }
+  return socket;
+}
+
+function sentPiRecords(socket: TestSocket) {
+  return socket.send.mock.calls.map(
+    ([data]) => JSON.parse(data as string) as Record<string, unknown>,
+  );
+}
+
+async function sendPiRecord(socket: TestSocket, record: Record<string, unknown>) {
+  await act(async () => {
+    socket.dispatchEvent(
+      new MessageEvent("message", { data: JSON.stringify(record) }),
+    );
+  });
+}
+
+async function openPiBridgeWithCatalog() {
+  const socket = piBridgeSocket();
+  await act(async () => socket.dispatchEvent(new Event("open")));
+  const snapshot = sentPiRecords(socket).find((record) => record.type === "get_snapshot");
+  if (!snapshot) {
+    throw new Error("Missing get_snapshot request");
+  }
+  await sendPiRecord(socket, {
+    type: "hello",
+    protocol_version: 1,
+    capabilities: { list_files: true, skills_catalog: true },
+  });
+  await sendPiRecord(socket, {
+    type: "response",
+    id: snapshot.id,
+    ok: true,
+    result: PI_SUGGEST_SNAPSHOT,
+  });
+  return socket;
+}
+
+function suggestionPopup(container: HTMLElement) {
+  return container.querySelector<HTMLElement>("[data-pi-suggestion-popup]");
+}
+
+function suggestionRows(container: HTMLElement) {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>("[data-pi-suggestion]"),
+  );
+}
+
+function suggestionLabels(container: HTMLElement) {
+  return suggestionRows(container).map((row) => row.dataset.suggestionLabel ?? "");
+}
+
+async function clickSuggestion(container: HTMLElement, label: string) {
+  const row = suggestionRows(container).find(
+    (candidate) => candidate.dataset.suggestionLabel === label,
+  );
+  if (!row) {
+    throw new Error(`Missing suggestion: ${label}`);
+  }
+  await act(async () => row.click());
+}
+
+async function pressKey(field: HTMLTextAreaElement, key: string) {
+  await act(async () => {
+    field.dispatchEvent(
+      new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+    );
+  });
+}
+
+async function selectRange(field: HTMLTextAreaElement, start: number, end = start) {
+  await act(async () => {
+    field.setSelectionRange(start, end);
+    field.dispatchEvent(new Event("select", { bubbles: true }));
+    field.dispatchEvent(
+      new KeyboardEvent("keyup", { key: "ArrowLeft", bubbles: true }),
+    );
+  });
+}
+
+describe("TerminalView Pi Composer suggestions (Seam 3)", () => {
+  it("opens catalog commands and skills from /, filters as you type and never lists files", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    await openSocket();
+    const pi = await openPiBridgeWithCatalog();
+    const field = promptField(container);
+
+    await typePrompt(field, "/");
+
+    expect(suggestionPopup(container)).not.toBeNull();
+    expect(suggestionLabels(container)).toEqual(["/compact", "/review", "tdd"]);
+    expect(container.textContent).toContain("Compact the session");
+    expect(container.textContent).toContain("Write tests first");
+
+    await typePrompt(field, "/co");
+
+    expect(suggestionLabels(container)).toEqual(["/compact"]);
+    await act(async () => vi.advanceTimersByTime(500));
+    expect(sentPiRecords(pi).filter((record) => record.type === "list_files")).toEqual([]);
+  });
+
+  it("@ queries listFiles only after the debounce, with the 50-file limit, and caps rows at 20", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    await openSocket();
+    const pi = await openPiBridgeWithCatalog();
+    const field = promptField(container);
+
+    await typePrompt(field, "@src");
+    expect(sentPiRecords(pi).filter((record) => record.type === "list_files")).toEqual([]);
+
+    await act(async () => vi.advanceTimersByTime(199));
+    expect(sentPiRecords(pi).filter((record) => record.type === "list_files")).toEqual([]);
+
+    await act(async () => vi.advanceTimersByTime(1));
+    const request = sentPiRecords(pi).find((record) => record.type === "list_files");
+    expect(request).toMatchObject({ type: "list_files", query: "src", limit: 50 });
+    if (!request) {
+      throw new Error("Missing list_files request");
+    }
+
+    const files = Array.from({ length: 30 }, (_, index) => ({
+      path: `src/file-${index}.ts`,
+    }));
+    await sendPiRecord(pi, {
+      type: "response",
+      id: request.id,
+      ok: true,
+      result: { files },
+    });
+    await flushAsync();
+
+    expect(suggestionRows(container)).toHaveLength(20);
+    expect(suggestionLabels(container)[0]).toBe("src/file-0.ts");
+  });
+
+  it("inserts the chosen suggestion at the cursor and keeps the rest of the draft", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    await openSocket();
+    const pi = await openPiBridgeWithCatalog();
+    const field = promptField(container);
+
+    await typePrompt(field, "hello @sr world");
+    await selectRange(field, 9);
+    await act(async () => vi.advanceTimersByTime(200));
+
+    const request = sentPiRecords(pi).find((record) => record.type === "list_files");
+    if (!request) {
+      throw new Error("Missing list_files request");
+    }
+    await sendPiRecord(pi, {
+      type: "response",
+      id: request.id,
+      ok: true,
+      result: { files: [{ path: "src/a.ts" }, { path: "src/b.ts" }] },
+    });
+    await flushAsync();
+
+    await clickSuggestion(container, "src/a.ts");
+
+    expect(promptField(container).value).toBe("hello @src/a.ts world");
+    expect(suggestionPopup(container)).toBeNull();
+    expect(
+      window.localStorage.getItem(piComposerDraftKey(BRIDGE_ID, PANE_A)),
+    ).toBe("hello @src/a.ts world");
+  });
+
+  it("hides suggestions when the Pi Bridge goes offline", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    await openSocket();
+    const pi = await openPiBridgeWithCatalog();
+
+    await typePrompt(promptField(container), "/");
+    expect(suggestionPopup(container)).not.toBeNull();
+
+    await act(async () => {
+      const event = new Event("close") as CloseEvent;
+      Object.defineProperty(event, "code", { value: 4500 });
+      Object.defineProperty(event, "reason", { value: "bridge_offline" });
+      pi.dispatchEvent(event);
+    });
+
+    expect(suggestionPopup(container)).toBeNull();
+  });
+
+  it("opens the popup from the dedicated / and @ buttons without focusing the field", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    await openSocket();
+    await openPiBridgeWithCatalog();
+    const field = promptField(container);
+
+    await clickButton(container, "Open slash suggestions");
+    expect(field.value).toBe("/");
+    expect(suggestionLabels(container)).toEqual(["/compact", "/review", "tdd"]);
+    expect(document.activeElement).not.toBe(field);
+
+    await typePrompt(field, "");
+    await clickButton(container, "Open file suggestions");
+    expect(field.value).toBe("@");
+    expect(suggestionPopup(container)).not.toBeNull();
+  });
+
+  it("moves through suggestions with the keyboard and selects with Enter", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    await openSocket();
+    await openPiBridgeWithCatalog();
+    const field = promptField(container);
+
+    await typePrompt(field, "/");
+    await pressKey(field, "ArrowDown");
+    await pressKey(field, "Enter");
+
+    expect(field.value).toBe("/review");
+    expect(suggestionPopup(container)).toBeNull();
+  });
+});
+
 class TestImage {
   static instances: TestImage[] = [];
   naturalWidth = 40;
@@ -665,7 +922,9 @@ describe("TerminalView Pi Composer Screenshot Editor (Seam 3)", () => {
     await flushAsync();
     expect(
       socket.send.mock.calls.some(
-        ([data]) => JSON.parse(data as string).data === "\x1b[200~/tmp/uploads/shot.png after edit\x1b[201~",
+        (call: unknown[]) =>
+          JSON.parse(call[0] as string).data ===
+          "\x1b[200~/tmp/uploads/shot.png after edit\x1b[201~",
       ),
     ).toBe(true);
   });

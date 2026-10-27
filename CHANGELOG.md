@@ -14,6 +14,10 @@
   abort/steer/queue while Pi works, and arrow/Enter/Esc/Space while a dialog owns the
   terminal — plus a key composer for any chord. It falls back to the idle keys when the Pi
   Bridge is offline.
+- Pi mode: inline Composer suggestions. `/` as the first character lists Pi commands and
+  skills with descriptions, `@` searches tracked files after a 200 ms debounce, and
+  dedicated `/` and `@` buttons open the same popup. Picking a row inserts it at the cursor,
+  keeps the rest of the draft, and the popup hides when the Pi Bridge is offline.
 
 ### Changed
 
