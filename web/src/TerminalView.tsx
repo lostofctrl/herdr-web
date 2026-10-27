@@ -27,6 +27,7 @@ import { MobileTerminalKeyButton } from "./MobileTerminalKeyButton";
 import { ConfirmDialog } from "./overlays";
 import { PiComposer } from "./pi-mode/PiComposer";
 import { isPiPane } from "./pi-mode/piPane";
+import { PiBridgeProvider } from "./pi/PiBridgeContext";
 import { addNativeResumeHandler } from "./native";
 import { shellQuote } from "./shell";
 import {
@@ -1420,7 +1421,7 @@ export function TerminalView({
 
   const showCommandControls = mobileControls || desktopCommandComposer || piPane;
 
-  return (
+  const stage = (
     <section
       ref={stageRef}
       className="terminal-stage"
@@ -1534,6 +1535,20 @@ export function TerminalView({
         />
       ) : null}
     </section>
+  );
+
+  return pane && piPane ? (
+    <PiBridgeProvider
+      paneId={pane.pane_id}
+      wsUrl={wsUrl}
+      connectionKey={connectionKey}
+      resumeToken={resumeToken}
+      enabled={selected}
+    >
+      {stage}
+    </PiBridgeProvider>
+  ) : (
+    stage
   );
 }
 
