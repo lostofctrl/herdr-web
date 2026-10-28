@@ -33,12 +33,13 @@ export function PiSidePanel({ bridgeId, paneId, disabled, onSend }: PiSidePanelP
 
   return (
     <aside className="pi-side-panel" data-open={open} aria-label="Pi Side Panel">
-      <button type="button" aria-label="Toggle Pi Side Panel" aria-expanded={open}
-        aria-controls={contentId} onClick={() => setOpen(!open)}>
+      <button type="button" aria-label="Toggle Pi Side Panel" title="Toggle Pi Side Panel"
+        aria-expanded={open} aria-controls={contentId} onClick={() => setOpen(!open)}>
         <PanelRight size={18} aria-hidden="true" />
-        <span>{open ? "Close Side Panel" : "Side Panel"}</span>
+        <span>Side Panel</span>
+        {!online ? <i className="pi-side-panel-dot" aria-hidden="true" /> : null}
       </button>
-      {!online ? <p role="status">Bridge Offline</p> : null}
+      {!online ? <p role="status" className="pi-side-panel-status">Bridge Offline</p> : null}
       {open ? (
         <div id={contentId} className="pi-side-panel-content">
           {online && state ? <>

@@ -51,6 +51,27 @@ describe("piKeyBarKeys", () => {
     ]);
   });
 
+  it("names every symbol-only key in words a thumb can read", () => {
+    for (const state of ["idle", "busy", "dialog"] as const) {
+      for (const key of piKeyBarKeys(state)) {
+        const symbolOnly = !/[A-Za-z]{2,}/.test(key.label);
+        if (symbolOnly) {
+          expect(key.hint, `${state}:${key.id}`).toMatch(/^[A-Za-z]{2,8}$/);
+        }
+      }
+    }
+  });
+
+  it("keeps every visible label or hint inside the accessible name (label in name)", () => {
+    for (const state of ["idle", "busy", "dialog"] as const) {
+      for (const key of piKeyBarKeys(state)) {
+        const visible = /[A-Za-z]{2,}/.test(key.label) ? key.label : key.hint;
+        expect(visible, `${state}:${key.id}`).toBeTruthy();
+        expect(key.ariaLabel.toLowerCase(), `${state}:${key.id}`).toContain(visible!.toLowerCase());
+      }
+    }
+  });
+
   it("gives every key a label and an accessible name", () => {
     for (const state of ["idle", "busy", "dialog"] as const) {
       for (const key of piKeyBarKeys(state)) {

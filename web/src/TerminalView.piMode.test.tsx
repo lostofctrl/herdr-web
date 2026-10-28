@@ -458,7 +458,7 @@ describe("TerminalView Pi Composer (Seam 3)", () => {
     expect(container.querySelectorAll("textarea, input.term-native-input").length).toBe(1);
 
     // A Key Bar key still reaches the terminal socket.
-    await clickButton(container, "Command");
+    await clickButton(container, "Slash command");
     await act(async () => vi.advanceTimersByTime(40));
     expect(sentTerminalInput(socket)).toEqual(["/"]);
 

@@ -125,6 +125,41 @@ async function attachImage(container: HTMLElement) {
 }
 
 describe("PiComposer under StrictMode", () => {
+  it("names the closed Composer's open button by its visible text", async () => {
+    const { container } = await renderUnderStrictMode({ mobile: false });
+    const open = container.querySelector<HTMLButtonElement>("button.pi-composer-open");
+    expect(open).not.toBeNull();
+    expect(open?.getAttribute("aria-label")?.toLowerCase()).toContain(
+      (open?.textContent ?? "").trim().toLowerCase(),
+    );
+    expect((open?.textContent ?? "").trim()).not.toBe("");
+  });
+
+  it("keeps every visible action label inside its accessible name", async () => {
+    const { container } = await renderUnderStrictMode();
+    const labels = [...container.querySelectorAll<HTMLElement>(".pi-composer-action-label")];
+    expect(labels.map((label) => label.textContent)).toEqual(["Slash", "File"]);
+    for (const label of labels) {
+      const name = label.closest("button")?.getAttribute("aria-label") ?? "";
+      expect(name.toLowerCase(), label.textContent ?? "").toContain((label.textContent ?? "").toLowerCase());
+    }
+    for (const button of container.querySelectorAll<HTMLButtonElement>("button.pi-composer-send, button.pi-composer-close")) {
+      const visible = (button.textContent ?? "").trim().toLowerCase();
+      expect(visible).not.toBe("");
+      expect(button.getAttribute("aria-label")?.toLowerCase()).toContain(visible);
+    }
+  });
+
+  it("names the desktop Close button by its visible Esc text", async () => {
+    const { container } = await renderUnderStrictMode({ mobile: false });
+    await act(async () => container.querySelector<HTMLButtonElement>("button.pi-composer-open")?.click());
+    const close = container.querySelector<HTMLButtonElement>("button.pi-composer-close");
+    expect(close).not.toBeNull();
+    const visible = (close?.textContent ?? "").trim().toLowerCase();
+    expect(visible).toBe("esc");
+    expect(close?.getAttribute("aria-label")?.toLowerCase()).toContain(visible);
+  });
+
   it("opens the Screenshot Editor from an Attachment Chip", async () => {
     const { container } = await renderUnderStrictMode();
     await attachImage(container);

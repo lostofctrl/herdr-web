@@ -85,8 +85,8 @@
 
 .reader-sheet-close {
   display: inline-grid;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   flex: none;
   place-items: center;
   padding: 0;
@@ -129,7 +129,7 @@
 
 .reader-sheet .reader-code pre {
   margin: 0;
-  padding-top: 38px;
+  padding-top: 56px;
   user-select: text;
   -webkit-user-select: text;
 }
@@ -140,10 +140,10 @@
   right: 6px;
   z-index: 1;
   display: inline-flex;
-  min-height: 32px;
+  min-height: 44px;
   align-items: center;
   gap: 5px;
-  padding: 0 9px;
+  padding: 0 12px;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   background: color-mix(in srgb, var(--mantle) 88%, black);

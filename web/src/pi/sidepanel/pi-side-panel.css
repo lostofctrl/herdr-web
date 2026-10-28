@@ -7,7 +7,7 @@
 
 .pi-side-panel {
   flex: 0 0 auto;
-  width: 56px;
+  width: 60px;
   transition: width 160ms ease;
   min-height: 0;
   overflow: auto;
@@ -24,11 +24,43 @@
 }
 
 .pi-side-panel > button {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.pi-side-panel button:focus-visible,
+.pi-side-panel select:focus-visible,
+.pi-side-panel input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.pi-side-panel button:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+/* Bridge state at a glance when the panel is collapsed to an icon. The dot appears only
+   while the bridge is offline, so the signal is its presence, not its colour. It is
+   decorative; the status text below stays available to assistive technology. */
+.pi-side-panel-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+}
+
+.pi-side-panel[data-open="true"] .pi-side-panel-dot {
+  position: static;
+  flex: none;
 }
 
 .pi-side-panel[data-open="false"] > button > span {
@@ -62,7 +94,19 @@
 }
 
 .pi-side-panel p {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+}
+
+/* Collapsed: 60px cannot hold the sentence, so only the dot is visible. */
+.pi-side-panel[data-open="false"] .pi-side-panel-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .pi-side-panel-catalog ul {
@@ -101,6 +145,28 @@
     width: 100%;
     padding: 8px;
     overflow: hidden;
+  }
+
+  /* Full-width on a phone: there is room for the label and the status text. */
+  .pi-side-panel[data-open="false"] > button > span {
+    display: inline;
+  }
+
+  .pi-side-panel[data-open="false"] .pi-side-panel-status {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 6px 0 0;
+    color: var(--subtext0);
+    font-size: 13px;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+  }
+
+  .pi-side-panel[data-open="false"] .pi-side-panel-dot {
+    position: static;
+    flex: none;
   }
 
   .pi-side-panel[data-open="true"] {

@@ -95,6 +95,7 @@ fn test_state(api_path: PathBuf) -> BridgeState {
             bind_host: "127.0.0.1".into(),
             bind_port: 0,
             allowed_hosts: vec![],
+            allow_host_any_port: false,
             allowed_origins: vec![],
             allowed_connect_sources: vec![],
         },
