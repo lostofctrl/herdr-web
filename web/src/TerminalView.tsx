@@ -1413,7 +1413,7 @@ export function TerminalView({
 
   const enqueueTerminalInput = (
     parts: string[],
-    options?: { onSettled?: (delivered: boolean) => void },
+    options?: { onSettled?: (deliveredParts: number, totalParts: number) => void },
   ) => {
     if (terminalInputBlockedRef.current) {
       showUploadStatus("Terminal detached", 2500);
@@ -1428,12 +1428,14 @@ export function TerminalView({
       inputQueueRef.current.push(...filteredParts.map((data) => ({ data })));
     } else {
       let remaining = filteredParts.length;
-      let delivered = true;
-      const settle = (ok: boolean) => {
-        delivered &&= ok;
+      let deliveredParts = 0;
+      const settle = (delivered: boolean) => {
+        if (delivered) {
+          deliveredParts += 1;
+        }
         remaining -= 1;
         if (remaining === 0) {
-          onSettled(delivered);
+          onSettled(deliveredParts, filteredParts.length);
         }
       };
       inputQueueRef.current.push(...filteredParts.map((data) => ({ data, settle })));
@@ -1450,7 +1452,7 @@ export function TerminalView({
    */
   const sendPiComposerPrompt = (
     parts: string[],
-    onDelivered: (delivered: boolean) => void,
+    onDelivered: (deliveredParts: number, totalParts: number) => void,
   ) => {
     const socket = socketRef.current;
     if (socket?.readyState !== WebSocket.OPEN) {

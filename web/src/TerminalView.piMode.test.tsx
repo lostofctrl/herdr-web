@@ -108,13 +108,12 @@ async function renderTerminalView({
   const root = createRoot(container);
   roots.push(root);
   const drafts = createCommandDraftStore();
-  await act(async () => {
-    root.render(
-      <CommandDraftContext.Provider value={drafts}>
+  const renderTree = (connectionKey: string) => (
+    <CommandDraftContext.Provider value={drafts}>
       <TerminalView
         bridgeId={BRIDGE_ID}
         pane={pane}
-        connectionKey="test-connection"
+        connectionKey={connectionKey}
         resumeToken={0}
         httpUrl={(path) => path}
         wsUrl={(path) => path}
@@ -123,10 +122,18 @@ async function renderTerminalView({
         terminalOutputCoalesceMs={0}
         selected
       />
-      </CommandDraftContext.Provider>,
-    );
+    </CommandDraftContext.Provider>
+  );
+  await act(async () => {
+    root.render(renderTree("test-connection"));
   });
-  return { root, container, paneId };
+  // Reconnect by swapping the connection key, keeping this pane and Composer mounted.
+  const reconnect = async () => {
+    await act(async () => {
+      root.render(renderTree(`test-connection-${TestSocket.instances.length}`));
+    });
+  };
+  return { root, container, paneId, reconnect };
 }
 
 async function unmount(root: Root) {
@@ -539,6 +546,49 @@ describe("TerminalView Pi Composer (Seam 3)", () => {
     });
 
     expect(container.querySelector('[aria-label="Pi prompt"]')).toBeNull();
+  });
+
+  it("submits a partially delivered prompt without pasting it again", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container, reconnect } = await renderTerminalView({
+      paneId,
+      pane,
+      mobile: true,
+    });
+    const socket = await openSocket();
+    await typePrompt(promptField(container), "submitted once");
+
+    await clickButton(container, "Send prompt");
+    expect(sentTerminalInput(socket)).toEqual(["\x1b[200~submitted once\x1b[201~"]);
+    // A terminal that cannot be retried drops the queued Enter after the paste landed.
+    await act(async () => {
+      socket.dispatchEvent(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "closed", reason: "terminal attach taken over" }),
+        }),
+      );
+      socket.dispatchEvent(new Event("close"));
+    });
+    await act(async () => vi.advanceTimersByTime(40));
+
+    expect(sentTerminalInput(socket)).toEqual(["\x1b[200~submitted once\x1b[201~"]);
+    expect(promptField(container).value).toBe("submitted once");
+    expect(
+      container.querySelector('[role="status"]')?.textContent,
+    ).toContain("reached Pi without Enter");
+
+    // After reattaching, Send finishes the submission instead of pasting again.
+    await reconnect();
+    const nextSocket = await openSocket();
+    await clickButton(container, "Submit prompt");
+    await act(async () => vi.advanceTimersByTime(40));
+
+    expect(sentTerminalInput(nextSocket)).toEqual(["\r"]);
+    expect(promptField(container).value).toBe("");
+    expect(
+      window.localStorage.getItem(piComposerDraftKey(BRIDGE_ID, PANE_A)),
+    ).toBeNull();
+    expect(container.querySelector('[role="status"]')).toBeNull();
   });
 
   it("delivers a pending prompt once even when Send is repeated", async () => {

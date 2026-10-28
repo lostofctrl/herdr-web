@@ -29,11 +29,15 @@ export type PiComposerProps = {
   focusToken?: number;
   /**
    * Queues the prompt on the terminal socket. Returns false when nothing was
-   * queued, which keeps the draft. `onDelivered` runs once every queued frame
-   * reached the socket, or once with `false` when the queue was dropped, so a
-   * cancelled send never clears the draft.
+   * queued, which keeps the draft. `onDelivered` reports how many of the queued
+   * frames reached the socket: `0` means nothing was sent, fewer than
+   * `totalParts` means a partially delivered prompt, so a cancelled send never
+   * clears the draft.
    */
-  onSend: (parts: string[], onDelivered: (delivered: boolean) => void) => boolean;
+  onSend: (
+    parts: string[],
+    onDelivered: (deliveredParts: number, totalParts: number) => void,
+  ) => boolean;
   onTerminalFocus: () => void;
   onControlsHeightChange: (heightPx: number | null) => void;
 };
@@ -65,6 +69,8 @@ export function PiComposer({
   const pendingSendRef = useRef(false);
   const [value, setValue] = usePiComposerDraft(bridgeId, paneId);
   const [open, setOpen] = useState(mobile);
+  /** The prompt text reached Pi but its Enter did not, so resending must not paste again. */
+  const [awaitingSubmit, setAwaitingSubmit] = useState(false);
   acceptedValueRef.current = value;
 
   useEffect(() => {
@@ -187,22 +193,29 @@ export function PiComposer({
     if (disabled || composingRef.current || pendingSendRef.current) {
       return;
     }
-    const parts = piComposerDeliveryParts(value);
+    // A partially delivered prompt already sits in Pi's editor, so finishing it
+    // must send the Enter alone instead of pasting the text a second time.
+    const parts = awaitingSubmit ? ["\r"] : piComposerDeliveryParts(value);
     // A blank draft would submit an empty prompt, so it is never delivered.
-    if (parts.length === 0 || value.trim().length === 0) {
+    if (parts.length === 0 || (!awaitingSubmit && value.trim().length === 0)) {
       return;
     }
     const sentValue = value;
     pendingSendRef.current = true;
     let settled = false;
-    const accepted = onSend(parts, (delivered) => {
+    const accepted = onSend(parts, (deliveredParts, totalParts) => {
       settled = true;
       pendingSendRef.current = false;
-      if (delivered) {
+      if (deliveredParts === totalParts) {
+        setAwaitingSubmit(false);
         if (acceptedValueRef.current === sentValue) {
           clearAcceptedValue();
         }
+        return;
       }
+      // Keep the text so the prompt is recoverable, but record that Pi already
+      // has it, so the next send only finishes the submission.
+      setAwaitingSubmit(deliveredParts > 0);
     });
     if (!accepted && !settled) {
       pendingSendRef.current = false;
@@ -251,6 +264,11 @@ export function PiComposer({
       data-mobile-controls={mobile ? "true" : "false"}
     >
       {keyBar}
+      {awaitingSubmit ? (
+        <p className="pi-composer-recovery" role="status">
+          Prompt text reached Pi without Enter. Send submits it without pasting again.
+        </p>
+      ) : null}
       <form
         className="term-input-row pi-composer-row"
         data-expanding="true"
@@ -289,8 +307,8 @@ export function PiComposer({
           className="term-send pi-composer-send"
           type="submit"
           disabled={disabled || value.trim().length === 0}
-          aria-label="Send prompt"
-          title="Send (Ctrl+Enter)"
+          aria-label={awaitingSubmit ? "Submit prompt" : "Send prompt"}
+          title={awaitingSubmit ? "Submit the pasted prompt" : "Send (Ctrl+Enter)"}
         >
           <Send size={16} />
           <span className="pi-composer-send-label">Send</span>

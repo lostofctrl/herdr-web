@@ -213,7 +213,8 @@ opens it with Ctrl+Space and sends with Ctrl+Enter. On a phone Enter inserts a n
 Send button sends. Delivery is one bracketed paste plus Enter, so Pi itself decides whether the text
 is a prompt, steer, follow-up, `/command`, or `!bash`. Pi Composer drafts are kept per bridge and pane
 in browser storage, survive reloads, and are cleared only after the terminal socket accepted the
-prompt.
+prompt. If the text reached Pi but its Enter did not, the Composer says so and Send submits the
+prompt without pasting the text again.
 
 Terminal input payloads can be sent as JSON or binary WebSocket frames. JSON remains the default;
 binary is available for comparing terminal input performance. Terminal input batching is off by

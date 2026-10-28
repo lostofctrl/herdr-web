@@ -14,6 +14,14 @@
   border-top-color: var(--accent);
 }
 
+/* Partial delivery: the prompt text is already in Pi, only Enter is missing. */
+.pi-composer-recovery {
+  margin: 0;
+  color: var(--yellow);
+  font-size: clamp(11px, calc(12px * var(--mobile-controls-scale)), 15px);
+  line-height: 1.3;
+}
+
 .pi-composer-input {
   min-height: 40px;
   max-height: 40vh;
