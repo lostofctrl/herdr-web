@@ -1,7 +1,12 @@
 import { Send, TextCursorInput } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { KeyboardEvent, RefObject } from "react";
+import type { ChangeEvent, KeyboardEvent, ReactNode, RefObject } from "react";
 
+import {
+  compositionGuardDeadline,
+  isLateCompositionEdit,
+} from "../commandTextFieldGuard";
+import { hasOpenMenu, hasOpenModal, isShortcutTextEntryTarget } from "../keyboardShortcutTargets";
 import { autosizeMobileCommandTextarea } from "../mobileCommandTextarea";
 import { piComposerDeliveryParts } from "./piComposerDelivery";
 import { usePiComposerDraft } from "./piComposerDraft";
@@ -12,7 +17,9 @@ export type PiComposerProps = {
   paneId: string;
   /** Phone layout: always open, Enter inserts a newline, tap the big Send button. */
   mobile: boolean;
-  /** Whether this pane owns keyboard focus (selected or focused pane). */
+  /** Phone Key Bar and chord composer rendered above the prompt field. */
+  keyBar?: ReactNode;
+  /** Whether this pane owns keyboard focus (only the selected pane opens on Ctrl+Space). */
   active: boolean;
   /** Terminal is not attached, so sending would be lost. */
   disabled: boolean;
@@ -20,8 +27,13 @@ export type PiComposerProps = {
   inputRef?: RefObject<HTMLTextAreaElement | null>;
   /** Parent focus request token; focuses the field while the Composer is open. */
   focusToken?: number;
-  /** Returns true only when the bytes were handed to the terminal socket. */
-  onSend: (parts: string[]) => boolean;
+  /**
+   * Queues the prompt on the terminal socket. Returns false when nothing was
+   * queued, which keeps the draft. `onDelivered` runs once every queued frame
+   * reached the socket, or once with `false` when the queue was dropped, so a
+   * cancelled send never clears the draft.
+   */
+  onSend: (parts: string[], onDelivered: (delivered: boolean) => void) => boolean;
   onTerminalFocus: () => void;
   onControlsHeightChange: (heightPx: number | null) => void;
 };
@@ -34,6 +46,7 @@ export function PiComposer({
   bridgeId,
   paneId,
   mobile,
+  keyBar,
   active,
   disabled,
   inputRef,
@@ -46,8 +59,13 @@ export function PiComposer({
   const fieldRef = useRef<HTMLTextAreaElement | null>(null);
   const focusOnOpenRef = useRef(false);
   const composingRef = useRef(false);
+  // Guards survive re-renders and keep a sent value from being restored.
+  const compositionGuardUntilRef = useRef(0);
+  const acceptedValueRef = useRef("");
+  const pendingSendRef = useRef(false);
   const [value, setValue] = usePiComposerDraft(bridgeId, paneId);
   const [open, setOpen] = useState(mobile);
+  acceptedValueRef.current = value;
 
   useEffect(() => {
     if (mobile) {
@@ -68,12 +86,14 @@ export function PiComposer({
   const openComposer = useCallback(() => {
     focusOnOpenRef.current = true;
     setOpen(true);
+    // Ctrl+Space also returns focus to an already open Composer.
+    fieldRef.current?.focus();
   }, []);
 
   const closeComposer = useCallback(() => {
-    setOpen(mobile);
+    setOpen(false);
     onTerminalFocus();
-  }, [mobile, onTerminalFocus]);
+  }, [onTerminalFocus]);
 
   // Desktop defaults to terminal focus; Ctrl+Space is the only way in.
   useEffect(() => {
@@ -88,6 +108,11 @@ export function PiComposer({
         !event.metaKey &&
         !event.shiftKey
       ) {
+        // Ctrl+Space is an app shortcut, so it never steals a key from a text
+        // field, an open dialog, or an open menu.
+        if (hasOpenModal() || hasOpenMenu() || isShortcutTextEntryTarget(event.target)) {
+          return;
+        }
         event.preventDefault();
         openComposer();
       }
@@ -139,16 +164,48 @@ export function PiComposer({
     };
   }, [onControlsHeightChange, open]);
 
+  const clearAcceptedValue = useCallback(() => {
+    // Reject delayed IME composition edits that would otherwise restore the sent
+    // text into the field and the stored draft, mirroring the command composer.
+    compositionGuardUntilRef.current = compositionGuardDeadline();
+    acceptedValueRef.current = "";
+    setValue("");
+  }, [setValue]);
+
+  const onFieldChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
+    if (isLateCompositionEdit(event.nativeEvent, compositionGuardUntilRef.current)) {
+      event.currentTarget.value = acceptedValueRef.current;
+      return;
+    }
+    acceptedValueRef.current = event.currentTarget.value;
+    setValue(event.currentTarget.value);
+  };
+
   const send = () => {
-    if (disabled || composingRef.current) {
+    // The draft clears only after the last frame reaches the socket, so a second
+    // Send or Ctrl+Enter while that is pending would deliver the prompt twice.
+    if (disabled || composingRef.current || pendingSendRef.current) {
       return;
     }
     const parts = piComposerDeliveryParts(value);
-    if (parts.length === 0) {
+    // A blank draft would submit an empty prompt, so it is never delivered.
+    if (parts.length === 0 || value.trim().length === 0) {
       return;
     }
-    if (onSend(parts)) {
-      setValue("");
+    const sentValue = value;
+    pendingSendRef.current = true;
+    let settled = false;
+    const accepted = onSend(parts, (delivered) => {
+      settled = true;
+      pendingSendRef.current = false;
+      if (delivered) {
+        if (acceptedValueRef.current === sentValue) {
+          clearAcceptedValue();
+        }
+      }
+    });
+    if (!accepted && !settled) {
+      pendingSendRef.current = false;
     }
   };
 
@@ -156,7 +213,7 @@ export function PiComposer({
     if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
       return;
     }
-    if (event.key === "Escape") {
+    if (event.key === "Escape" && !mobile) {
       event.preventDefault();
       closeComposer();
       return;
@@ -193,6 +250,7 @@ export function PiComposer({
       className="terminal-command-controls pi-composer"
       data-mobile-controls={mobile ? "true" : "false"}
     >
+      {keyBar}
       <form
         className="term-input-row pi-composer-row"
         data-expanding="true"
@@ -211,12 +269,16 @@ export function PiComposer({
           autoCapitalize="sentences"
           autoComplete="off"
           autoCorrect="on"
+          enterKeyHint={mobile ? "enter" : "send"}
           spellCheck
           disabled={disabled}
           value={value}
-          onChange={(event) => setValue(event.target.value)}
+          onChange={onFieldChange}
           onCompositionStart={() => {
             composingRef.current = true;
+            // A new composition belongs to the next prompt, so it must not be
+            // treated as a late edit of the one that was just sent.
+            compositionGuardUntilRef.current = 0;
           }}
           onCompositionEnd={() => {
             composingRef.current = false;
@@ -226,7 +288,7 @@ export function PiComposer({
         <button
           className="term-send pi-composer-send"
           type="submit"
-          disabled={disabled || value.length === 0}
+          disabled={disabled || value.trim().length === 0}
           aria-label="Send prompt"
           title="Send (Ctrl+Enter)"
         >

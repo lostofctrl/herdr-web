@@ -6,6 +6,12 @@
 
 ### Added
 
+- Add a native Pi Composer for Pi panes that delivers the whole prompt as one bracketed paste plus
+  Enter, so Pi's own editor still decides between prompt, steer, follow-up, slash command, and bash.
+  Phone layouts keep the Key Bar, chord composer, and upload next to it; desktop opens it with
+  Ctrl+Space and sends with Ctrl+Enter. Per-pane drafts survive pane switches and reloads, and are
+  cleared only after the terminal socket accepted the prompt.
+
 ### Changed
 
 ### Fixed

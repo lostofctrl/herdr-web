@@ -51,6 +51,37 @@ export function writePiComposerDraft(
 }
 
 /**
+ * Drops stored drafts for panes that are gone from a successful, complete
+ * bridge snapshot, so closed panes cannot grow browser storage forever.
+ * Call only with a current, complete snapshot, like the command draft store.
+ */
+export function retainPiComposerDrafts(
+  bridgeId: string,
+  paneIds: readonly string[],
+  storage: Storage | null = storageOrNull(),
+) {
+  if (!storage) {
+    return;
+  }
+  const prefix = `${STORAGE_PREFIX}:${encodeURIComponent(bridgeId)}:`;
+  const live = new Set(paneIds.map((paneId) => piComposerDraftKey(bridgeId, paneId)));
+  try {
+    const stale: string[] = [];
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key?.startsWith(prefix) && !live.has(key)) {
+        stale.push(key);
+      }
+    }
+    for (const key of stale) {
+      storage.removeItem(key);
+    }
+  } catch {
+    // A read-only or full storage must never break a snapshot update.
+  }
+}
+
+/**
  * Pi Composer draft that outlives the component: unlike the in-memory command
  * draft store, this survives a reload. Mount the Composer with a
  * `key` of `bridgeId + paneId` so switching panes re-reads the right draft.

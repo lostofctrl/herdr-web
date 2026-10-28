@@ -1,5 +1,6 @@
 import { useTerminalFocusRequest } from "./useTerminalFocusRequest";
 import { useCommandDraft } from "./commandDrafts";
+import { compositionGuardDeadline, isLateCompositionEdit } from "./commandTextFieldGuard";
 import {
   Copy,
   ExternalLink,
@@ -143,6 +144,11 @@ type UploadConflictState = {
   path: string;
   resolve: (replace: boolean) => void;
 };
+/** Queued terminal input, with an optional delivery result for senders that must not lose data. */
+type QueuedTerminalInput = {
+  data: string;
+  settle?: (delivered: boolean) => void;
+};
 type MobileSelectionAction = {
   text: string;
   url: string;
@@ -207,6 +213,7 @@ export function TerminalView({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mobileCommandInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const piComposerInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const piPaneRef = useRef(false);
   const rendererRef = useRef<TerminalRenderer | null>(null);
   const rendererGenerationRef = useRef(0);
   const rendererReadyRef = useRef<TerminalRendererReady | null>(null);
@@ -215,7 +222,7 @@ export function TerminalView({
   const terminalInputBlockedRef = useRef(false);
   const uploadInputId = useId();
   const sendResizeRef = useRef<(size: TerminalSize) => void>(() => {});
-  const inputQueueRef = useRef<string[]>([]);
+  const inputQueueRef = useRef<QueuedTerminalInput[]>([]);
   const inputFlushTimerRef = useRef<number | null>(null);
   const batchedInputRef = useRef(emptyTerminalInputBatch());
   const batchedInputFlushTimerRef = useRef<number | null>(null);
@@ -271,6 +278,11 @@ export function TerminalView({
       piInput.focus();
       return true;
     }
+    // A Pi Pane without an open Composer has no text field, so focus belongs to
+    // the terminal instead of a command input that is not rendered.
+    if (piPaneRef.current) {
+      return false;
+    }
     if (!mobileControlsRef.current && !desktopCommandComposerRef.current) {
       return false;
     }
@@ -292,6 +304,9 @@ export function TerminalView({
       `${Math.ceil(heightPx)}px`,
     );
   }, []);
+
+  // The Pi Composer key bar is measured through its parent, which owns the whole stack.
+  const ignoreControlsHeightChange = useCallback(() => {}, []);
 
   const focusTerminalKeyboardInput = useCallback(() => {
     rendererRef.current?.focusTextInput();
@@ -410,10 +425,14 @@ export function TerminalView({
   }, []);
 
   const clearQueuedTerminalInput = useCallback(() => {
+    const dropped = inputQueueRef.current;
     inputQueueRef.current = [];
     if (inputFlushTimerRef.current !== null) {
       window.clearTimeout(inputFlushTimerRef.current);
       inputFlushTimerRef.current = null;
+    }
+    for (const item of dropped) {
+      item.settle?.(false);
     }
   }, []);
 
@@ -430,7 +449,8 @@ export function TerminalView({
       }
       const next = inputQueueRef.current.shift();
       if (next !== undefined) {
-        sendTerminalInputFrame(socket, next);
+        sendTerminalInputFrame(socket, next.data);
+        next.settle?.(true);
       }
       if (inputQueueRef.current.length > 0) {
         inputFlushTimerRef.current = window.setTimeout(flush, 35);
@@ -841,10 +861,17 @@ export function TerminalView({
         if (size) {
           sendResize(size);
         }
-        if (autoFocusRef.current && !desktopCommandComposerRef.current) {
+        if (autoFocusRef.current && (!desktopCommandComposerRef.current || piPaneRef.current)) {
           window.setTimeout(() => {
             if (!disposed && socket === nextSocket && autoFocusRef.current &&
-                !desktopCommandComposerRef.current) {
+                (!desktopCommandComposerRef.current || piPaneRef.current)) {
+              // A mounted Pi Composer owns the keyboard, so terminal autofocus must
+              // not steal focus back into the raw terminal.
+              const composerInput = piComposerInputRef.current;
+              if (composerInput) {
+                composerInput.focus();
+                return;
+              }
               ready.renderer.focus();
             }
           }, 0);
@@ -1123,9 +1150,13 @@ export function TerminalView({
   // Selection changes alone must not override a direct click into a split terminal.
   useEffect(() => {
     if (connectionState === "attached" && autoFocusRef.current &&
-        desktopCommandComposerRef.current && !mobileControlsRef.current) {
+        !mobileControlsRef.current &&
+        (desktopCommandComposerRef.current || piPaneRef.current)) {
       if (terminalAttachCountRef.current === 1 || !hostRef.current?.contains(document.activeElement)) {
-        focusCommandInput();
+        // A Pi Pane with a closed Composer has no text field, so fall back to the terminal.
+        if (!focusCommandInput()) {
+          rendererRef.current?.focusTextInput();
+        }
       }
     }
   }, [connectionState, focusCommandInput]);
@@ -1380,7 +1411,10 @@ export function TerminalView({
     void uploadAndInsert(files);
   };
 
-  const enqueueTerminalInput = (parts: string[]) => {
+  const enqueueTerminalInput = (
+    parts: string[],
+    options?: { onSettled?: (delivered: boolean) => void },
+  ) => {
     if (terminalInputBlockedRef.current) {
       showUploadStatus("Terminal detached", 2500);
       return false;
@@ -1389,12 +1423,45 @@ export function TerminalView({
     if (filteredParts.length === 0) {
       return false;
     }
-    inputQueueRef.current.push(...filteredParts);
+    const onSettled = options?.onSettled;
+    if (!onSettled) {
+      inputQueueRef.current.push(...filteredParts.map((data) => ({ data })));
+    } else {
+      let remaining = filteredParts.length;
+      let delivered = true;
+      const settle = (ok: boolean) => {
+        delivered &&= ok;
+        remaining -= 1;
+        if (remaining === 0) {
+          onSettled(delivered);
+        }
+      };
+      inputQueueRef.current.push(...filteredParts.map((data) => ({ data, settle })));
+    }
     flushQueuedTerminalInput();
     return true;
   };
 
+  /**
+   * Sends a Pi Composer prompt. Returns false when nothing was queued, so the
+   * caller keeps the draft, and reports delivery only once every frame reached
+   * the socket. The terminal can still detach between frames, which settles the
+   * queue as not delivered instead of clearing the draft.
+   */
+  const sendPiComposerPrompt = (
+    parts: string[],
+    onDelivered: (delivered: boolean) => void,
+  ) => {
+    const socket = socketRef.current;
+    if (socket?.readyState !== WebSocket.OPEN) {
+      showUploadStatus("Terminal detached", 2500);
+      return false;
+    }
+    return enqueueTerminalInput(parts, { onSettled: onDelivered });
+  };
+
   const piPane = isPiPane(pane);
+  piPaneRef.current = piPane;
   const showCommandControls = mobileControls || desktopCommandComposer || piPane;
 
   return (
@@ -1461,11 +1528,33 @@ export function TerminalView({
           bridgeId={bridgeId}
           paneId={pane.pane_id}
           mobile={mobileControls}
-          active={selected || pane.focused}
+          keyBar={
+            mobileControls ? (
+              <TerminalCommandControls
+                keyBarOnly
+                bridgeId={bridgeId}
+                paneId={pane.pane_id}
+                commandInputRef={mobileCommandInputRef}
+                disabled={connectionState !== "attached"}
+                uploadDisabled={uploadDisabled}
+                expandingInput={mobileCommandExpandingInput}
+                enterNewline={mobileCommandEnterNewline}
+                mobileControls
+                controlsScalePercent={mobileControlsScalePercent}
+                onControlsHeightChange={ignoreControlsHeightChange}
+                onInput={sendTerminalInputData}
+                onTerminalFocus={() => rendererRef.current?.focusTextInput()}
+                onUpload={openFilePicker}
+                onStageCommand={() => {}}
+                onSubmitCommand={() => {}}
+              />
+            ) : null
+          }
+          active={selected}
           disabled={connectionState !== "attached"}
           inputRef={piComposerInputRef}
           focusToken={focusToken}
-          onSend={(parts) => enqueueTerminalInput(parts)}
+          onSend={sendPiComposerPrompt}
           onTerminalFocus={() => rendererRef.current?.focusTextInput()}
           onControlsHeightChange={setCommandControlsHeight}
         />
@@ -1587,6 +1676,7 @@ export function TerminalCommandControls({
   mobileControls,
   mobileFocusAfterSubmit = false,
   controlsScalePercent,
+  keyBarOnly = false,
   onControlsHeightChange,
   onInput,
   onTerminalFocus,
@@ -1604,6 +1694,8 @@ export function TerminalCommandControls({
   mobileControls: boolean;
   mobileFocusAfterSubmit?: boolean;
   controlsScalePercent: number;
+  /** Renders only the Key Bar and chord composer, for a host that owns the text row. */
+  keyBarOnly?: boolean;
   onControlsHeightChange: (heightPx: number | null) => void;
   onInput: (data: string) => void;
   onTerminalFocus: () => void;
@@ -1620,13 +1712,7 @@ export function TerminalCommandControls({
     acceptedValueRef.current = value;
   }, [value]);
   const onCommandChange = (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const input = event.nativeEvent;
-    if (
-      performance.now() < compositionGuardUntilRef.current &&
-      input instanceof InputEvent &&
-      (input.isComposing || input.inputType === "insertCompositionText" ||
-        input.inputType === "insertFromComposition" || input.inputType === "deleteCompositionText")
-    ) {
+    if (isLateCompositionEdit(event.nativeEvent, compositionGuardUntilRef.current)) {
       // Native composition edits may not be cancelable. Restore synchronously
       // without blurring, remounting again, or clearing subsequent accepted input.
       event.currentTarget.value = acceptedValueRef.current;
@@ -1646,7 +1732,7 @@ export function TerminalCommandControls({
     commandInputRef.current = node;
   };
   const clearCommandInput = () => {
-    compositionGuardUntilRef.current = performance.now() + 250;
+    compositionGuardUntilRef.current = compositionGuardDeadline();
     acceptedValueRef.current = "";
     setValue("");
     const node = commandInputRef.current;
@@ -1762,6 +1848,9 @@ export function TerminalCommandControls({
   }, [commandInputRef, controlsScalePercent, expandingInput, fieldKey, value]);
 
   useLayoutEffect(() => {
+    if (keyBarOnly) {
+      return;
+    }
     const root = rootRef.current;
     if (!root) {
       onControlsHeightChange(null);
@@ -1782,7 +1871,7 @@ export function TerminalCommandControls({
       observer.disconnect();
       onControlsHeightChange(null);
     };
-  }, [onControlsHeightChange]);
+  }, [keyBarOnly, onControlsHeightChange]);
 
   const onCommandTextareaKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
@@ -1827,7 +1916,7 @@ export function TerminalCommandControls({
   return (
     <div
       ref={rootRef}
-      className="terminal-command-controls"
+      className={keyBarOnly ? "pi-composer-key-bar" : "terminal-command-controls"}
       data-expanded={mobileControls && (composerOpen || moreKeysOpen) ? "true" : "false"}
       data-mobile-controls={mobileControls ? "true" : "false"}
       data-composing={mobileControls && composerOpen ? "true" : "false"}
@@ -1863,7 +1952,7 @@ export function TerminalCommandControls({
           >
             <Paperclip size={15} />
           </button>
-          {stageCommandButton}
+          {keyBarOnly ? null : stageCommandButton}
           <button
             className="term-key term-key-icon"
             type="button"
@@ -1994,6 +2083,7 @@ export function TerminalCommandControls({
         </div>
       ) : null}
 
+      {keyBarOnly ? null : (
       <form
         className="term-input-row"
         data-expanding={expandingInput ? "true" : "false"}
@@ -2048,6 +2138,7 @@ export function TerminalCommandControls({
           <Send size={16} />
         </button>
       </form>
+      )}
     </div>
   );
 }

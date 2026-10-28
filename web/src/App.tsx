@@ -1,4 +1,6 @@
 import { CommandDraftContext, createCommandDraftStore } from "./commandDrafts";
+import { hasOpenModal, isShortcutTextEntryTarget } from "./keyboardShortcutTargets";
+import { retainPiComposerDrafts } from "./pi-mode/piComposerDraft";
 import { linkedWorkspaceLabels } from "./workspaceClose";
 import {
   Activity,
@@ -1359,7 +1361,9 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
   useEffect(() => {
     for (const { runtime, snapshot, loadState } of bridgeViews) {
       if (runtime.canConnect && loadState === "ready" && snapshot) {
-        commandDrafts.retainPanes(runtime.id, snapshot.panes.map((pane) => pane.pane_id));
+        const paneIds = snapshot.panes.map((pane) => pane.pane_id);
+        commandDrafts.retainPanes(runtime.id, paneIds);
+        retainPiComposerDrafts(runtime.id, paneIds);
       }
     }
   }, [bridgeViews, commandDrafts]);
@@ -5889,25 +5893,6 @@ function activeShortcutTab(
     return null;
   }
   return snapshot.tabs.find((tab) => tab.tab_id === tabId) ?? null;
-}
-
-function isShortcutTextEntryTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-  if (target.classList.contains("ghostty-hidden-input")) {
-    return false;
-  }
-  if (target.isContentEditable) {
-    return true;
-  }
-  return target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement;
-}
-
-function hasOpenModal() {
-  return document.querySelector(".overlay-root [role='dialog']") !== null;
 }
 
 function SplitGrid({
