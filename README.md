@@ -428,7 +428,9 @@ API and WebSocket requests must use an allowed bridge `Host` header. Browser-ori
 must also be same-origin with the bridge, an explicitly allowed origin such as Android's
 `http://localhost`, or a loopback development proxy origin allowed for Vite. Hostname backends must
 be explicitly allowed with `--allow-host HOSTNAME`. This is a DNS-rebinding/CSRF guard, not user
-authentication.
+authentication. A reverse proxy that terminates its own public port forwards the original `Host`
+header, so the forwarded authority port never matches the bridge port; add `--allow-host-any-port`
+to accept an already allowed hostname on any port. It widens only the explicitly allowed hostnames.
 
 Bridge-owned notes are part of that same request policy. Any allowed bridge client can read and
 mutate saved note content, including clients connecting over a trusted LAN when the bridge is bound

@@ -37,6 +37,17 @@ bin/herdr-web --host 0.0.0.0 --port 4000 \
 
 Then add the bridge URL in the Android app's Bridge area of Settings.
 
+If a reverse proxy terminates its own public port and forwards the original `Host` header, the
+forwarded authority port never matches the bridge port. Add `--allow-host-any-port` to accept an
+already allowed hostname on any port; it widens only the hostnames listed with `--allow-host`:
+
+```bash
+bin/herdr-web --host 0.0.0.0 --port 4000 \
+  --allow-origin https://herdr.example \
+  --allow-host herdr.example \
+  --allow-host-any-port
+```
+
 For browser-served multi-bridge use, configure both directions. The bridge being called must allow
 the web page origin with `--allow-origin`; the bridge serving the web page must allow that page to
 connect out with `--allow-connect-origin`. For example, a page opened from `http://host-a:8787` that

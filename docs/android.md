@@ -68,6 +68,17 @@ HOST=0.0.0.0 PORT=4000 scripts/run-bridge.sh \
   --allow-host herdr-host.local
 ```
 
+If a reverse proxy terminates its own public port and forwards the original `Host` header, the
+forwarded authority port never matches the bridge port. Add `--allow-host-any-port` to accept an
+already allowed hostname on any port; it widens only the hostnames listed with `--allow-host`:
+
+```bash
+HOST=0.0.0.0 PORT=4000 scripts/run-bridge.sh \
+  --allow-origin https://herdr.example \
+  --allow-host herdr.example \
+  --allow-host-any-port
+```
+
 `--allow-origin` is the Android-relevant setting because the bundled WebView does not load its page
 from a bridge. Browser-served multi-bridge pages have an additional Content Security Policy gate on
 the bridge serving the page; use `--allow-connect-origin http://other-bridge:8787` there when that

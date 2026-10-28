@@ -19,3 +19,4 @@
 # Local acceptance-test artifacts and browser session dumps
 /.artifacts/
 /.playwright-cli/
+/graft

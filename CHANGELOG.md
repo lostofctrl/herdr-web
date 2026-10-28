@@ -70,6 +70,9 @@
   bridge port, so every `/api` and `/ws` request was rejected with 403 and the web app stayed on
   "Connecting" with no capabilities. The opt-in widens only hostnames already allowed by
   `--allow-host`.
+- Bridge: a rejected `Host` no longer reports "cross-origin requests are not allowed". A port
+  mismatch on an already allowed hostname now names `--allow-host-any-port`, an unknown hostname
+  names `--allow-host`, and only a real origin rejection keeps the cross-origin wording.
 - Pi mode: the skills catalog now lists entries from `pi.getCommands()` whose source is
   `skill`, so Composer `/` suggestions include skills instead of reporting an empty
   catalog. Skills are not duplicated as commands, and a host without `getCommands()`
