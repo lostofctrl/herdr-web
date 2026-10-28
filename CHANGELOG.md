@@ -95,6 +95,10 @@
   traffic within 15 seconds, removing dead transports without claiming to detect frozen JavaScript.
   [PR #93](https://github.com/kcosr/herdr-web/pull/93), contributed by
   [Will Hampson (@Whamp)](https://github.com/Whamp).
+- Accept `--allow-host` hostnames regardless of the request's Host-header port, so a reverse proxy
+  terminating HTTPS on a different port (for example 443 or 8790) can forward to a bridge bound on
+  another port. The DNS-rebinding guard still requires an exact hostname match; only the implicit
+  same-bind-port requirement was dropped for explicitly allow-listed hosts.
 
 ## [0.6.1] - 2026-09-12
 

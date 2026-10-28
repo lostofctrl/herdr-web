@@ -983,7 +983,7 @@ Defaults to the active Herdr daemon sockets and 127.0.0.1:8787.\n\
 Use --session NAME to target a named Herdr session and ignore HERDR_SOCKET_PATH.\n\
 Use --host 0.0.0.0 to listen on non-loopback interfaces.\n\
 Use --allow-origin http://localhost for bundled Android app access.\n\
-Use --allow-host HOSTNAME to accept that exact DNS hostname in Host headers.\n\
+Use --allow-host HOSTNAME to accept that exact DNS hostname in Host headers on any port.\n\
 Use --allow-connect-origin ORIGIN to let the served web app connect to another bridge origin.\n\
 Use --launcher-presets PATH or HERDR_WEB_LAUNCHER_PRESETS to load custom launch presets.\n\
 Uploads default to HERDR_WEB_UPLOAD_DIR, XDG_DATA_HOME/herdr-web/uploads, or ~/.local/share/herdr-web/uploads."
@@ -1509,16 +1509,16 @@ fn host_authority_allowed(authority: &str, policy: &RequestPolicy) -> bool {
         return true;
     }
 
-    if !authority_port_matches(authority, policy.bind_port) {
-        return false;
-    }
-
     if policy
         .allowed_hosts
         .iter()
         .any(|allowed| host.eq_ignore_ascii_case(allowed))
     {
         return true;
+    }
+
+    if !authority_port_matches(authority, policy.bind_port) {
+        return false;
     }
 
     if is_unspecified_bind_host(&policy.bind_host) {
@@ -6472,7 +6472,7 @@ mod tests {
     }
 
     #[test]
-    fn host_gate_accepts_configured_hostname_only_on_bridge_port() {
+    fn host_gate_accepts_configured_hostname_on_any_port() {
         let policy = RequestPolicy {
             bind_host: "0.0.0.0".to_string(),
             bind_port: 4000,
@@ -6482,7 +6482,8 @@ mod tests {
         };
         assert!(host_authority_allowed("herdr-host.local:4000", &policy));
         assert!(host_authority_allowed("HERDR-HOST.LOCAL:4000", &policy));
-        assert!(!host_authority_allowed("herdr-host.local:8787", &policy));
+        assert!(host_authority_allowed("herdr-host.local:8787", &policy));
+        assert!(host_authority_allowed("herdr-host.local", &policy));
         assert!(!host_authority_allowed("evil.example:4000", &policy));
     }
 
