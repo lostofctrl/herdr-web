@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Repo-local wrapper: serves web/dist through the debug bridge binary.
+# ponytail: debug-only convenience; release tarballs keep the packaging-script
+# wrapper (release binary + share/herdr-web/web). Upgrade path: reuse that layout.
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BIN="${BIN:-$ROOT/bridge/target/debug/herdr-web-bridge}"
+STATIC_DIR="${STATIC_DIR:-$ROOT/web/dist}"
+
+if [[ ! -x "$BIN" ]]; then
+  echo "bridge binary not found: $BIN" >&2
+  echo "run: npm run bridge:build" >&2
+  exit 1
+fi
+
+exec "$BIN" --static-dir "$STATIC_DIR" "$@"
