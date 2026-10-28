@@ -160,6 +160,23 @@ function keyLabels(container: HTMLElement) {
   );
 }
 
+/** The visible glyph or word of every key, excluding the trailing chord toggle. */
+function keyGlyphs(container: HTMLElement) {
+  return [...container.querySelectorAll(".pi-key-bar-row button .pi-key-bar-glyph")]
+    .map((glyph) => glyph.textContent ?? "")
+    .slice(0, -1);
+}
+
+/** Every visible hint must be part of its button's accessible name (label in name). */
+function expectHintsInNames(container: HTMLElement, expectedHints: number) {
+  const hints = [...container.querySelectorAll<HTMLElement>(".pi-key-bar-row .pi-key-bar-hint")];
+  expect(hints).toHaveLength(expectedHints);
+  for (const hint of hints) {
+    const name = hint.closest("button")?.getAttribute("aria-label") ?? "";
+    expect(name.toLowerCase(), hint.textContent ?? "").toContain((hint.textContent ?? "").toLowerCase());
+  }
+}
+
 async function clickKey(container: HTMLElement, ariaLabel: string) {
   const button = container.querySelector<HTMLButtonElement>(
     `button[aria-label="${ariaLabel}"]`,
@@ -183,7 +200,7 @@ describe("TerminalView Pi Key Bar (Seam 3)", () => {
     const { terminal } = await openSockets();
     expect(sentTerminalInput(terminal)).toEqual([]);
     expect(keyLabels(container)).toEqual([
-      "Command",
+      "Slash command",
       "File",
       "Shell command",
       "Cycle thinking level",
@@ -191,24 +208,30 @@ describe("TerminalView Pi Key Bar (Seam 3)", () => {
       "Previous prompt",
       "Compose any key",
     ]);
+    expectHintsInNames(container, 7);
+    expect(keyGlyphs(container)).toEqual(["/", "@", "!", "⇥", "⌃O", "↑"]);
 
     await showState("busy");
     expect(keyLabels(container)).toEqual([
-      "Abort the current run",
+      "Stop the current run",
       "Steer the current run",
       "Queue a follow-up",
       "Toggle tool output",
       "Compose any key",
     ]);
+    expectHintsInNames(container, 2);
+    expect(keyGlyphs(container)).toEqual(["Stop", "Steer", "Queue", "⌃O"]);
 
     await showState("dialog");
     expect(keyLabels(container).slice(0, 5)).toEqual([
       "Previous choice",
       "Next choice",
-      "Confirm choice",
-      "Cancel dialog",
-      "Toggle choice",
+      "Confirm choice (Enter)",
+      "Cancel dialog (Esc)",
+      "Toggle choice (Space)",
     ]);
+    expectHintsInNames(container, 3);
+    expect(keyGlyphs(container)).toEqual(["↑", "↓", "Enter", "Esc", "Space"]);
   });
 
   it("writes each key's exact terminal sequence", async () => {
@@ -217,18 +240,18 @@ describe("TerminalView Pi Key Bar (Seam 3)", () => {
 
     await clickKey(container, "Cycle thinking level");
     await clickKey(container, "Previous prompt");
-    await clickKey(container, "Command");
+    await clickKey(container, "Slash command");
     await act(async () => vi.advanceTimersByTime(40));
 
     expect(sentTerminalInput(terminal)).toEqual(["\x1b[Z", "\x1b[A", "/"]);
 
     await showState("busy");
-    await clickKey(container, "Abort the current run");
+    await clickKey(container, "Stop the current run");
     await act(async () => vi.advanceTimersByTime(40));
     expect(sentTerminalInput(terminal).at(-1)).toBe("\x1b");
 
     await showState("dialog");
-    await clickKey(container, "Confirm choice");
+    await clickKey(container, "Confirm choice (Enter)");
     await act(async () => vi.advanceTimersByTime(40));
     expect(sentTerminalInput(terminal).at(-1)).toBe("\r");
   });
@@ -242,7 +265,7 @@ describe("TerminalView Pi Key Bar (Seam 3)", () => {
       pi.dispatchEvent(new CloseEvent("close", { code: 4500, reason: "bridge_offline" }));
     });
 
-    expect(keyLabels(container).slice(0, 3)).toEqual(["Command", "File", "Shell command"]);
+    expect(keyLabels(container).slice(0, 3)).toEqual(["Slash command", "File", "Shell command"]);
     expect(container.querySelector('button[aria-label="Compose any key"]')).not.toBeNull();
   });
 
@@ -250,8 +273,16 @@ describe("TerminalView Pi Key Bar (Seam 3)", () => {
     const { container } = await renderTerminalView();
     const { terminal } = await openSockets();
 
+    // The chord toggle's visible hint is part of its name in both states.
+    const toggleText = () =>
+      container.querySelector<HTMLButtonElement>(".pi-key-bar-row button[aria-expanded]");
+    expect(toggleText()?.textContent?.toLowerCase()).toContain("any key");
+    expect(toggleText()?.getAttribute("aria-label")?.toLowerCase()).toContain("any key");
+
     await clickKey(container, "Compose any key");
     expect(container.querySelector('[aria-label="Pi key composer"]')).not.toBeNull();
+    expect(toggleText()?.textContent?.toLowerCase()).toContain("close");
+    expect(toggleText()?.getAttribute("aria-label")?.toLowerCase()).toContain("close");
 
     await clickKey(container, "Add Alt modifier");
     await clickKey(container, "Use Escape key");
@@ -274,7 +305,7 @@ describe("TerminalView Pi Key Bar (Seam 3)", () => {
     // A pointer press on a Key Bar key must not move focus: a prevented
     // pointerdown stops the browser from focusing the button, and a mouse click
     // would otherwise take focus away from the terminal or Composer.
-    const key = container.querySelector<HTMLButtonElement>('button[aria-label="Command"]');
+    const key = container.querySelector<HTMLButtonElement>('button[aria-label="Slash command"]');
     expect(key).not.toBeNull();
     await act(async () => {
       const press = new MouseEvent("pointerdown", { bubbles: true, cancelable: true });

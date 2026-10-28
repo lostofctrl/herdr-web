@@ -488,7 +488,8 @@ export function PiComposer({
           title="Open Composer (Ctrl+Space)"
           onClick={openComposer}
         >
-          <TextCursorInput size={16} />
+          <TextCursorInput size={16} aria-hidden="true" />
+          <span>Open Composer</span>
         </button>
       </div>
     );
@@ -624,7 +625,8 @@ export function PiComposer({
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => insertSuggestionTrigger("slash")}
         >
-          /
+          <span aria-hidden="true">/</span>
+          <span className="pi-composer-action-label">Slash</span>
         </button>
         <button
           className="term-key pi-composer-suggest-trigger"
@@ -635,7 +637,8 @@ export function PiComposer({
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => insertSuggestionTrigger("file")}
         >
-          @
+          <span aria-hidden="true">@</span>
+          <span className="pi-composer-action-label">File</span>
         </button>
         {onUploadImages ? (
           <>
@@ -655,7 +658,7 @@ export function PiComposer({
               disabled={sending}
               onClick={() => fileInputRef.current?.click()}
             >
-              <ImagePlus size={16} />
+              <ImagePlus size={16} aria-hidden="true" />
             </button>
           </>
         ) : null}
@@ -673,7 +676,7 @@ export function PiComposer({
           <button
             className="term-key pi-composer-close"
             type="button"
-            aria-label="Close Composer"
+            aria-label="Close Composer (Esc)"
             title="Close Composer (Esc)"
             onClick={closeComposer}
           >

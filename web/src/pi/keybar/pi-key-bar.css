@@ -1,37 +1,106 @@
-/* Context-aware Key Bar for Pi Panes. It sits directly above the Composer and
-   reuses the shared mobile key tokens so both bars read as one control strip. */
+/* Context-aware Key Bar for Pi Panes. It renders as a sibling above the
+   Composer, outside `.terminal-command-controls`, so it owns its sizing tokens
+   (the shared `.term-key` rules read them) and styles itself with `.pi-key-bar`
+   ancestry. That outranks the shared `.term-key` rules whatever the CSS import
+   order is. */
 
 .pi-key-bar {
+  --mobile-control-gap: calc(5px * var(--mobile-controls-scale, 1));
+  --mobile-key-height: max(44px, calc(30px * var(--mobile-controls-scale, 1)));
+  --mobile-key-min-width: 44px;
+  --mobile-key-padding-x: 6px;
+  --mobile-input-padding-x: 10px;
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: var(--mobile-control-gap);
   min-width: 0;
+  padding: 6px max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left));
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--mantle) 94%, black);
 }
 
+/* The Key Bar and Composer read as one strip: a single divider above both. */
+.pi-key-bar ~ .pi-composer {
+  border-top: 0;
+}
+
+/* Equal tracks of at least 44px: seven keys fit one row from ~360px wide, and
+   narrower screens wrap instead of hiding keys behind a scroll region. The
+   max-width keeps keys compact on wide screens. */
 .pi-key-bar-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
+  max-width: 560px;
   min-width: 0;
   gap: var(--mobile-control-gap);
-  overflow-x: auto;
-  scrollbar-width: none;
 }
 
-.pi-key-bar-row::-webkit-scrollbar {
-  display: none;
-}
-
-.pi-key-bar-key {
-  flex: 1 1 auto;
-  min-width: calc(var(--mobile-key-height) - 2px);
+.pi-key-bar .pi-key-bar-key {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: auto;
+  height: auto;
+  min-width: 0;
   min-height: 44px;
-  padding: 0 var(--mobile-key-padding-x);
-  font-size: 0.9rem;
+  padding: 2px;
+  line-height: 1.1;
+  transition: transform 120ms ease-out;
+}
+
+.pi-key-bar .pi-key-bar-glyph {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  font-size: clamp(0.8rem, calc(0.95rem * var(--mobile-controls-scale, 1)), 1.6rem);
+  font-weight: 600;
   white-space: nowrap;
 }
 
+.pi-key-bar .pi-key-bar-hint {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--subtext0);
+  font-size: clamp(10px, calc(10px * var(--mobile-controls-scale, 1)), 14px);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pi-key-bar .pi-key-bar-key:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.pi-key-bar .term-key:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .pi-key-bar .pi-key-bar-key:hover:not(:disabled) {
+    border-color: var(--accent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pi-key-bar .pi-key-bar-key {
+    transition: none;
+  }
+
+  .pi-key-bar .pi-key-bar-key:active:not(:disabled) {
+    transform: none;
+  }
+}
+
 .pi-key-bar[data-state="busy"] .pi-key-bar-key:first-child {
-  border-color: color-mix(in oklab, var(--danger) 45%, var(--line));
-  color: var(--danger);
+  border-color: color-mix(in oklab, var(--red) 45%, var(--line));
+  color: var(--red);
+}
+
+.pi-key-bar[data-state="busy"] .pi-key-bar-key:first-child .pi-key-bar-hint {
+  color: inherit;
 }
 
 .pi-key-bar-more {
@@ -47,7 +116,7 @@
 }
 
 .pi-key-bar-chord-keys .term-key {
-  min-width: calc(var(--mobile-key-height) - 2px);
+  min-width: 44px;
   min-height: 44px;
   padding: 0 var(--mobile-key-padding-x);
 }

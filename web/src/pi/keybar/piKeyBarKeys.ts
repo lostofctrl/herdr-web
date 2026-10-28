@@ -18,6 +18,12 @@ export interface PiKeyBarKey {
   id: string;
   label: string;
   ariaLabel: string;
+  /**
+   * One short word shown under a symbol-only label; omitted when the label is already a
+   * word. Whichever text is visible (the word label, or the hint) must appear in `ariaLabel`
+   * so the visible name is part of the accessible name.
+   */
+  hint?: string;
   data: string;
 }
 
@@ -36,29 +42,29 @@ const SPACE = " ";
  * thinking level, tool output and history.
  */
 const IDLE_KEYS: readonly PiKeyBarKey[] = [
-  { id: "slash", label: "/", ariaLabel: "Command", data: "/" },
-  { id: "at", label: "@", ariaLabel: "File", data: "@" },
-  { id: "bang", label: "!", ariaLabel: "Shell command", data: "!" },
-  { id: "thinking", label: "⇥", ariaLabel: "Cycle thinking level", data: SHIFT_TAB },
-  { id: "tools", label: "⌃O", ariaLabel: "Toggle tool output", data: CTRL_O },
-  { id: "history", label: "↑", ariaLabel: "Previous prompt", data: UP },
+  { id: "slash", label: "/", hint: "Slash", ariaLabel: "Slash command", data: "/" },
+  { id: "at", label: "@", hint: "File", ariaLabel: "File", data: "@" },
+  { id: "bang", label: "!", hint: "Shell", ariaLabel: "Shell command", data: "!" },
+  { id: "thinking", label: "⇥", hint: "Think", ariaLabel: "Cycle thinking level", data: SHIFT_TAB },
+  { id: "tools", label: "⌃O", hint: "Output", ariaLabel: "Toggle tool output", data: CTRL_O },
+  { id: "history", label: "↑", hint: "Prev", ariaLabel: "Previous prompt", data: UP },
 ];
 
 /** While Pi works, the only useful inputs are abort, steer and queue. */
 const BUSY_KEYS: readonly PiKeyBarKey[] = [
-  { id: "abort", label: "Stop", ariaLabel: "Abort the current run", data: ABORT },
+  { id: "abort", label: "Stop", ariaLabel: "Stop the current run", data: ABORT },
   { id: "steer", label: "Steer", ariaLabel: "Steer the current run", data: ENTER },
   { id: "queue", label: "Queue", ariaLabel: "Queue a follow-up", data: QUEUE },
-  { id: "tools", label: "⌃O", ariaLabel: "Toggle tool output", data: CTRL_O },
+  { id: "tools", label: "⌃O", hint: "Output", ariaLabel: "Toggle tool output", data: CTRL_O },
 ];
 
 /** A dialog owns the keyboard: arrows move, Enter picks, Esc and Space dismiss. */
 const DIALOG_KEYS: readonly PiKeyBarKey[] = [
-  { id: "up", label: "↑", ariaLabel: "Previous choice", data: UP },
-  { id: "down", label: "↓", ariaLabel: "Next choice", data: DOWN },
-  { id: "confirm", label: "Enter", ariaLabel: "Confirm choice", data: ENTER },
-  { id: "escape", label: "Esc", ariaLabel: "Cancel dialog", data: ABORT },
-  { id: "space", label: "Space", ariaLabel: "Toggle choice", data: SPACE },
+  { id: "up", label: "↑", hint: "Prev", ariaLabel: "Previous choice", data: UP },
+  { id: "down", label: "↓", hint: "Next", ariaLabel: "Next choice", data: DOWN },
+  { id: "confirm", label: "Enter", ariaLabel: "Confirm choice (Enter)", data: ENTER },
+  { id: "escape", label: "Esc", ariaLabel: "Cancel dialog (Esc)", data: ABORT },
+  { id: "space", label: "Space", ariaLabel: "Toggle choice (Space)", data: SPACE },
 ];
 
 const KEYS_BY_STATE: Record<PiBusy, readonly PiKeyBarKey[]> = {

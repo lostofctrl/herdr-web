@@ -93,7 +93,8 @@ export function PiKeyBar({ paneId, disabled, onInput }: PiKeyBarProps) {
             onPointerDown={preserveInputFocus}
             onClick={() => onInput(key.data)}
           >
-            {key.label}
+            <span className="pi-key-bar-glyph">{key.label}</span>
+            {key.hint ? <span className="pi-key-bar-hint">{key.hint}</span> : null}
           </button>
         ))}
         <button
@@ -105,14 +106,17 @@ export function PiKeyBar({ paneId, disabled, onInput }: PiKeyBarProps) {
           disabled={disabled && !chordOpen}
           onClick={() => (chordOpen ? resetComposer() : setChordOpen(true))}
         >
-          {chordOpen ? (
-            <Keyboard size={15} aria-hidden="true" />
-          ) : (
-            <span className="pi-key-bar-more" aria-hidden="true">
+          <span className="pi-key-bar-glyph" aria-hidden="true">
+            {chordOpen ? (
               <Keyboard size={15} />
-              <Plus className="term-key-compose-plus" size={8} />
-            </span>
-          )}
+            ) : (
+              <span className="pi-key-bar-more">
+                <Keyboard size={15} />
+                <Plus className="term-key-compose-plus" size={8} />
+              </span>
+            )}
+          </span>
+          <span className="pi-key-bar-hint">{chordOpen ? "Close" : "Any key"}</span>
         </button>
       </div>
 

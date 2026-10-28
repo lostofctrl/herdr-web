@@ -49,8 +49,27 @@
 
 ### Changed
 
+- Pi mode: redesigned the Key Bar, Composer actions and Side Panel toggle for touch and
+  keyboard use. Key Bar keys are at least 44px, name their symbol (`/ Slash`, `@ File`, `⌃O Output`),
+  and wrap instead of scrolling out of sight; on a phone the Composer gives the prompt its own row
+  with labelled `/ Slash` and `@ File` actions, an Attach icon and a prominent Send. On desktop, a collapsed Side
+  Panel shows an offline dot, present only while the bridge is offline, instead of a wrapped
+  "Bridge Offline" sentence. Question-card options,
+  Cancel and Submit, and the Reader Close and Copy buttons are now at least 44px.
+  [PR #13](https://github.com/lostofctrl/herdr-web/pull/13)
+
 ### Fixed
 
+- Pi mode: Key Bar keys rendered 4–19px wide with overlapping symbols because the shared key
+  sizing variables were only defined inside the Composer's container, and the Stop key's danger
+  colour referenced an undefined `--danger` variable. The Key Bar now defines its own sizing and
+  outranks the shared key rules regardless of stylesheet order.
+  [PR #13](https://github.com/lostofctrl/herdr-web/pull/13)
+- Bridge: add `--allow-host-any-port` so a reverse proxy that terminates its own public port can
+  forward to the bridge. The proxy sends the original `Host` header, whose port never matches the
+  bridge port, so every `/api` and `/ws` request was rejected with 403 and the web app stayed on
+  "Connecting" with no capabilities. The opt-in widens only hostnames already allowed by
+  `--allow-host`.
 - Pi mode: the skills catalog now lists entries from `pi.getCommands()` whose source is
   `skill`, so Composer `/` suggestions include skills instead of reporting an empty
   catalog. Skills are not duplicated as commands, and a host without `getCommands()`

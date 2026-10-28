@@ -198,6 +198,9 @@ describe("TerminalView Pi Side Panel (Seam 3)", () => {
     const { pi } = await openSockets();
     await showState("idle");
     await click(container, "Toggle Pi Side Panel");
+    // Healthy bridge: no offline dot and no offline status.
+    expect(container.querySelector(".pi-side-panel-dot")).toBeNull();
+    expect(container.querySelector(".pi-side-panel-status")).toBeNull();
     const model = control<HTMLSelectElement>(container, "Pi model");
     const thinking = control<HTMLSelectElement>(container, "Pi thinking level");
     const gpt = [...model.options].find((option) => option.textContent?.includes("GPT"))!;
@@ -289,6 +292,11 @@ describe("TerminalView Pi Side Panel (Seam 3)", () => {
     await click(container, "Toggle Pi Side Panel");
     const panel = control<HTMLElement>(container, "Pi Side Panel");
     expect(panel.textContent).toContain("Bridge Offline");
+    // Collapsed or not, the offline state is exposed as a status, and the
+    // decorative dot is hidden from assistive technology.
+    expect(panel.querySelector('[role="status"]')?.textContent).toBe("Bridge Offline");
+    const dot = panel.querySelector(".pi-side-panel-dot");
+    expect(dot?.getAttribute("aria-hidden")).toBe("true");
     for (const label of ["Pi model", "Pi thinking level", "Search commands and skills", "Insert /review"]) {
       expect(container.querySelector(`[aria-label="${label}"]`)).toBeNull();
     }
