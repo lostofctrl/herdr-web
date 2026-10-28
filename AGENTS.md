@@ -11,6 +11,9 @@ This is a lightweight internal onboarding note for agents working in this repo.
 - Read `docs/release.md` before changing release scripts or release checklists.
 - Web source lives in `web/src/`.
 - The repo-owned bridge implementation lives in `bridge/src/web_bridge.rs`.
+- The Pi-side package that publishes Pi State on a per-pane Unix socket lives in `pi-bridge/`;
+  `docs/pi-mode-protocol.md` is its v1 contract and the browser side is `web/src/pi/` plus
+  `web/src/pi-mode/`.
 - The minimal Herdr compatibility crate lives in `vendor/herdr-compat/`.
 - Do not recreate a full `vendor/herdr/` upstream snapshot; use a separate Herdr checkout for
   refreshes and audits.
@@ -27,12 +30,18 @@ This is a lightweight internal onboarding note for agents working in this repo.
 
 ## Testing
 
+- For interactive acceptance tests, create a new disposable Pi/Herdr session and a uniquely
+  named browser session. Keep default and existing user sessions untouched; never send test
+  prompts or dialog triggers to them. Clean up only sessions and test data created by the test.
+  If an isolated session cannot be provisioned safely, report the check as blocked.
+
 - Run `npm install --prefix web` if dependencies are missing.
 - Run `npm run vendor:check` to verify the vendored layout.
 - Run `npm run lint:web` for ESLint.
 - Run `npm run test:web` for Vitest.
 - Run `npm run build:web` for the frontend production build.
 - Run `npm run bridge:test` for bridge unit tests when a Rust toolchain (cargo) is available.
+- Run `npm run pi-bridge:test` for the Pi Bridge package tests.
 - Run `npm run check` before committing or releasing.
 - If cargo/Rust is missing, call out that bridge build/test verification could not run.
 

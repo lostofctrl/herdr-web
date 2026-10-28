@@ -12,3 +12,10 @@
 *.log
 *.swp
 .DS_Store
+
+# Pi Bridge package (self-contained, no runtime deps)
+/pi-bridge/node_modules/
+
+# Local acceptance-test artifacts and browser session dumps
+/.artifacts/
+/.playwright-cli/

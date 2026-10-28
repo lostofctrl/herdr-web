@@ -39,6 +39,10 @@ herdr-web-vX.Y.Z-PLATFORM/
 `bin/herdr-web` is a small wrapper that runs `herdr-web-bridge` with `--static-dir` pointed at the
 bundled web assets.
 
+The tarball does not ship Pi mode's Pi-side half. `pi-bridge/` is installed into Pi itself, once
+per machine, from the repository or release source (see `pi-bridge/README.md`); without it Pi
+panes still open, and the Pi mode surfaces simply report Pi Bridge Offline.
+
 ## Build A Desktop Tarball
 
 Install dependencies first:

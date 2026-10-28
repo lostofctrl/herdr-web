@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ChangeEvent, ClipboardEvent, DragEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, RefObject } from "react";
+import { copyToClipboard } from "./clipboard";
 import { autosizeMobileCommandTextarea } from "./mobileCommandTextarea";
 import {
   encodeMobileTerminalChord,
@@ -25,6 +26,13 @@ import {
 import type { MobileTerminalChordKey } from "./mobileTerminalControls";
 import { MobileTerminalKeyButton } from "./MobileTerminalKeyButton";
 import { ConfirmDialog } from "./overlays";
+import { PiComposer } from "./pi-mode/PiComposer";
+import { PiDialogCards } from "./pi/cards/PiDialogCard";
+import { PiSidePanel } from "./pi/sidepanel/PiSidePanel";
+import { isPiPane } from "./pi-mode/piPane";
+import { PiBridgeProvider } from "./pi/PiBridgeContext";
+import { PiKeyBar } from "./pi/keybar/PiKeyBar";
+import { ReaderSheet } from "./pi/reader/ReaderSheet";
 import { addNativeResumeHandler } from "./native";
 import { shellQuote } from "./shell";
 import {
@@ -204,6 +212,7 @@ export function TerminalView({
   const stageRef = useRef<HTMLElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mobileCommandInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const piComposerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const rendererRef = useRef<TerminalRenderer | null>(null);
   const rendererGenerationRef = useRef(0);
   const rendererReadyRef = useRef<TerminalRendererReady | null>(null);
@@ -263,6 +272,11 @@ export function TerminalView({
   terminalIdRef.current = pane?.terminal_id ?? null;
 
   const focusCommandInput = useCallback(() => {
+    const piInput = piComposerInputRef.current;
+    if (piInput) {
+      piInput.focus();
+      return true;
+    }
     if (!mobileControlsRef.current && !desktopCommandComposerRef.current) {
       return false;
     }
@@ -1341,9 +1355,21 @@ export function TerminalView({
     }
   };
 
+  const piPane = isPiPane(pane);
+
+  // Pi mode owns image paste/drop that lands on the Composer so images become
+  // Attachment Chips instead of an immediate upload-and-paste. An image dropped
+  // or pasted anywhere else in a Pi pane keeps the existing upload path, so
+  // desktop users with the Composer closed do not lose the gesture.
+  const piComposerHandlesPayload = (target: EventTarget | null, files: UploadCandidate[]) =>
+    piPane &&
+    files.some((file) => file.blob.type.startsWith("image/")) &&
+    target instanceof Element &&
+    target.closest(".pi-composer") !== null;
+
   const handlePaste = (event: ClipboardEvent<HTMLElement>) => {
     const files = uploadCandidatesFromClipboard(event.clipboardData);
-    if (files.length === 0) {
+    if (files.length === 0 || piComposerHandlesPayload(event.target, files)) {
       return;
     }
     event.preventDefault();
@@ -1353,7 +1379,7 @@ export function TerminalView({
 
   const handleDrop = (event: DragEvent<HTMLElement>) => {
     const files = uploadCandidatesFromFileList(event.dataTransfer.files);
-    if (files.length === 0) {
+    if (files.length === 0 || piComposerHandlesPayload(event.target, files)) {
       return;
     }
     event.preventDefault();
@@ -1386,9 +1412,25 @@ export function TerminalView({
     return true;
   };
 
-  const showCommandControls = mobileControls || desktopCommandComposer;
+  /** Pi Composer image uploads: same endpoint, conflict prompt and order rules. */
+  const uploadPiComposerImages = async (files: UploadCandidate[]) => {
+    const uploaded: UploadedFile[] = [];
+    for (const file of files) {
+      uploaded.push(
+        await uploadWithOverwritePrompt(
+          httpUrl,
+          file,
+          autoRenameUploadConflicts,
+          confirmUploadReplace,
+        ),
+      );
+    }
+    return uploaded;
+  };
 
-  return (
+  const showCommandControls = mobileControls || desktopCommandComposer || piPane;
+
+  const stage = (
     <section
       ref={stageRef}
       className="terminal-stage"
@@ -1402,7 +1444,20 @@ export function TerminalView({
       onDropCapture={handleDrop}
       onPasteCapture={handlePaste}
     >
-      <div ref={hostRef} className="terminal-host" />
+      {piPane ? (
+        <div className="pi-terminal-workspace">
+          <div ref={hostRef} className="terminal-host" />
+          {pane && selected ? (
+            <PiSidePanel
+              key={JSON.stringify([bridgeId, pane.pane_id])}
+              bridgeId={bridgeId}
+              paneId={pane.pane_id}
+              disabled={connectionState !== "attached"}
+              onSend={enqueueTerminalInput}
+            />
+          ) : null}
+        </div>
+      ) : <div ref={hostRef} className="terminal-host" />}
       {pane && terminalScreenReaderText ? (
         <div
           className="terminal-accessible-screen sr-only"
@@ -1446,7 +1501,32 @@ export function TerminalView({
           <Paperclip size={16} />
         </button>
       ) : null}
-      {showCommandControls && pane ? (
+      {pane && piPane ? <PiDialogCards paneId={pane.pane_id} /> : null}
+      {showCommandControls && pane && piPane ? (
+        <PiKeyBar
+          key={JSON.stringify(["keybar", bridgeId, pane.pane_id])}
+          paneId={pane.pane_id}
+          disabled={connectionState !== "attached"}
+          onInput={(data) => enqueueTerminalInput([data])}
+        />
+      ) : null}
+      {showCommandControls && pane && piPane ? (
+        <PiComposer
+          key={JSON.stringify([bridgeId, pane.pane_id])}
+          bridgeId={bridgeId}
+          paneId={pane.pane_id}
+          mobile={mobileControls}
+          active={selected || pane.focused}
+          disabled={connectionState !== "attached"}
+          inputRef={piComposerInputRef}
+          focusToken={focusToken}
+          onSend={(parts) => enqueueTerminalInput(parts)}
+          onUploadImages={uploadPiComposerImages}
+          onTerminalFocus={() => rendererRef.current?.focusTextInput()}
+          onControlsHeightChange={setCommandControlsHeight}
+        />
+      ) : null}
+      {showCommandControls && pane && !piPane ? (
         <TerminalCommandControls
           key={JSON.stringify([bridgeId, pane.pane_id])}
           bridgeId={bridgeId}
@@ -1467,6 +1547,7 @@ export function TerminalView({
           onSubmitCommand={(command) => enqueueTerminalInput([command, "\r"])}
         />
       ) : null}
+      {pane && piPane ? <ReaderSheet paneId={pane.pane_id} /> : null}
       {mobileSelectionAction ? (
         <MobileSelectionActions
           action={mobileSelectionAction}
@@ -1486,6 +1567,20 @@ export function TerminalView({
         />
       ) : null}
     </section>
+  );
+
+  return pane && piPane ? (
+    <PiBridgeProvider
+      paneId={pane.pane_id}
+      wsUrl={wsUrl}
+      connectionKey={connectionKey}
+      resumeToken={resumeToken}
+      enabled={selected}
+    >
+      {stage}
+    </PiBridgeProvider>
+  ) : (
+    stage
   );
 }
 
@@ -2086,28 +2181,6 @@ function terminalSocketUrl(
     params.set("output_encoding", "gzip");
   }
   return wsUrl("/ws/terminal", params);
-}
-
-async function copyToClipboard(text: string) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "fixed";
-  textarea.style.left = "-10000px";
-  textarea.style.top = "0";
-  document.body.appendChild(textarea);
-  textarea.select();
-  try {
-    if (!document.execCommand("copy")) {
-      throw new Error("execCommand copy failed");
-    }
-  } finally {
-    textarea.remove();
-  }
 }
 
 function uploadCandidatesFromFileList(files: FileList | null): UploadCandidate[] {
