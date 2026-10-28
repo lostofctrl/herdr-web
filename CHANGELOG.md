@@ -56,6 +56,14 @@
   catalog. Skills are not duplicated as commands, and a host without `getCommands()`
   advertises `skills_catalog: false` with a note.
   [PR #13](https://github.com/lostofctrl/herdr-web/pull/13)
+- Pi mode: the Composer clears its persistent draft only after the whole prompt reached the
+  terminal socket, keeps the phone Key Bar, chord composer, upload and interrupt keys on Pi panes,
+  refuses a second send while the prompt is still being delivered, ignores delayed IME edits that
+  would restore a sent draft, and drops the stored draft of a closed pane.
+- Pi mode: a prompt whose text reached Pi but whose Enter did not is reported in the Composer, and
+  Send submits it without pasting the text a second time.
+- Pi mode: pasted text that contains bracketed paste markers can no longer end the Composer's own
+  paste early, and Ctrl+Space no longer takes the key from a text field, menu or dialog.
 
 ### Removed
 

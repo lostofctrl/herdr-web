@@ -71,7 +71,12 @@ async function renderUnderStrictMode(props: Partial<Parameters<typeof PiComposer
   document.body.appendChild(container);
   const root = createRoot(container);
   roots.push(root);
-  const onSend = vi.fn(() => true);
+  const onSend = vi.fn(
+    (parts: string[], onDelivered: (deliveredParts: number, totalParts: number) => void) => {
+      onDelivered(parts.length, parts.length);
+      return true;
+    },
+  );
   const onUploadImages = vi.fn(async () => [{ name: "shot.png", path: "/tmp/uploads/shot.png", size: 1 }]);
   await act(async () => {
     root.render(
@@ -158,10 +163,10 @@ describe("PiComposer under StrictMode", () => {
     });
 
     expect(onUploadImages).toHaveBeenCalledTimes(1);
-    expect(onSend).toHaveBeenCalledWith([
-      "\x1b[200~/tmp/uploads/shot.png what is wrong?\x1b[201~",
-      "\r",
-    ]);
+    expect(onSend).toHaveBeenCalledWith(
+      ["\x1b[200~/tmp/uploads/shot.png what is wrong?\x1b[201~", "\r"],
+      expect.any(Function),
+    );
     // A finished send clears the chips and re-enables the button.
     expect(container.querySelectorAll('[data-pi-attachment="chip"]')).toHaveLength(0);
     expect(

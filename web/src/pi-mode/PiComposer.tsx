@@ -2,6 +2,8 @@ import { ImagePlus, Send, TextCursorInput, X } from "lucide-react";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, KeyboardEvent, ClipboardEvent, RefObject } from "react";
 
+import { compositionGuardDeadline, isLateCompositionEdit } from "../commandTextFieldGuard";
+import { hasOpenMenu, hasOpenModal, isShortcutTextEntryTarget } from "../keyboardShortcutTargets";
 import { autosizeMobileCommandTextarea } from "../mobileCommandTextarea";
 import { usePiBridge } from "../pi/PiBridgeContext";
 import { ScreenshotEditor } from "../pi/screenshot";
@@ -37,8 +39,16 @@ export type PiComposerProps = {
   inputRef?: RefObject<HTMLTextAreaElement | null>;
   /** Parent focus request token; focuses the field while the Composer is open. */
   focusToken?: number;
-  /** Returns true only when the bytes were handed to the terminal socket. */
-  onSend: (parts: string[]) => boolean;
+  /**
+   * Queues the prompt on the terminal socket. Returns false when nothing was
+   * queued, which keeps the draft and attachments. `onDelivered` reports how
+   * many of the queued frames reached the socket: fewer than `totalParts` means
+   * a partially delivered prompt, so a cancelled send never clears anything.
+   */
+  onSend: (
+    parts: string[],
+    onDelivered: (deliveredParts: number, totalParts: number) => void,
+  ) => boolean;
   /**
    * Uploads Attachment Chips through the same flow as TerminalView uploads.
    * Results must come back in the same order as the candidates. Absent means
@@ -73,7 +83,12 @@ export function PiComposer({
   const focusOnOpenRef = useRef(false);
   const composingRef = useRef(false);
   const mountedRef = useRef(true);
+  // Guards survive re-renders and keep a sent value from being restored.
+  const compositionGuardUntilRef = useRef(0);
+  const acceptedValueRef = useRef("");
+  const pendingSendRef = useRef(false);
   const [value, setValue] = usePiComposerDraft(bridgeId, paneId);
+  acceptedValueRef.current = value;
   const piBridge = usePiBridge(paneId);
   const [cursor, setCursor] = useState(() => value.length);
   const suggestion = usePiComposerSuggest({ api: piBridge, draft: value, cursor });
@@ -84,6 +99,8 @@ export function PiComposer({
   const attachmentsRef = useRef<PiComposerAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  /** The prompt text reached Pi but its Enter did not, so resending must not paste again. */
+  const [awaitingSubmit, setAwaitingSubmit] = useState(false);
   const [editing, setEditing] = useState<{
     attachment: PiComposerAttachment;
     image: { src: string; width: number; height: number };
@@ -223,6 +240,8 @@ export function PiComposer({
   const openComposer = useCallback(() => {
     focusOnOpenRef.current = true;
     setOpen(true);
+    // Ctrl+Space also returns focus to an already open Composer.
+    fieldRef.current?.focus();
   }, []);
 
   useEffect(() => {
@@ -237,9 +256,9 @@ export function PiComposer({
   }, [bridgeId, paneId, openComposer, setValue]);
 
   const closeComposer = useCallback(() => {
-    setOpen(mobile);
+    setOpen(false);
     onTerminalFocus();
-  }, [mobile, onTerminalFocus]);
+  }, [onTerminalFocus]);
 
   // Desktop defaults to terminal focus; Ctrl+Space is the only way in.
   useEffect(() => {
@@ -254,6 +273,11 @@ export function PiComposer({
         !event.metaKey &&
         !event.shiftKey
       ) {
+        // Ctrl+Space is an app shortcut, so it never steals a key from a text
+        // field, an open dialog, or an open menu.
+        if (hasOpenModal() || hasOpenMenu() || isShortcutTextEntryTarget(event.target)) {
+          return;
+        }
         event.preventDefault();
         openComposer();
       }
@@ -343,21 +367,71 @@ export function PiComposer({
       observer.disconnect();
       onControlsHeightChange(null);
     };
-  }, [onControlsHeightChange, open, attachments.length, attachmentError, sending]);
+  }, [
+    onControlsHeightChange,
+    open,
+    attachments.length,
+    attachmentError,
+    sending,
+    awaitingSubmit,
+  ]);
 
-  const send = async () => {
-    if (disabled || composingRef.current || sending) {
-      return;
-    }
-    const pending = attachmentsRef.current;
-    if (pending.length === 0) {
-      const parts = piComposerDeliveryParts(value);
-      if (parts.length === 0) {
+  const clearAcceptedValue = useCallback(() => {
+    // Reject delayed IME composition edits that would otherwise restore the sent
+    // text into the field and the stored draft, mirroring the command composer.
+    compositionGuardUntilRef.current = compositionGuardDeadline();
+    acceptedValueRef.current = "";
+    setValue("");
+  }, [setValue]);
+
+  /**
+   * Queues a prompt and clears the Composer only once every frame reached the
+   * socket. A partially delivered prompt keeps its text and records that Pi
+   * already has it, so finishing it never pastes the same text twice.
+   */
+  const deliver = (
+    parts: string[],
+    sentValue: string,
+    onDelivered: () => void,
+  ) => {
+    pendingSendRef.current = true;
+    let settled = false;
+    const accepted = onSend(parts, (deliveredParts, totalParts) => {
+      settled = true;
+      pendingSendRef.current = false;
+      if (deliveredParts === totalParts) {
+        setAwaitingSubmit(false);
+        if (acceptedValueRef.current === sentValue) {
+          clearAcceptedValue();
+        }
+        onDelivered();
         return;
       }
-      if (onSend(parts)) {
-        setValue("");
+      setAwaitingSubmit(deliveredParts > 0);
+    });
+    if (!accepted && !settled) {
+      pendingSendRef.current = false;
+    }
+    return accepted;
+  };
+
+  const send = async () => {
+    // The draft clears only after the last frame reaches the socket, so a second
+    // Send or Ctrl+Enter while that is pending would deliver the prompt twice.
+    if (disabled || composingRef.current || sending || pendingSendRef.current) {
+      return;
+    }
+    const sentValue = value;
+    const pending = attachmentsRef.current;
+    if (pending.length === 0) {
+      // A partially delivered prompt already sits in Pi's editor, so finishing it
+      // must send the Enter alone instead of pasting the text a second time.
+      const parts = awaitingSubmit ? ["\r"] : piComposerDeliveryParts(value);
+      // A blank draft would submit an empty prompt, so it is never delivered.
+      if (parts.length === 0 || (!awaitingSubmit && value.trim().length === 0)) {
+        return;
       }
+      deliver(parts, sentValue, () => {});
       return;
     }
     if (!onUploadImages) {
@@ -378,12 +452,10 @@ export function PiComposer({
         value,
         uploaded.map((file) => file.path),
       );
-      if (!onSend(parts)) {
+      const accepted = deliver(parts, sentValue, () => clearAttachments());
+      if (!accepted) {
         setAttachmentError("Terminal is not attached; draft kept.");
-        return;
       }
-      setValue("");
-      clearAttachments();
     } catch (error) {
       if (!mountedRef.current) {
         return;
@@ -430,7 +502,7 @@ export function PiComposer({
         return;
       }
     }
-    if (event.key === "Escape") {
+    if (event.key === "Escape" && !mobile) {
       event.preventDefault();
       closeComposer();
       return;
@@ -571,6 +643,11 @@ export function PiComposer({
           onPick={pickSuggestion}
         />
       ) : null}
+      {awaitingSubmit ? (
+        <p className="pi-composer-recovery" role="status">
+          Prompt text reached Pi without Enter. Send submits it without pasting again.
+        </p>
+      ) : null}
       <form
         className="term-input-row pi-composer-row"
         data-expanding="true"
@@ -589,12 +666,20 @@ export function PiComposer({
           autoCapitalize="sentences"
           autoComplete="off"
           autoCorrect="on"
+          enterKeyHint={mobile ? "enter" : "send"}
           spellCheck
           disabled={disabled}
           value={value}
           aria-expanded={suggestion.isOpen}
           aria-controls={suggestion.isOpen ? suggestionId : undefined}
           onChange={(event) => {
+            if (isLateCompositionEdit(event.nativeEvent, compositionGuardUntilRef.current)) {
+              // Native composition edits may not be cancelable, so restore the
+              // accepted value instead of re-saving text that was just sent.
+              event.currentTarget.value = acceptedValueRef.current;
+              return;
+            }
+            acceptedValueRef.current = event.target.value;
             setValue(event.target.value);
             setCursor(event.target.selectionStart ?? event.target.value.length);
           }}
@@ -609,6 +694,9 @@ export function PiComposer({
           }
           onCompositionStart={() => {
             composingRef.current = true;
+            // A new composition belongs to the next prompt, so it must not be
+            // treated as a late edit of the one that was just sent.
+            compositionGuardUntilRef.current = 0;
           }}
           onCompositionEnd={() => {
             composingRef.current = false;
@@ -663,8 +751,8 @@ export function PiComposer({
           className="term-send pi-composer-send"
           type="submit"
           disabled={disabled || sending || (value.length === 0 && attachments.length === 0)}
-          aria-label="Send prompt"
-          title="Send (Ctrl+Enter)"
+          aria-label={awaitingSubmit ? "Submit prompt" : "Send prompt"}
+          title={awaitingSubmit ? "Submit the pasted prompt" : "Send (Ctrl+Enter)"}
         >
           <Send size={16} />
           <span className="pi-composer-send-label">Send</span>

@@ -225,6 +225,15 @@ pane while switching panes, tabs, or hosts, hiding the composer, or reconnecting
 clears that pane's draft, and a successful snapshot removes drafts for closed panes. Drafts live only
 in the current browser tab's memory: reloading the page clears them, and other clients do not share them.
 
+Pi panes use their own native Composer instead of the command composer, with or without a reachable
+Pi Bridge. Phone layouts keep it open with the Key Bar, chord composer, and upload above it; desktop
+opens it with Ctrl+Space and sends with Ctrl+Enter. On a phone Enter inserts a newline and the large
+Send button sends. Delivery is one bracketed paste plus Enter, so Pi itself decides whether the text
+is a prompt, steer, follow-up, `/command`, or `!bash`. Pi Composer drafts are kept per bridge and pane
+in browser storage, survive reloads, and are cleared only after the terminal socket accepted the
+prompt. If the text reached Pi but its Enter did not, the Composer says so and Send submits the
+prompt without pasting the text again.
+
 Terminal input payloads can be sent as JSON or binary WebSocket frames. JSON remains the default;
 binary is available for comparing terminal input performance. Terminal input batching is off by
 default. When enabled, short input chunks are coalesced for `32`, `64`, `128`, or `256` ms and are

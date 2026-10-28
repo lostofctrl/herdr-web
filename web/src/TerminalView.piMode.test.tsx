@@ -98,35 +98,44 @@ async function renderTerminalView({
   paneId,
   pane,
   mobile,
+  autoFocus = false,
 }: {
   paneId: string;
   pane: PaneInfo;
   mobile: boolean;
+  autoFocus?: boolean;
 }) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
   roots.push(root);
   const drafts = createCommandDraftStore();
-  await act(async () => {
-    root.render(
-      <CommandDraftContext.Provider value={drafts}>
+  const renderTree = (connectionKey: string) => (
+    <CommandDraftContext.Provider value={drafts}>
       <TerminalView
         bridgeId={BRIDGE_ID}
         pane={pane}
-        connectionKey="test-connection"
+        connectionKey={connectionKey}
         resumeToken={0}
         httpUrl={(path, params) => (params ? `${path}?${params}` : path)}
         wsUrl={(path) => path}
-        autoFocus={false}
+        autoFocus={autoFocus}
         mobileControls={mobile}
         terminalOutputCoalesceMs={0}
         selected
       />
-      </CommandDraftContext.Provider>,
-    );
+    </CommandDraftContext.Provider>
+  );
+  await act(async () => {
+    root.render(renderTree("test-connection"));
   });
-  return { root, container, paneId };
+  // Reconnect by swapping the connection key, keeping this pane and Composer mounted.
+  const reconnect = async () => {
+    await act(async () => {
+      root.render(renderTree(`test-connection-${TestSocket.instances.length}`));
+    });
+  };
+  return { root, container, paneId, reconnect };
 }
 
 async function unmount(root: Root) {
@@ -336,6 +345,290 @@ describe("TerminalView Pi Composer (Seam 3)", () => {
       );
     });
     expect(container.querySelector('[aria-label="Pi prompt"]')).toBeNull();
+  });
+
+  it("keeps the draft when a queued Enter is discarded before delivery", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { root, container } = await renderTerminalView({ paneId, pane, mobile: true });
+    const socket = await openSocket();
+    await typePrompt(promptField(container), "half delivered");
+
+    await clickButton(container, "Send prompt");
+    // Only the paste reached the socket; the Enter is still queued.
+    expect(sentTerminalInput(socket)).toEqual(["\x1b[200~half delivered\x1b[201~"]);
+    // Tearing the terminal down drops the queued Enter instead of delivering it.
+    await unmount(root);
+    await act(async () => vi.advanceTimersByTime(40));
+
+    expect(sentTerminalInput(socket)).toEqual(["\x1b[200~half delivered\x1b[201~"]);
+    expect(
+      window.localStorage.getItem(piComposerDraftKey(BRIDGE_ID, PANE_A)),
+    ).toBe("half delivered");
+
+    // The retained draft is still available when the pane comes back.
+    const remounted = await renderTerminalView({ paneId, pane, mobile: true });
+    expect(promptField(remounted.container).value).toBe("half delivered");
+  });
+
+  it("ignores late composition edits that would restore a sent draft", async () => {
+    vi.spyOn(performance, "now").mockReturnValue(1000);
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    const socket = await openSocket();
+    const field = promptField(container);
+    await typePrompt(field, "accepted prompt");
+    await clickButton(container, "Send prompt");
+    await act(async () => vi.advanceTimersByTime(40));
+    expect(field.value).toBe("");
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(field, "late correction");
+      field.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          inputType: "insertCompositionText",
+          isComposing: true,
+        }),
+      );
+    });
+
+    expect(field.value).toBe("");
+    expect(
+      window.localStorage.getItem(piComposerDraftKey(BRIDGE_ID, PANE_A)),
+    ).toBeNull();
+    expect(sentTerminalInput(socket)).toEqual([
+      "\x1b[200~accepted prompt\x1b[201~",
+      "\r",
+    ]);
+
+    // A composition that starts after the send is next-prompt input, not a late edit.
+    await act(async () => {
+      field.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(field, "fresh dictation");
+      field.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          inputType: "insertCompositionText",
+          isComposing: true,
+        }),
+      );
+      field.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+    });
+
+    expect(field.value).toBe("fresh dictation");
+    expect(
+      window.localStorage.getItem(piComposerDraftKey(BRIDGE_ID, PANE_A)),
+    ).toBe("fresh dictation");
+  });
+
+  it("strips paste markers so a draft cannot break out of its own bracketed paste", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    const socket = await openSocket();
+    // Removing the inner marker would leave a marker behind without iteration.
+    await typePrompt(promptField(container), "safe\x1b[20\x1b[201~1~rm -rf /");
+
+    await clickButton(container, "Send prompt");
+
+    expect(sentTerminalInput(socket)).toEqual(["\x1b[200~saferm -rf /\x1b[201~"]);
+  });
+
+  it("keeps the Pi Key Bar and image attach control next to the Composer", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    const socket = await openSocket();
+
+    expect(promptField(container)).toBeTruthy();
+    expect(container.querySelector('[aria-label="Pi keys"]')).toBeTruthy();
+    expect(container.querySelector('button[aria-label="Attach image"]')).toBeTruthy();
+    // Pi mode must not also render a generic command row or Stage button.
+    expect(container.querySelector('button[aria-label="Send command"]')).toBeNull();
+    expect(container.querySelector('button[aria-label="Send enter"]')).toBeNull();
+    expect(
+      container.querySelector('button[aria-label="Stage command in terminal"]'),
+    ).toBeNull();
+    expect(container.querySelectorAll("textarea, input.term-native-input").length).toBe(1);
+
+    // A Key Bar key still reaches the terminal socket.
+    await clickButton(container, "Command");
+    await act(async () => vi.advanceTimersByTime(40));
+    expect(sentTerminalInput(socket)).toEqual(["/"]);
+
+    // The Key Bar chord composer still opens for any chord.
+    await clickButton(container, "Compose any key");
+    expect(container.querySelector('[aria-label="Pi key composer"]')).toBeTruthy();
+  });
+
+  it("does not send a whitespace-only draft on desktop Ctrl+Enter", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: false });
+    const socket = await openSocket();
+
+    await act(async () => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: " ",
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    const field = promptField(container);
+    await typePrompt(field, "   ");
+    await act(async () => {
+      field.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await act(async () => vi.advanceTimersByTime(40));
+    expect(sentTerminalInput(socket)).toEqual([]);
+    expect(field.value).toBe("   ");
+  });
+
+  it("ignores Ctrl+Space while another text field owns the keyboard", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: false });
+    await openSocket();
+    const outsideInput = document.createElement("input");
+    document.body.appendChild(outsideInput);
+    outsideInput.focus();
+
+    await act(async () => {
+      outsideInput.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: " ",
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(container.querySelector('[aria-label="Pi prompt"]')).toBeNull();
+  });
+
+  it("ignores Ctrl+Space while an action menu is open", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: false });
+    await openSocket();
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    document.body.appendChild(menu);
+
+    await act(async () => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: " ",
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(container.querySelector('[aria-label="Pi prompt"]')).toBeNull();
+  });
+
+  it("submits a partially delivered prompt without pasting it again", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container, reconnect } = await renderTerminalView({
+      paneId,
+      pane,
+      mobile: true,
+    });
+    const socket = await openSocket();
+    await typePrompt(promptField(container), "submitted once");
+
+    await clickButton(container, "Send prompt");
+    expect(sentTerminalInput(socket)).toEqual(["\x1b[200~submitted once\x1b[201~"]);
+    // A terminal that cannot be retried drops the queued Enter after the paste landed.
+    await act(async () => {
+      socket.dispatchEvent(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "closed", reason: "terminal attach taken over" }),
+        }),
+      );
+      socket.dispatchEvent(new Event("close"));
+    });
+    await act(async () => vi.advanceTimersByTime(40));
+
+    expect(sentTerminalInput(socket)).toEqual(["\x1b[200~submitted once\x1b[201~"]);
+    expect(promptField(container).value).toBe("submitted once");
+    expect(
+      container.querySelector(".pi-composer-recovery")?.textContent,
+    ).toContain("reached Pi without Enter");
+
+    // After reattaching, Send finishes the submission instead of pasting again.
+    await reconnect();
+    const nextSocket = await openSocket();
+    await clickButton(container, "Submit prompt");
+    await act(async () => vi.advanceTimersByTime(40));
+
+    expect(sentTerminalInput(nextSocket)).toEqual(["\r"]);
+    expect(promptField(container).value).toBe("");
+    expect(
+      window.localStorage.getItem(piComposerDraftKey(BRIDGE_ID, PANE_A)),
+    ).toBeNull();
+    expect(container.querySelector(".pi-composer-recovery")).toBeNull();
+  });
+
+  it("delivers a pending prompt once even when Send is repeated", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: false });
+    const socket = await openSocket();
+    await act(async () => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: " ",
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    const field = promptField(container);
+    await typePrompt(field, "only once");
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await clickButton(container, "Send prompt");
+    }
+    await act(async () => vi.advanceTimersByTime(40));
+
+    expect(sentTerminalInput(socket)).toEqual([
+      "\x1b[200~only once\x1b[201~",
+      "\r",
+    ]);
+    expect(field.value).toBe("");
+  });
+
+  it("focuses the open Composer instead of the terminal on attach", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({
+      paneId,
+      pane,
+      mobile: true,
+      autoFocus: true,
+    });
+    const socket = openSocket();
+    await socket;
+    await act(async () => vi.advanceTimersByTime(1));
+
+    expect(document.activeElement).toBe(promptField(container));
+    expect(renderer.focus).not.toHaveBeenCalled();
   });
 });
 
