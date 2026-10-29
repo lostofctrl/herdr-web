@@ -180,8 +180,8 @@ export function PiComposer({
     setHistoryOpen(false);
     setModelOpen(false);
   }, [bridgeId, paneId, active, disabled, piBridge?.status]);
-  /** The user text behind a partial delivery, so recovery records it exactly once. */
-  const recoveryTextRef = useRef<string | null>(null);
+  /** Original text and image versions represented by the paste, reused by Enter-only recovery. */
+  const recoveryDeliveryRef = useRef<{ text: string; attachments: PiComposerAttachment[] } | null>(null);
   const [open, setOpen] = useState(false);
   const viewport = usePiComposerViewport(mobile && open);
   /** The prompt text reached Pi but its Enter did not, so resending must not paste again. */
@@ -262,11 +262,13 @@ export function PiComposer({
     setAttachments(next);
   }, []);
 
-  const clearAttachments = useCallback(() => {
-    for (const attachment of attachmentsRef.current) {
+  const clearAttachments = useCallback((represented: PiComposerAttachment[]) => {
+    replaceAttachments(attachmentsRef.current.filter((attachment) => {
+      // Editing preserves chip IDs but replaces the object and preview URL.
+      if (!represented.includes(attachment)) return true;
       releasePiComposerAttachment(attachment);
-    }
-    replaceAttachments([]);
+      return false;
+    }));
   }, [replaceAttachments]);
 
   const addImageFiles = useCallback(
@@ -559,7 +561,7 @@ export function PiComposer({
       }
       setAwaitingSubmit(deliveredParts > 0 || awaitingSubmit);
     });
-    if (!accepted && !settled) {
+    if (!accepted && !settled && ownsInput(generation)) {
       setInputMode(awaitingSubmit ? "recovery" : "idle");
       pendingSendRef.current = false;
       setDeliveryPending(false);
@@ -585,15 +587,14 @@ export function PiComposer({
       }
       // Recovery sends only Enter, so it must record the text behind the partial
       // delivery instead of the empty draft left after the first attempt.
-      const recoverText = awaitingSubmit ? recoveryTextRef.current : sentValue;
-      const accepted = deliver(parts, sentValue, () => {
-        recordDeliveredPrompt(recoverText);
-        if (awaitingSubmit) clearAttachments();
-        recoveryTextRef.current = null;
+      const represented = awaitingSubmit ? recoveryDeliveryRef.current : { text: sentValue, attachments: [] };
+      if (!represented) return;
+      recoveryDeliveryRef.current = represented;
+      deliver(parts, represented.text, () => {
+        recordDeliveredPrompt(represented.text);
+        clearAttachments(represented.attachments);
+        recoveryDeliveryRef.current = null;
       });
-      if (accepted && !awaitingSubmit) {
-        recoveryTextRef.current = sentValue;
-      }
       return;
     }
     if (!onUploadImages) {
@@ -601,6 +602,8 @@ export function PiComposer({
       return;
     }
     const generation = claimInput();
+    const represented = { text: sentValue, attachments: pending };
+    recoveryDeliveryRef.current = represented;
     pendingSendRef.current = true;
     setSending(true);
     setAttachmentError(null);
@@ -617,14 +620,12 @@ export function PiComposer({
         uploaded.map((file) => file.path),
       );
       const accepted = deliver(parts, sentValue, () => {
-        clearAttachments();
+        clearAttachments(represented.attachments);
         // Only the user's text is recalled, never the uploaded paths.
-        recordDeliveredPrompt(sentValue);
+        recordDeliveredPrompt(represented.text);
+        recoveryDeliveryRef.current = null;
       }, generation);
-      if (accepted) {
-        recoveryTextRef.current = sentValue;
-      }
-      if (!accepted) {
+      if (!accepted && ownsInput(generation)) {
         setAttachmentError("Terminal is not attached; draft kept.");
       }
     } catch (error) {
@@ -930,7 +931,7 @@ export function PiComposer({
           setAwaitingSubmit(false);
           setActionRecovery(false);
           setActionError(null);
-          recoveryTextRef.current = null;
+          recoveryDeliveryRef.current = null;
         }}>Terminal input is empty; keep draft</button>
       </div> : null}
       {showAttachments ? (

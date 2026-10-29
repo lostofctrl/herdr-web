@@ -118,7 +118,9 @@
   without sending keys or losing drafts/images. Unresolved input stays pane/bridge-owned across
   Composer/terminal remounts and reloads until explicit reconciliation, instead of allowing duplicate
   paste after switching away/back. Known markers survive later browser-storage failures in memory
-  until explicit clear/pruning. Image-prompt recovery sends Enter without repasting.
+  until explicit clear/pruning. Image-prompt recovery sends Enter without repasting. Recovery clears
+  only the original prompt text and unchanged uploaded Attachment Chips, preserving newer text,
+  added or edited chips, and their previews.
   [PR #20](https://github.com/lostofctrl/herdr-web/pull/20)
 - Pi conversation: resync after cancelled tree/compaction now restores subsequent publication once
   the public idle boundary proves unwind. Switch/fork cancellations stay explicitly unavailable

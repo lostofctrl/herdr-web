@@ -19,10 +19,13 @@ const editor = vi.hoisted(() => ({
 }));
 
 vi.mock("../pi/screenshot", () => ({
-  ScreenshotEditor: ({ image, onCancel }: { image: { src: string }; onCancel: () => void }) => (
+  ScreenshotEditor: ({ image, onCancel, onSave }: { image: { src: string }; onCancel: () => void; onSave: (result: { dataUrl: string; width: number; height: number }) => void }) => (
     <div role="dialog" aria-label="Screenshot Editor" data-src={image.src}>
       <button type="button" onClick={onCancel}>
         Cancel
+      </button>
+      <button type="button" onClick={() => onSave({ dataUrl: "data:image/png;base64,AQID", width: 40, height: 20 })}>
+        Save
       </button>
     </div>
   ),
@@ -110,9 +113,9 @@ function promptField(container: HTMLElement) {
   return field;
 }
 
-async function attachImage(container: HTMLElement) {
+async function attachImage(container: HTMLElement, name = "shot.png") {
   const field = promptField(container);
-  const file = new File([new Uint8Array([1, 2, 3])], "shot.png", { type: "image/png" });
+  const file = new File([new Uint8Array([1, 2, 3])], name, { type: "image/png" });
   // jsdom has no DataTransfer, so the clipboard payload is a minimal stand-in.
   const clipboardData = {
     items: [{ kind: "file", getAsFile: () => file }],
@@ -127,7 +130,120 @@ async function attachImage(container: HTMLElement) {
   });
 }
 
+async function typePrompt(container: HTMLElement, text: string) {
+  const field = promptField(container);
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(field, text);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
 describe("PiComposer under StrictMode", () => {
+  it.each([false, true])("keeps a newer draft after Enter-only recovery (deferred: %s)", async (deferred) => {
+    const callbacks: Array<() => void> = [];
+    const send = vi.fn((parts: string[], done: (n: number, total: number) => void) => {
+      const count = send.mock.calls.length === 1 ? 1 : parts.length;
+      if (deferred) callbacks.push(() => done(count, parts.length));
+      else done(count, parts.length);
+      return true;
+    });
+    const { container } = await renderUnderStrictMode({ onSend: send });
+    await typePrompt(container, "original A");
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send prompt"]')!.click());
+    if (deferred) await act(async () => callbacks.shift()!());
+    await typePrompt(container, "new draft B");
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Submit prompt"]')!.click());
+    if (deferred) await act(async () => callbacks.shift()!());
+    expect(send.mock.calls.map(([parts]) => parts)).toEqual([["\x1b[200~original A\x1b[201~", "\r"], ["\r"]]);
+    expect(promptField(container).value).toBe("new draft B");
+  });
+  it.each([false, true])("removes only unchanged uploaded chips after Enter-only recovery and keeps newer previews (edit during upload: %s)", async (editDuringUpload) => {
+    vi.mocked(URL.createObjectURL).mockImplementation(() => `blob:chip-${vi.mocked(URL.createObjectURL).mock.calls.length}`);
+    const send = vi.fn((parts: string[], done: (n: number, total: number) => void) => {
+      done(send.mock.calls.length === 1 ? 1 : parts.length, parts.length);
+      return true;
+    });
+    const files = [
+      { name: "old.png", path: "/tmp/old.png", size: 3 },
+      { name: "edited.png", path: "/tmp/edited.png", size: 3 },
+    ];
+    let finishUpload!: () => void;
+    const upload = vi.fn(() => new Promise<typeof files>((resolve) => { finishUpload = () => resolve(files); }));
+    const { container } = await renderUnderStrictMode({ onSend: send, onUploadImages: upload });
+    await attachImage(container, "old.png");
+    await attachImage(container, "edited.png");
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send prompt"]')!.click());
+    if (!editDuringUpload) await act(async () => finishUpload());
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Edit edited.png"]')!.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('[role="dialog"] button:last-child')!.click());
+    await attachImage(container, "new.png");
+    const keptPreviews = [...container.querySelectorAll<HTMLImageElement>('[data-pi-attachment="chip"] img')].slice(1).map((img) => img.src);
+    if (editDuringUpload) await act(async () => finishUpload());
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Submit prompt"]')!.click());
+    expect(send.mock.calls.map(([parts]) => parts)).toEqual([["\x1b[200~/tmp/old.png /tmp/edited.png\x1b[201~", "\r"], ["\r"]]);
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[aria-label="Edit old.png"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Edit edited.png"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Edit new.png"]')).not.toBeNull();
+    expect(keptPreviews).toHaveLength(2);
+    for (const preview of keptPreviews) expect(URL.revokeObjectURL).not.toHaveBeenCalledWith(preview);
+  });
+
+  it("keeps original image-only delivery identity through rejected and zero-frame recovery attempts", async () => {
+    const send = vi.fn((parts: string[], done: (n: number, total: number) => void) => {
+      const attempt = send.mock.calls.length;
+      if (attempt === 2) return false;
+      done(attempt === 1 ? 1 : attempt === 3 ? 0 : parts.length, parts.length);
+      return true;
+    });
+    const { container, onUploadImages } = await renderUnderStrictMode({ onSend: send });
+    await attachImage(container);
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send prompt"]')!.click());
+    await typePrompt(container, "next prompt");
+    await attachImage(container, "next.png");
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Submit prompt"]')!.click());
+      expect(promptField(container).value).toBe("next prompt");
+      expect(container.querySelector('[aria-label="Edit next.png"]')).not.toBeNull();
+    }
+    expect(send.mock.calls.map(([parts]) => parts)).toEqual([["\x1b[200~/tmp/uploads/shot.png\x1b[201~", "\r"], ["\r"], ["\r"], ["\r"]]);
+    expect(onUploadImages).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[aria-label="Edit shot.png"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Submit prompt"]')).toBeNull();
+  });
+
+  it.each(["handoff", "unmount"])("ignores delayed recovery settlement after %s", async (loss) => {
+    let settle!: () => void;
+    const send = vi.fn((parts: string[], done: (n: number, total: number) => void) => {
+      if (send.mock.calls.length === 1) done(1, parts.length);
+      else settle = () => done(parts.length, parts.length);
+      return true;
+    });
+    const { container } = await renderUnderStrictMode({ onSend: send });
+    await typePrompt(container, "original");
+    await attachImage(container);
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send prompt"]')!.click());
+    await typePrompt(container, "new draft");
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Submit prompt"]')!.click());
+    if (loss === "handoff") {
+      await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Return to terminal"]')!.click());
+      await act(async () => settle());
+      await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Open Composer"]')!.click());
+      expect(container.querySelector('[aria-label="Edit shot.png"]')).not.toBeNull();
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+    } else {
+      await act(async () => roots.pop()!.unmount());
+      await act(async () => settle());
+      const remount = await renderUnderStrictMode();
+      container.remove();
+      expect(promptField(remount.container).value).toBe("new draft");
+      expect(remount.container.textContent).toContain("Finish or clear the pending input in the terminal");
+      return;
+    }
+    expect(promptField(container).value).toBe("new draft");
+    expect(container.textContent).toContain("Finish or clear the pending input in the terminal");
+  });
+
   it("retains Attachment Chips and the authored draft across explicit mobile terminal return", async () => {
     const { container, onSend, onUploadImages } = await renderUnderStrictMode();
     const field = promptField(container);
