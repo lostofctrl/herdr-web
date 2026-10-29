@@ -6,6 +6,33 @@
 
 ### Added
 
+- Mobile Pi Composer: B Thumbrail inset working surface with an explicit launcher/terminal return,
+  visible-viewport and safe-area fitting, independently scrolling bounded context and bottom-right
+  Send/Stop/Terminal/helpers actions. The connected terminal and assistive mirror are hidden/inert
+  while composing; drafts survive keyboard closure, rotation and resume. The single helpers menu
+  retains Key Bar, Chord Composer and Reader access. Pi 1.4.0 cannot selectively hide CLI editor
+  chrome through a supported API, so the collapsed terminal remains unchanged. Physical Safari and
+  Android keyboard/IME/task verification is pending; emulation is not a readiness or usability claim.
+  [PR #20](https://github.com/lostofctrl/herdr-web/pull/20)
+
+- Mobile Pi Composer: the helpers (⋯) menu now includes the shared model picker, supported
+  thinking levels, full searchable command/skill metadata and explicit Abort, Compact, New session
+  and Resume actions. Quick actions preserve unsent drafts and attachments, report failures, and
+  offer Enter-only recovery after partial delivery without mixing in a new prompt. Bridge-only
+  actions are gated offline/busy; Abort retains terminal Esc semantics. Desktop Side Panel stays.
+  [PR #20](https://github.com/lostofctrl/herdr-web/pull/20)
+
+- Pi mode: the mobile Composer shows read-only first/latest exchanges from the live selected
+  branch, including pending/running and interrupted replies, explicit truncation and unavailable
+  states. A capability-gated conversation schema keeps legacy peers and terminal delivery working;
+  context is bounded, cleared on authority changes, and never persisted by the browser.
+  [PR #20](https://github.com/lostofctrl/herdr-web/pull/20)
+- Mobile Pi Composer: one accessible Composer helpers (⋯) menu for command/skill (`/`),
+  file/path (`@`) and shell-prefix (`!`) authoring. Helpers preserve selection, caret and draft
+  without submitting; menu targets are touch-sized, keyboard navigable and viewport-scrollable.
+  Desktop helper buttons and Pi Side Panel access remain available.
+  [PR #20](https://github.com/lostofctrl/herdr-web/pull/20)
+
 - Pi mode: panes running Pi get native surfaces instead of an opaque terminal. A new in-repo
   `pi-bridge` package publishes Pi State, the command and skill catalog, dialogs and the last
   assistant answer on a per-pane Unix socket, and the Rust bridge relays it to the browser over
@@ -26,6 +53,27 @@
   with descriptions, `@` searches tracked files after a 200 ms debounce, and dedicated `/` and
   `@` buttons open the same popup. Picking a row inserts it at the cursor, keeps the rest of the
   draft, and the popup hides when the Pi Bridge is offline. [PR #13](https://github.com/lostofctrl/herdr-web/pull/13)
+- Pi mode: Composer auto-completion now ranks by match quality, gates skills on the bridge
+  capability, uses `/skill:name`, inserts quoted tracked paths and separator-aware triggers, and
+  survives stale or failed `list_files` replies. `/` and `@` buttons and typed prefixes share one
+  insertion path, and the popup adds loading/error states plus Enter, Tab, Escape, pointer, IME and
+  modifier guards.
+- Pi mode: one searchable model picker is shared by the Composer and the Side Panel. It searches
+  label, id and provider, keeps provider/id pairs distinct, keeps the current model visible when it
+  is missing from the offered list, and only shows a model after Pi State confirms it.
+- Pi mode: the Composer recalls the last 50 prompts per pane from memory only (adjacent duplicates
+  suppressed, 16 KiB UTF-8 cap, nothing written to browser storage), walking the list with Up/Down
+  from the draft edges and restoring the live draft as you come back down. A History button opens a
+  searchable list with Clear history; picking a row replaces the draft without sending.
+- Pi mode: a prompt is remembered only once the whole paste plus Enter reached the terminal, so a
+  partial delivery is recorded when its recovery send completes, not twice. Delivery drops the
+  stored draft only while it still holds the delivered text, so a prompt recalled or retyped while
+  the send was in flight survives.
+- Pi mode: the Composer keeps one compact meta row for the model picker, History and the `/` and `@`
+  triggers, starts at a single prompt line with a bounded growth limit, and never stretches its
+  action buttons. Only one popup (completion, model list, history) is open at a time.
+- Pi mode: the Key Bar no longer defines the Composer's `/` and `@` triggers, because the meta row
+  owns them; its idle row stays shell mode, thinking level, tool output and the previous prompt.
 - Pi mode: Native Cards for `ask_user_question` and for Pi's shared `ctx.ui.select`, `confirm`
   and `input` dialogs. A questionnaire appears as a touch card with single or multi-select
   options, option previews and free text, and an answer from the phone settles the same dialog
@@ -49,13 +97,82 @@
 
 ### Changed
 
+- Pi mode: redesigned the Key Bar, Composer actions and Side Panel toggle for touch and
+  keyboard use. Key Bar keys are at least 44px, name their symbol (`/ Slash`, `@ File`, `⌃O Output`),
+  and wrap instead of scrolling out of sight; on a phone the Composer gives the prompt its own row
+  with labelled `/ Slash` and `@ File` actions, an Attach icon and a prominent Send. On desktop, a collapsed Side
+  Panel shows an offline dot, present only while the bridge is offline, instead of a wrapped
+  "Bridge Offline" sentence. Question-card options,
+  Cancel and Submit, and the Reader Close and Copy buttons are now at least 44px.
+  [PR #13](https://github.com/lostofctrl/herdr-web/pull/13)
+
 ### Fixed
 
+- Pi Screenshot Editor: keep Save, Cancel and editing controls above the expanded mobile Composer
+  so image edits remain reachable.
+  [PR #20](https://github.com/lostofctrl/herdr-web/pull/20)
+
+- Mobile Pi Composer: keep the full-viewport working surface above the sidebar on landscape/tablet
+  widths, so the left side of context and draft text remains visible and reachable. Collapsed and
+  desktop terminal layering stays unchanged.
+  [PR #20](https://github.com/lostofctrl/herdr-web/pull/20)
+
+- Pi Composer: shared terminal-input ownership prevents Key Bar, typing/paste and delayed callbacks
+  from bypassing partial delivery recovery. Return hands pending input to explicit manual control
+  without sending keys or losing drafts/images. Unresolved input stays pane/bridge-owned across
+  Composer/terminal remounts and reloads until explicit reconciliation, instead of allowing duplicate
+  paste after switching away/back. Known markers survive later browser-storage failures in memory
+  until explicit clear/pruning. Image-prompt recovery sends Enter without repasting. Recovery clears
+  only the original prompt text and unchanged uploaded Attachment Chips, preserving newer text,
+  added or edited chips, and their previews.
+  [PR #20](https://github.com/lostofctrl/herdr-web/pull/20)
+- Pi conversation: resync after cancelled tree/compaction now restores subsequent publication once
+  the public idle boundary proves unwind. Switch/fork cancellations stay explicitly unavailable
+  until a real lifecycle restores authority because Pi 1.4.0 exposes no public cancellation verdict.
+  [PR #20](https://github.com/lostofctrl/herdr-web/pull/20)
+
+- Pi mode: Key Bar keys rendered 4–19px wide with overlapping symbols because the shared key
+  sizing variables were only defined inside the Composer's container, and the Stop key's danger
+  colour referenced an undefined `--danger` variable. The Key Bar now defines its own sizing and
+  outranks the shared key rules regardless of stylesheet order.
+  [PR #13](https://github.com/lostofctrl/herdr-web/pull/13)
+- Bridge: add `--allow-host-any-port` so a reverse proxy that terminates its own public port can
+  forward to the bridge. The proxy sends the original `Host` header, whose port never matches the
+  bridge port, so every `/api` and `/ws` request was rejected with 403 and the web app stayed on
+  "Connecting" with no capabilities. The opt-in widens only hostnames already allowed by
+  `--allow-host`.
+- Bridge: a rejected `Host` no longer reports "cross-origin requests are not allowed". A port
+  mismatch on an already allowed hostname now names `--allow-host-any-port`, an unknown hostname
+  names `--allow-host`, and only a real origin rejection keeps the cross-origin wording.
 - Pi mode: the skills catalog now lists entries from `pi.getCommands()` whose source is
   `skill`, so Composer `/` suggestions include skills instead of reporting an empty
   catalog. Skills are not duplicated as commands, and a host without `getCommands()`
   advertises `skills_catalog: false` with a note.
   [PR #13](https://github.com/lostofctrl/herdr-web/pull/13)
+- Pi mode: the Composer clears its persistent draft only after the whole prompt reached the
+  terminal socket, keeps the phone Key Bar, chord composer, upload and interrupt keys on Pi panes,
+  refuses a second send while the prompt is still being delivered, ignores delayed IME edits that
+  would restore a sent draft, and drops the stored draft of a closed pane.
+- Pi mode: a prompt whose text reached Pi but whose Enter did not is reported in the Composer, and
+  Send submits it without pasting the text a second time.
+- Pi mode: pasted text that contains bracketed paste markers can no longer end the Composer's own
+  paste early, and Ctrl+Space no longer takes the key from a text field, menu or dialog.
+- Pi mode: overlays above the Pi controls (Reader launcher, selection sheet, upload status) now
+  clear the whole stack. The reported control height covers the Key Bar plus the Composer instead of
+  whichever part measured last, so the Reader pill no longer covers the last Key Bar key on phones or
+  desktop panes.
+- Pi mode: on touch layouts the Composer's model button is a 44px target like the other composer
+  actions, instead of the compact desktop pill.
+- Pi mode: the model panel is placed against the viewport instead of the trigger, so it no longer
+  opens off the edge of a narrow pane or gets clipped by a hidden-overflow ancestor, and its list
+  scrolls inside the available height.
+- Pi mode: editing a recalled prompt ends prompt browsing, so ArrowUp/ArrowDown can no longer
+  replace those edits with the previous draft. The same applies to a `/` or `@` trigger, a
+  completion pick and a side-panel command, which now appends to the prompt the Composer shows
+  instead of replacing it with the older stored draft.
+- Pi mode: opening the model panel focuses its search once, so repositioning or a Pi State update
+  no longer pulls focus back while you tab through the model list. A change that settles after the
+  panel was closed cannot close it again or take focus back to its trigger.
 
 ### Removed
 
@@ -87,6 +204,10 @@
   traffic within 15 seconds, removing dead transports without claiming to detect frozen JavaScript.
   [PR #93](https://github.com/kcosr/herdr-web/pull/93), contributed by
   [Will Hampson (@Whamp)](https://github.com/Whamp).
+- Accept `--allow-host` hostnames regardless of the request's Host-header port, so a reverse proxy
+  terminating HTTPS on a different port (for example 443 or 8790) can forward to a bridge bound on
+  another port. The DNS-rebinding guard still requires an exact hostname match; only the implicit
+  same-bind-port requirement was dropped for explicitly allow-listed hosts.
 
 ## [0.6.1] - 2026-09-12
 

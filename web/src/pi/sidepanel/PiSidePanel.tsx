@@ -2,10 +2,10 @@ import { PanelRight } from "lucide-react";
 import { useId, useState } from "react";
 
 import { usePiBridge } from "../PiBridgeContext";
-import { PI_ESCAPE_KEY } from "../piKeys";
-import { piComposerDeliveryParts } from "../../pi-mode/piComposerDelivery";
+import { PI_QUICK_ACTIONS, piQuickActionParts } from "./piQuickActions";
 import { insertPiComposerText } from "./piComposerInsert";
 import { piCatalogTrigger, piSidePanelEntries } from "./piSidePanelCatalog";
+import { PiModelPicker } from "../../pi-mode/PiModelPicker";
 import "./pi-side-panel.css";
 
 type PiSidePanelProps = {
@@ -23,7 +23,6 @@ export function PiSidePanel({ bridgeId, paneId, disabled, onSend }: PiSidePanelP
   const contentId = useId();
   const state = bridge?.state;
   const online = bridge?.status === "online";
-  const modelKey = (provider: string, id: string) => JSON.stringify([provider, id]);
   const change = (request: Promise<void>) => {
     setError(null);
     void request.catch((reason: unknown) => {
@@ -33,32 +32,20 @@ export function PiSidePanel({ bridgeId, paneId, disabled, onSend }: PiSidePanelP
 
   return (
     <aside className="pi-side-panel" data-open={open} aria-label="Pi Side Panel">
-      <button type="button" aria-label="Toggle Pi Side Panel" aria-expanded={open}
-        aria-controls={contentId} onClick={() => setOpen(!open)}>
+      <button type="button" aria-label="Toggle Pi Side Panel" title="Toggle Pi Side Panel"
+        aria-expanded={open} aria-controls={contentId} onClick={() => setOpen(!open)}>
         <PanelRight size={18} aria-hidden="true" />
-        <span>{open ? "Close Side Panel" : "Side Panel"}</span>
+        <span>Side Panel</span>
+        {!online ? <i className="pi-side-panel-dot" aria-hidden="true" /> : null}
       </button>
-      {!online ? <p role="status">Bridge Offline</p> : null}
+      {!online ? <p role="status" className="pi-side-panel-status">Bridge Offline</p> : null}
       {open ? (
         <div id={contentId} className="pi-side-panel-content">
           {online && state ? <>
-            <label>Model
-              <select aria-label="Pi model"
-                value={state.model ? modelKey(state.model.provider, state.model.id) : ""}
-                onChange={(event) => {
-                  const model = state.models.find((item) => modelKey(item.provider, item.id) === event.target.value);
-                  if (model && bridge) change(bridge.setModel(model.provider, model.id));
-                }}>
-                <option value="" disabled>Select model</option>
-                {state.model && !state.models.some((model) =>
-                  model.provider === state.model?.provider && model.id === state.model.id,
-                ) ? <option value={modelKey(state.model.provider, state.model.id)} disabled>
-                    {state.model.id} · {state.model.provider}
-                  </option> : null}
-                {state.models.map((model) => <option key={modelKey(model.provider, model.id)}
-                  value={modelKey(model.provider, model.id)}>{model.label} · {model.provider}</option>)}
-              </select>
-            </label>
+            <div className="pi-side-panel-model">
+              <span className="pi-side-panel-label">Model</span>
+              <PiModelPicker api={bridge} disabled={disabled} />
+            </div>
             <label>Thinking
               <select aria-label="Pi thinking level" value={state.thinking_level}
                 onChange={(event) => { if (bridge) change(bridge.setThinkingLevel(event.target.value)); }}>
@@ -91,15 +78,9 @@ export function PiSidePanel({ bridgeId, paneId, disabled, onSend }: PiSidePanelP
             </section>
           ) : null}
           <section aria-label="Pi quick actions" className="pi-side-panel-actions">
-            <button type="button" aria-label="Abort Pi" disabled={disabled}
-              onClick={() => onSend([PI_ESCAPE_KEY])}>Abort</button>
-            {[
-              ["Compact Pi session", "Compact", "/compact"],
-              ["New Pi session", "New session", "/new"],
-              ["Resume Pi session", "Resume", "/resume"],
-            ].map(([label, title, command]) => (
-              <button key={command} type="button" aria-label={label} disabled={disabled}
-                onClick={() => onSend(piComposerDeliveryParts(command))}>{title}</button>
+            {PI_QUICK_ACTIONS.map(({ label, title, command }) => (
+              <button key={label} type="button" aria-label={label} disabled={disabled}
+                onClick={() => onSend(piQuickActionParts(command))}>{title}</button>
             ))}
           </section>
           {error ? <p role="alert">{error}</p> : null}

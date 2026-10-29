@@ -34,7 +34,8 @@
 
 .pi-question-card-cancel {
   margin-left: auto;
-  min-height: 32px;
+  min-height: 44px;
+  padding: 0 14px;
 }
 
 .pi-question-block {
@@ -67,7 +68,9 @@
 .pi-question-option {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: 2px;
+  min-height: 44px;
   padding: 8px 10px;
   border: 1px solid var(--term-border, #3a3a3a);
   border-radius: 10px;
@@ -108,7 +111,7 @@
 }
 
 .pi-question-free-text {
-  min-height: 36px;
+  min-height: 44px;
   padding: 7px 10px;
   border: 1px solid var(--term-border, #3a3a3a);
   border-radius: 10px;
@@ -131,7 +134,7 @@
 }
 
 .pi-question-submit {
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 16px;
   font-weight: 600;
 }

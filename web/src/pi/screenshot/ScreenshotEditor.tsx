@@ -94,7 +94,8 @@ const styles = {
   overlay: {
     position: "fixed",
     inset: 0,
-    zIndex: 30,
+    // Match modal overlays and stay above the expanded Composer (45).
+    zIndex: 100,
     display: "flex",
     flexDirection: "column",
     gap: 8,

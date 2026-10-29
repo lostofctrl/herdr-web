@@ -17,11 +17,12 @@ export interface ModelLike {
 
 export interface SessionEntryLike {
   type?: string;
-  message?: { role?: string; content?: unknown };
+  message?: { role?: string; content?: unknown; stopReason?: string };
 }
 
 export interface ContextLike {
   cwd: string;
+  isIdle?: () => boolean;
   mode?: string;
   hasUI?: boolean;
   ui?: import("./dialogs.ts").SharedUI;
@@ -34,6 +35,9 @@ export interface ContextLike {
   thinkingLevel?: string | null;
   sessionManager?: {
     getEntries?: () => SessionEntryLike[];
+    getBranch?: () => SessionEntryLike[];
+    getSessionId?: () => string;
+    getLeafId?: () => string | null;
   };
 }
 

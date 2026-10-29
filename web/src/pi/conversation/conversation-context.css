@@ -1,0 +1,39 @@
+.pi-conversation {
+  flex: 0 1 auto;
+  width: 100%;
+  min-height: 0;
+  max-height: min(30dvh, 18rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: left;
+  font-size: 0.85rem;
+}
+
+.pi-conversation-exchange + .pi-conversation-exchange {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.pi-conversation-exchange header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pi-conversation-text {
+  margin: 6px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.pi-conversation-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}

@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { act } from "react";
+import { act, Fragment, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -83,14 +83,15 @@ function testPane(paneId: string, agent: string): PaneInfo {
   };
 }
 
-async function renderTerminalView(pane: PaneInfo, selected: boolean) {
+async function renderTerminalView(pane: PaneInfo, selected: boolean, mobile = false, strict = false) {
+  const Wrapper = strict ? StrictMode : Fragment;
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
   roots.push(root);
   await act(async () => {
     root.render(
-      <CommandDraftContext.Provider value={createCommandDraftStore()}>
+      <Wrapper><CommandDraftContext.Provider value={createCommandDraftStore()}>
         <TerminalView
           bridgeId={BRIDGE_ID}
           pane={pane}
@@ -99,13 +100,14 @@ async function renderTerminalView(pane: PaneInfo, selected: boolean) {
           httpUrl={(path) => path}
           wsUrl={(path, query) => (query ? `${path}?${query}` : path)}
           autoFocus={false}
-          mobileControls={false}
+          mobileControls={mobile}
           terminalOutputCoalesceMs={0}
           selected={selected}
         />
-      </CommandDraftContext.Provider>,
+      </CommandDraftContext.Provider></Wrapper>,
     );
   });
+  if (mobile) await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Open Composer"]')?.click());
   return { container, root };
 }
 
@@ -285,4 +287,37 @@ describe("TerminalView Pi bridge (Seam 3)", () => {
     await act(async () => vi.advanceTimersByTime(10_000));
     expect(piSockets()).toHaveLength(0);
   });
+});
+
+
+it("renders read-only first/current context inside the real mobile Composer under StrictMode, without HTML execution or losing offline input", async () => {
+  const { container } = await renderTerminalView(testPane(PANE_ID, "pi"), true, true, true);
+  const pi = piSockets().at(-1)!;
+  const send = async (record: unknown) => act(async () => pi.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(record) })));
+  await act(async () => pi.dispatchEvent(new Event("open")));
+  await send({ type: "hello", protocol_version: 1, conversation_epoch: "live-epoch", capabilities: { conversation_snapshot: true } });
+  await send({
+    type: "conversation_update", schema_version: 1, epoch: "live-epoch", session_id: "live-session", leaf_id: "live-leaf", selection_generation: 1, revision: 1,
+    availability: "ready", reason: null,
+    exchanges: [
+      { user: "first question", assistant: "<script>evil()</script>", status: "aborted", user_truncated: false, assistant_truncated: true },
+      { user: "current unanswered", assistant: "", status: "running", user_truncated: false, assistant_truncated: false },
+    ],
+  });
+  const region = container.querySelector('[role="region"][aria-label="Conversation context"]');
+  expect(region).not.toBeNull();
+  expect(region?.closest(".pi-composer")).not.toBeNull();
+  expect(region?.textContent).toContain("first question");
+  expect(region?.textContent).toContain("current unanswered");
+  expect(region?.textContent).toContain("Aborted");
+  expect(region?.textContent).toContain("Running");
+  expect(region?.textContent).toContain("truncated");
+  expect(region?.querySelector("script")).toBeNull();
+  expect(region?.textContent).toContain("<script>evil()</script>");
+  const contextSends = pi.send.mock.calls.map(([data]) => JSON.parse(data as string)).filter((r) => r.type === "get_conversation");
+  expect(contextSends).toHaveLength(1);
+  await act(async () => pi.dispatchEvent(Object.assign(new Event("close"), { code: 4500, reason: "bridge_offline" })));
+  expect(container.querySelector('[aria-label="Conversation context"]')?.textContent).toContain("unavailable");
+  expect(container.querySelector('[aria-label="Conversation context"]')?.textContent).not.toContain("first question");
+  expect(container.querySelector('[aria-label="Pi prompt"]')).not.toBeNull();
 });

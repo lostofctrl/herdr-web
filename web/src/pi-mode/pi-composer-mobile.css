@@ -1,0 +1,170 @@
+/* B Thumbrail extends the existing terminal palette and production Composer. */
+/* The viewport Composer cannot outrank the sidebar from inside stage's layer 1. */
+.stage:has(.pi-composer[data-mobile-controls="true"][data-expanded="true"]) {
+  z-index: 3;
+}
+.pi-terminal-workspace[data-composer-hidden="true"] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.pi-composer-desktop-actions { display: contents; }
+
+.pi-composer-manual-input { min-width: 0; font-size: 12px; }
+.pi-composer-manual-input p { margin: 0 0 8px; }
+.pi-composer-manual-input button { min-height: 44px; }
+.pi-composer[data-mobile-controls="true"] .pi-composer-manual-input {
+  order: 2;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 30%;
+  overflow: auto;
+}
+
+.pi-composer[data-mobile-controls="true"]:not([data-expanded="true"]) {
+  align-items: flex-end;
+  padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom));
+}
+
+.pi-composer[data-mobile-controls="true"][data-expanded="true"] {
+  position: fixed;
+  z-index: 45;
+  box-sizing: border-box;
+  left: calc(var(--pi-viewport-left) + max(8px, env(safe-area-inset-left)));
+  top: calc(var(--pi-viewport-top) + max(8px, env(safe-area-inset-top)));
+  width: calc(var(--pi-viewport-width) - max(8px, env(safe-area-inset-left)) - max(8px, env(safe-area-inset-right)));
+  height: calc(var(--pi-viewport-height) - max(8px, env(safe-area-inset-top)) - max(8px, env(safe-area-inset-bottom)));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--base);
+  box-shadow: 0 8px 24px #0006;
+}
+
+.pi-composer[data-mobile-controls="true"] .pi-composer-meta {
+  flex: 0 0 auto;
+  order: 2;
+  gap: 8px;
+  padding: 0;
+}
+
+/* Model and thinking live in the one consolidated menu on mobile. */
+.pi-composer[data-mobile-controls="true"] .pi-composer-meta > .pi-model-picker { display: none; }
+
+.pi-composer[data-mobile-controls="true"] .pi-conversation {
+  order: 1;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 8px;
+  max-height: none;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pi-composer[data-mobile-controls="true"] .pi-conversation-exchange {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.pi-composer[data-mobile-controls="true"] .pi-conversation-exchange + .pi-conversation-exchange {
+  margin-top: 0;
+}
+
+.pi-composer[data-mobile-controls="true"] .pi-composer-row {
+  order: 3;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  align-items: end;
+  gap: 8px;
+  flex: 0 0 auto;
+  min-width: 0;
+  margin: 0;
+}
+
+.pi-composer[data-mobile-controls="true"] .pi-composer-row .pi-composer-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 96px;
+  max-height: 96px;
+  font-size: 16px;
+}
+
+.pi-composer[data-mobile-controls="true"] .pi-composer-thumbrail {
+  display: grid;
+  grid-template-columns: repeat(2, 44px);
+  gap: 8px;
+  align-self: end;
+}
+
+.pi-composer[data-mobile-controls="true"] .pi-composer-thumbrail :is(button, .pi-composer-helpers) {
+  box-sizing: border-box;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  margin: 0;
+}
+
+.pi-composer[data-mobile-controls="true"] .pi-composer-thumbrail .pi-composer-helpers-menu button {
+  width: 100%;
+  height: auto;
+  padding: 8px 12px;
+}
+
+.pi-composer[data-mobile-controls="true"] .pi-composer-send-label { display: none; }
+.pi-composer[data-mobile-controls="true"] .pi-composer-send { grid-area: 1 / 2; }
+.pi-composer[data-mobile-controls="true"] .pi-composer-stop { grid-area: 1 / 1; color: var(--red); }
+.pi-composer[data-mobile-controls="true"] .pi-composer-terminal { grid-area: 2 / 1; }
+.pi-composer[data-mobile-controls="true"] .pi-composer-helpers { grid-area: 2 / 2; }
+
+/* Short keyboard/landscape viewports trade the 2×2 rail for a bottom-right row. */
+.pi-composer[data-mobile-controls="true"][data-short="true"] .pi-composer-row { grid-template-columns: minmax(0, 1fr); }
+.pi-composer[data-mobile-controls="true"][data-short="true"] .pi-composer-row .pi-composer-input { min-height: 44px; max-height: 44px; }
+.pi-composer[data-mobile-controls="true"][data-short="true"] .pi-composer-thumbrail { grid-template-columns: repeat(4, 44px); justify-self: end; }
+.pi-composer[data-mobile-controls="true"][data-short="true"] .pi-composer-thumbrail > * { grid-area: auto; }
+
+.pi-composer[data-mobile-controls="true"] :is(.pi-composer-meta, .pi-attachment-chip) { gap: 8px; }
+.pi-composer[data-mobile-controls="true"] :is(.pi-composer-meta button, .pi-attachment-preview, .pi-attachment-remove) { min-width: 44px; min-height: 44px; }
+.pi-composer[data-mobile-controls="true"] .pi-composer-attachments { order: 2; flex: 0 1 auto; min-height: 0; max-height: 20%; overflow: auto; padding: 0; gap: 8px; }
+.pi-composer[data-mobile-controls="true"] :is(.pi-composer-recovery, .pi-composer-dialog-status) { order: 2; margin: 0; font-size: 12px; }
+
+.pi-composer[data-mobile-controls="true"] :is(.pi-composer-suggest, .pi-composer-history) {
+  position: absolute;
+  inset: 8px 8px 112px;
+  max-height: none;
+  gap: 8px;
+}
+.pi-composer[data-mobile-controls="true"] :is(.pi-composer-suggest, .pi-composer-history) button { min-height: 44px; }
+
+.pi-composer-helpers-menu .pi-key-bar { padding: 0; border: 0; gap: 8px; }
+.pi-composer-helpers-menu :is(.pi-key-bar-row, .term-key-composer, .term-key-composer-preview, .term-key-composer-modifiers, .pi-key-bar-chord-keys) { gap: 8px; }
+.pi-composer-helpers-menu .reader-launcher { position: static; align-self: flex-start; }
+/* Native Cards stay outside the hidden terminal and above the inset surface. */
+.terminal-stage:has(.pi-composer[data-mobile-controls="true"][data-expanded="true"]) .pi-dialog-cards {
+  position: fixed;
+  left: calc(var(--pi-viewport-left) + max(16px, env(safe-area-inset-left)));
+  top: calc(var(--pi-viewport-top) + max(16px, env(safe-area-inset-top)));
+  width: calc(var(--pi-viewport-width) - max(16px, env(safe-area-inset-left)) - max(16px, env(safe-area-inset-right)));
+  max-height: calc(var(--pi-viewport-height) - 144px);
+  z-index: 90;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.terminal-stage:has(.pi-composer[data-mobile-controls="true"][data-expanded="true"]) .pi-dialog-cards :is(button, input) { min-width: 44px; min-height: 44px; }
+.terminal-stage:has(.pi-composer[data-mobile-controls="true"][data-expanded="true"]) .pi-dialog-cards :is(.pi-dialog-card-actions, .pi-dialog-card-options, .pi-question-options) { gap: 8px; }
+
+.pi-composer[data-mobile-controls="true"] .pi-composer-history { overflow-y: auto; z-index: 70; }
+.pi-composer[data-mobile-controls="true"] .pi-composer-history :is(input, button) { box-sizing: border-box; min-width: 44px; min-height: 44px; }
+.pi-composer[data-mobile-controls="true"] .pi-composer-history :is(ul, .pi-composer-history-actions) { gap: 8px; }
+.pi-composer[data-mobile-controls="true"] .pi-composer-history ul { flex: 1 1 auto; min-height: 0; max-height: none; }
+.pi-composer[data-mobile-controls="true"] .pi-composer-history > :not(ul) { flex-shrink: 0; }

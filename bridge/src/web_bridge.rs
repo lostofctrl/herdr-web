@@ -110,6 +110,7 @@ struct BridgeOptions {
     upload_dir: PathBuf,
     launcher_presets_path: Option<PathBuf>,
     allowed_hosts: Vec<String>,
+    allow_host_any_port: bool,
     allowed_origins: Vec<String>,
     allowed_connect_sources: Vec<String>,
 }
@@ -135,6 +136,7 @@ struct RequestPolicy {
     bind_host: String,
     bind_port: u16,
     allowed_hosts: Vec<String>,
+    allow_host_any_port: bool,
     allowed_origins: Vec<String>,
     allowed_connect_sources: Vec<String>,
 }
@@ -841,7 +843,7 @@ pub(crate) fn run_command(args: &[String]) -> io::Result<i32> {
         Err(message) => {
             eprintln!("{message}");
             eprintln!(
-                "usage: herdr-web-bridge [--session NAME] [--host HOST] [--port PORT] [--static-dir DIR] [--launcher-presets PATH] [--allow-origin ORIGIN] [--allow-host HOSTNAME] [--allow-connect-origin ORIGIN]"
+                "usage: herdr-web-bridge [--session NAME] [--host HOST] [--port PORT] [--static-dir DIR] [--launcher-presets PATH] [--allow-origin ORIGIN] [--allow-host HOSTNAME] [--allow-host-any-port] [--allow-connect-origin ORIGIN]"
             );
             return Ok(2);
         }
@@ -869,6 +871,7 @@ fn parse_options(args: &[String]) -> Result<Option<BridgeOptions>, String> {
     let mut upload_dir = default_upload_dir();
     let mut launcher_presets_path = None;
     let mut allowed_hosts = Vec::new();
+    let mut allow_host_any_port = false;
     let mut allowed_origins = Vec::new();
     let mut allowed_connect_sources = Vec::new();
     let mut explicit_session = None;
@@ -932,6 +935,10 @@ fn parse_options(args: &[String]) -> Result<Option<BridgeOptions>, String> {
                 allowed_hosts.push(normalize_allowed_host(value)?);
                 index += 2;
             }
+            "--allow-host-any-port" => {
+                allow_host_any_port = true;
+                index += 1;
+            }
             "--allow-origin" => {
                 let Some(value) = args.get(index + 1) else {
                     return Err("missing value for --allow-origin".into());
@@ -964,6 +971,7 @@ fn parse_options(args: &[String]) -> Result<Option<BridgeOptions>, String> {
         upload_dir,
         launcher_presets_path,
         allowed_hosts,
+        allow_host_any_port,
         allowed_origins,
         allowed_connect_sources,
     }))
@@ -976,7 +984,7 @@ fn print_help() {
 fn help_text() -> &'static str {
     "herdr-web-bridge\n\
 \n\
-Usage: herdr-web-bridge [--session NAME] [--host HOST] [--port PORT] [--static-dir DIR] [--upload-dir DIR] [--launcher-presets PATH] [--allow-origin ORIGIN] [--allow-host HOSTNAME] [--allow-connect-origin ORIGIN]\n\
+Usage: herdr-web-bridge [--session NAME] [--host HOST] [--port PORT] [--static-dir DIR] [--upload-dir DIR] [--launcher-presets PATH] [--allow-origin ORIGIN] [--allow-host HOSTNAME] [--allow-host-any-port] [--allow-connect-origin ORIGIN]\n\
 \n\
 Runs the local HTTP/WebSocket bridge for herdr-web.\n\
 Defaults to the active Herdr daemon sockets and 127.0.0.1:8787.\n\
@@ -984,6 +992,8 @@ Use --session NAME to target a named Herdr session and ignore HERDR_SOCKET_PATH.
 Use --host 0.0.0.0 to listen on non-loopback interfaces.\n\
 Use --allow-origin http://localhost for bundled Android app access.\n\
 Use --allow-host HOSTNAME to accept that exact DNS hostname in Host headers.\n\
+Use --allow-host-any-port to accept an allowed hostname on any port, for reverse proxies\n\
+that terminate their own public port before forwarding to the bridge.\n\
 Use --allow-connect-origin ORIGIN to let the served web app connect to another bridge origin.\n\
 Use --launcher-presets PATH or HERDR_WEB_LAUNCHER_PRESETS to load custom launch presets.\n\
 Uploads default to HERDR_WEB_UPLOAD_DIR, XDG_DATA_HOME/herdr-web/uploads, or ~/.local/share/herdr-web/uploads."
@@ -1009,6 +1019,7 @@ async fn run_server(options: BridgeOptions) -> io::Result<()> {
         bind_host: options.host.clone(),
         bind_port: options.port,
         allowed_hosts: options.allowed_hosts.clone(),
+        allow_host_any_port: options.allow_host_any_port,
         allowed_origins: options.allowed_origins.clone(),
         allowed_connect_sources: options.allowed_connect_sources.clone(),
     };
@@ -1480,12 +1491,37 @@ const ALLOWED_COMMANDS: &[&str] = &[
 ];
 
 fn ensure_allowed_request(headers: &HeaderMap, policy: &RequestPolicy) -> Result<(), BridgeError> {
-    if request_allowed(headers, policy) {
-        return Ok(());
+    if !request_host_allowed(headers, policy) {
+        return Err(BridgeError::Forbidden(host_rejection_message(
+            headers, policy,
+        )));
     }
-    Err(BridgeError::Forbidden(
-        "cross-origin requests are not allowed".to_string(),
-    ))
+    if !request_origin_allowed(headers, policy) {
+        return Err(BridgeError::Forbidden(
+            "cross-origin requests are not allowed".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Explains a rejected `Host` without echoing client-supplied text, so a proxy
+/// deployment can tell a port mismatch apart from a missing `--allow-host`.
+fn host_rejection_message(headers: &HeaderMap, policy: &RequestPolicy) -> String {
+    let Some(authority) = headers.get(HOST).and_then(|host| host.to_str().ok()) else {
+        return "request is missing a valid Host header".to_string();
+    };
+    let host = host_part(authority);
+    let host_name_allowed = policy
+        .allowed_hosts
+        .iter()
+        .any(|allowed| host.eq_ignore_ascii_case(allowed))
+        || host.eq_ignore_ascii_case(&policy.bind_host);
+    if host_name_allowed {
+        return "request host port does not match this bridge's port; a reverse proxy that forwards \
+                its own public port needs --allow-host-any-port"
+            .to_string();
+    }
+    "request host is not allowed by this bridge; allow the host name with --allow-host".to_string()
 }
 
 fn request_allowed(headers: &HeaderMap, policy: &RequestPolicy) -> bool {
@@ -1509,15 +1545,22 @@ fn host_authority_allowed(authority: &str, policy: &RequestPolicy) -> bool {
         return true;
     }
 
+    // A reverse proxy that terminates its own public port forwards the original
+    // Host header, so the authority port never matches this bridge's port. The
+    // opt-in keeps the default strict and makes that deployment explicit.
+    let allowed_host_matches = policy
+        .allowed_hosts
+        .iter()
+        .any(|allowed| host.eq_ignore_ascii_case(allowed));
+    if allowed_host_matches && policy.allow_host_any_port {
+        return true;
+    }
+
     if !authority_port_matches(authority, policy.bind_port) {
         return false;
     }
 
-    if policy
-        .allowed_hosts
-        .iter()
-        .any(|allowed| host.eq_ignore_ascii_case(allowed))
-    {
+    if allowed_host_matches {
         return true;
     }
 
@@ -5118,6 +5161,7 @@ mod tests {
     use flate2::read::GzDecoder;
     use socket2::SockRef;
     use std::convert::Infallible;
+    use std::future::{poll_fn, Future};
     use std::io::Read;
     use std::pin::Pin;
     use std::task::{Context, Poll};
@@ -5135,17 +5179,28 @@ mod tests {
         State(state): State<ActivitySocketTestState>,
     ) -> Response {
         let activity_rx = state.activity_tx.subscribe();
-        state.ready.notify_one();
+        let ready = state.ready.clone();
         let closed_at = state.closed_at.clone();
         ws.write_buffer_size(0)
             .on_upgrade(move |socket| async move {
-                handle_activity_socket(socket, activity_rx).await;
+                let mut handler = Box::pin(handle_activity_socket(socket, activity_rx));
+                // A subscribed receiver alone does not prove the upgraded handler is active.
+                poll_fn(|cx| {
+                    assert!(
+                        handler.as_mut().poll(cx).is_pending(),
+                        "activity handler closed before readiness"
+                    );
+                    Poll::Ready(())
+                })
+                .await;
+                ready.notify_one();
+                handler.await;
                 *closed_at.lock().expect("test close timestamp lock") = Some(Instant::now());
             })
             .into_response()
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn activity_socket_closes_when_peer_stops_reading() {
         let (activity_tx, _) = tokio::sync::broadcast::channel(2);
         let state = ActivitySocketTestState {
@@ -5179,11 +5234,14 @@ mod tests {
             .expect("small test WebSocket receive buffer");
         ready.notified().await;
 
+        // Real TCP/upgrade waits must not auto-advance the heartbeat before the payload.
+        // Pause only after the handler is active; no await separates pause and enqueue.
+        tokio::time::pause();
         let started_at = Instant::now();
         let reason = "x".repeat(8 * 1024 * 1024);
         activity_tx
             .send(ActivityMessage::ResyncRequired { reason })
-            .expect("activity socket test receiver");
+            .unwrap_or_else(|_| panic!("activity socket receiver closed before payload enqueue"));
 
         let heartbeat_deadline = started_at + crate::websocket_heartbeat::WEBSOCKET_PING_INTERVAL;
         while Instant::now() < heartbeat_deadline {
@@ -6411,6 +6469,7 @@ mod tests {
             bind_host: "0.0.0.0".to_string(),
             bind_port: 4000,
             allowed_hosts: Vec::new(),
+            allow_host_any_port: false,
             allowed_origins: vec!["http://localhost".to_string()],
             allowed_connect_sources: Vec::new(),
         };
@@ -6477,13 +6536,73 @@ mod tests {
             bind_host: "0.0.0.0".to_string(),
             bind_port: 4000,
             allowed_hosts: vec!["herdr-host.local".to_string()],
+            allow_host_any_port: false,
             allowed_origins: Vec::new(),
             allowed_connect_sources: Vec::new(),
         };
         assert!(host_authority_allowed("herdr-host.local:4000", &policy));
         assert!(host_authority_allowed("HERDR-HOST.LOCAL:4000", &policy));
         assert!(!host_authority_allowed("herdr-host.local:8787", &policy));
+        assert!(!host_authority_allowed("herdr-host.local", &policy));
         assert!(!host_authority_allowed("evil.example:4000", &policy));
+    }
+
+    #[test]
+    fn host_gate_allows_configured_hostname_on_any_port_only_when_enabled() {
+        let strict = RequestPolicy {
+            bind_host: "0.0.0.0".to_string(),
+            bind_port: 8789,
+            allowed_hosts: vec!["herdr-host.local".to_string()],
+            allow_host_any_port: false,
+            allowed_origins: Vec::new(),
+            allowed_connect_sources: Vec::new(),
+        };
+        // A reverse proxy keeps the public port in Host, so the strict gate
+        // rejects the forwarded request.
+        assert!(!host_authority_allowed("herdr-host.local:8790", &strict));
+
+        let proxy = RequestPolicy {
+            allow_host_any_port: true,
+            ..strict
+        };
+        assert!(host_authority_allowed("herdr-host.local:8790", &proxy));
+        assert!(host_authority_allowed("HERDR-HOST.LOCAL:8790", &proxy));
+        assert!(host_authority_allowed("herdr-host.local", &proxy));
+        // Only an explicitly allowed hostname widens; unknown hosts stay out.
+        assert!(!host_authority_allowed("evil.example:8790", &proxy));
+        assert!(!host_authority_allowed("evil.example:8789", &proxy));
+    }
+
+    #[test]
+    fn host_rejection_explains_port_mismatch_apart_from_unknown_host() {
+        let strict = RequestPolicy {
+            bind_host: "0.0.0.0".to_string(),
+            bind_port: 8789,
+            allowed_hosts: vec!["herdr-host.local".to_string()],
+            allow_host_any_port: false,
+            allowed_origins: Vec::new(),
+            allowed_connect_sources: Vec::new(),
+        };
+        // Same allowed hostname, foreign port: point at the opt-in flag.
+        let port_mismatch =
+            host_rejection_message(&origin_headers("herdr-host.local:8790", None), &strict);
+        assert!(port_mismatch.contains("--allow-host-any-port"));
+        assert!(!port_mismatch.contains("herdr-host.local"));
+        // Unknown hostname: point at --allow-host instead.
+        let unknown_host =
+            host_rejection_message(&origin_headers("evil.example:8789", None), &strict);
+        assert!(unknown_host.contains("--allow-host"));
+        assert!(!unknown_host.contains("--allow-host-any-port"));
+        assert!(!unknown_host.contains("evil.example"));
+        // A cross-origin rejection keeps the distinct origin wording.
+        let origin_error = ensure_allowed_request(
+            &origin_headers("herdr-host.local:8789", Some("https://example.com")),
+            &strict,
+        )
+        .expect_err("cross-site origin is rejected");
+        assert!(
+            matches!(origin_error, BridgeError::Forbidden(message) if message == "cross-origin requests are not allowed")
+        );
     }
 
     #[test]
@@ -6492,6 +6611,7 @@ mod tests {
             bind_host: "0.0.0.0".to_string(),
             bind_port: 4000,
             allowed_hosts: Vec::new(),
+            allow_host_any_port: false,
             allowed_origins: vec!["http://localhost".to_string()],
             allowed_connect_sources: Vec::new(),
         };
@@ -7656,6 +7776,7 @@ mod tests {
             bind_host: bind_host.to_string(),
             bind_port,
             allowed_hosts: Vec::new(),
+            allow_host_any_port: false,
             allowed_origins: Vec::new(),
             allowed_connect_sources: Vec::new(),
         }
@@ -7772,6 +7893,7 @@ mod pi_relay_tests {
                 bind_host: "127.0.0.1".into(),
                 bind_port: 0,
                 allowed_hosts: vec![],
+                allow_host_any_port: false,
                 allowed_origins: vec![],
                 allowed_connect_sources: vec![],
             },

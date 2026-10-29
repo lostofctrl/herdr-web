@@ -1,144 +1,77 @@
 import type { PiCatalog, PiCatalogEntry } from "../../pi/piProtocol";
+import { piCatalogTrigger } from "../../pi/sidepanel/piSidePanelCatalog";
 
 export const PI_COMPOSER_SUGGESTION_LIMIT = 20;
 export const PI_COMPOSER_FILE_QUERY_LIMIT = 50;
 export const PI_COMPOSER_FILE_DEBOUNCE_MS = 200;
-
 export type PiComposerSuggestionKind = "command" | "skill" | "file";
-
 export type PiComposerTrigger =
   | { kind: "slash"; start: 0; query: string }
   | { kind: "file"; start: number; query: string };
-
 export type PiComposerSuggestion = {
   id: string;
   kind: PiComposerSuggestionKind;
   label: string;
   description: string;
-  /** Text that replaces the trigger token when picked. */
   insert: string;
 };
 
-function whitespaceBetween(text: string) {
-  return /\s/.test(text);
-}
-
-/**
- * Finds the suggestion token around `cursor`. `/` only counts as the first
- * character of the draft; `@` counts inside the word the cursor is in.
- */
-export function piComposerTrigger(
-  draft: string,
-  cursor: number,
-): PiComposerTrigger | null {
+/** Slash is draft-initial; file references require a token boundary, not email. */
+export function piComposerTrigger(draft: string, cursor: number): PiComposerTrigger | null {
   const position = Math.max(0, Math.min(cursor, draft.length));
-
-  if (draft.startsWith("/") && position > 0) {
-    const token = draft.slice(0, position);
-    if (!whitespaceBetween(token)) {
-      return { kind: "slash", start: 0, query: token.slice(1) };
-    }
-  }
-
-  const at = draft.lastIndexOf("@", position - 1);
-  if (at < 0) {
-    return null;
-  }
-  if (at > 0 && !/\s/.test(draft[at - 1])) {
-    return null;
-  }
-  const token = draft.slice(at + 1, position);
-  if (whitespaceBetween(token)) {
-    return null;
-  }
-  return { kind: "file", start: at, query: token };
+  const before = draft.slice(0, position);
+  if (/^\/[^\s]*$/.test(before)) return { kind: "slash", start: 0, query: before.slice(1) };
+  // A quoted token may contain spaces, but a closing quote ends completion.
+  const match = /(?:^|\s)@(?:"([^"\n]*)|([^\s"]*))$/.exec(before);
+  if (!match) return null;
+  return { kind: "file", start: before.lastIndexOf("@", match.index + match[0].indexOf("@")), query: match[1] ?? match[2] };
 }
-
 export function piComposerTriggerKey(trigger: PiComposerTrigger | null) {
   return trigger ? `${trigger.kind}:${trigger.start}:${trigger.query}` : null;
 }
-
-/** Normalises what a picked row writes back into the draft. */
-export function piComposerSuggestionInsertion(
-  kind: PiComposerSuggestionKind,
-  name: string,
-) {
-  if (kind === "command") {
-    return name.startsWith("/") ? name : `/${name}`;
-  }
-  if (kind === "file") {
-    return name.startsWith("@") ? name : `@${name}`;
-  }
-  return name;
+export function piComposerSuggestionInsertion(kind: PiComposerSuggestionKind, name: string) {
+  if (kind !== "file") return piCatalogTrigger({ name, description: "", source: "" }, kind);
+  const path = name.replace(/^@/, "");
+  return `@${/[\s"]/.test(path) ? JSON.stringify(path) : path}`;
 }
 
-/**
- * Replaces only the trigger token up to the cursor. Text after the cursor is
- * kept byte-for-byte, so picking never disturbs the rest of the draft.
- */
-export function applyPiComposerSuggestion(
-  draft: string,
-  trigger: PiComposerTrigger,
-  cursor: number,
-  insertion: string,
-) {
-  const position = Math.max(trigger.start, Math.min(cursor, draft.length));
+/** Preserve suffix text; consume only a closing quote and reuse its separator. */
+export function applyPiComposerSuggestion(draft: string, trigger: PiComposerTrigger, cursor: number, insertion: string) {
+  let position = Math.max(trigger.start, Math.min(cursor, draft.length));
+  if (trigger.kind === "file" && draft[trigger.start + 1] === '"' && draft[position] === '"') position++;
+  const suffix = draft.slice(position);
+  const separator = /^\s/.test(suffix) ? "" : " ";
   return {
-    value: draft.slice(0, trigger.start) + insertion + draft.slice(position),
-    cursor: trigger.start + insertion.length,
+    value: draft.slice(0, trigger.start) + insertion + separator + suffix,
+    cursor: trigger.start + insertion.length + (separator || (suffix.startsWith(" ") ? " " : "")).length,
   };
 }
-
-function catalogEntry(
-  kind: "command" | "skill",
-  entry: PiCatalogEntry,
-): PiComposerSuggestion {
+function catalogEntry(kind: "command" | "skill", entry: PiCatalogEntry): PiComposerSuggestion {
   const insert = piComposerSuggestionInsertion(kind, entry.name);
-  return {
-    id: `${kind}:${entry.name}`,
-    kind,
-    label: insert,
-    description: entry.description,
-    insert,
-  };
+  return { id: `${kind}:${entry.name}`, kind, label: insert, description: entry.description, insert };
 }
-
-/** Commands and skills share one filtered list; commands come first. */
-export function piComposerCatalogSuggestions(
-  catalog: PiCatalog | null,
-  query: string,
-): PiComposerSuggestion[] {
-  if (!catalog) {
-    return [];
-  }
+function nameRank(name: string, needle: string) {
+  return name === needle ? 0 : name.startsWith(needle) ? 1 : name.includes(needle) ? 2 : 3;
+}
+export function piComposerCatalogSuggestions(catalog: PiCatalog | null, query: string, skillsEnabled = true): PiComposerSuggestion[] {
+  if (!catalog) return [];
   const needle = query.trim().toLowerCase().replace(/^\//, "");
-  const entries = [
-    ...(catalog.commands ?? []).map((entry) => catalogEntry("command", entry)),
-    ...(catalog.skills ?? []).map((entry) => catalogEntry("skill", entry)),
-  ];
-  return entries
-    .filter((entry) => {
-      if (!needle) {
-        return true;
-      }
-      return entry.label.toLowerCase().replace(/^\//, "").includes(needle);
-    })
+  return [
+    ...catalog.commands.map(entry => catalogEntry("command", entry)),
+    ...(skillsEnabled ? catalog.skills.map(entry => catalogEntry("skill", entry)) : []),
+  ].filter(entry => `${entry.label} ${entry.description}`.toLowerCase().includes(needle))
+    .sort((a, b) => nameRank(a.label.toLowerCase().replace(/^\/(?:skill:)?/, ""), needle) - nameRank(b.label.toLowerCase().replace(/^\/(?:skill:)?/, ""), needle))
     .slice(0, PI_COMPOSER_SUGGESTION_LIMIT);
 }
-
-export function piComposerFileSuggestions(
-  files: { path: string }[],
-  query: string,
-): PiComposerSuggestion[] {
-  const needle = query.trim().toLowerCase();
-  return files
-    .filter((file) => !needle || file.path.toLowerCase().includes(needle))
+export function piComposerFileSuggestions(files: { path: string }[], query: string): PiComposerSuggestion[] {
+  const needle = query.toLowerCase();
+  const rank = (path: string) => {
+    const lower = path.toLowerCase();
+    const base = lower.split("/").at(-1) ?? lower;
+    return lower === needle ? 0 : base.startsWith(needle) ? 1 : lower.startsWith(needle) ? 2 : 3;
+  };
+  return files.filter(file => file.path.toLowerCase().includes(needle))
+    .sort((a,b) => rank(a.path) - rank(b.path))
     .slice(0, PI_COMPOSER_SUGGESTION_LIMIT)
-    .map((file) => ({
-      id: `file:${file.path}`,
-      kind: "file" as const,
-      label: file.path,
-      description: "File",
-      insert: piComposerSuggestionInsertion("file", file.path),
-    }));
+    .map(file => ({id: `file:${file.path}`, kind: "file", label: file.path, description: "Tracked file", insert: piComposerSuggestionInsertion("file", file.path)}));
 }

@@ -5,6 +5,8 @@
  * socket, and answers the version 1 protocol from docs/pi-mode-protocol.md.
  * It is deliberately inert outside a pane: no handlers, no socket, no timers.
  */
+import { randomUUID } from "node:crypto";
+import { capConversation, conversationExchanges, supportsConversation, type ConversationRecord } from "./conversation.ts";
 import { BridgeSocketInUseError, createBridgeServer, type BridgeServer, type RecordSender } from "./server.ts";
 import {
   ASK_USER_ANSWER_EVENT,
@@ -96,6 +98,84 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
   let context: ContextLike | null = null;
   let server: BridgeServer | null = null;
   let latestAssistant: string | null = null;
+  const conversationEpoch = randomUUID();
+  let selectionGeneration = 0;
+  let conversationRevision = 0;
+  let conversationSuspended = false;
+  let revalidation: { generation: number; manager: ContextLike["sessionManager"] } | null = null;
+  const conversationTimers = new Set<ReturnType<typeof setTimeout>>();
+
+  function invalidateConversation(reason: string, controllerBacked = false): void {
+    selectionGeneration += 1;
+    conversationSuspended = true;
+    revalidation = controllerBacked ? { generation: selectionGeneration, manager: context?.sessionManager } : null;
+    const record = conversationRecord();
+    record.availability = "unavailable";
+    record.reason = reason;
+    record.exchanges = [];
+    server?.broadcast(record);
+  }
+
+  function refreshConversation(deferred = false): void {
+    if (!deferred) {
+      server?.broadcast(conversationRecord());
+      return;
+    }
+    const generation = selectionGeneration;
+    const owner = context;
+    // Pi awaits message_end handlers before appending the finalized message.
+    const timer = setTimeout(() => {
+      conversationTimers.delete(timer);
+      if (generation === selectionGeneration && owner === context && server?.isRunning()) refreshConversation();
+    }, 0);
+    conversationTimers.add(timer);
+  }
+
+  function conversationRecord(requestId?: string): ConversationRecord {
+    const result: ConversationRecord = {
+      type: "conversation_update", schema_version: 1, epoch: conversationEpoch,
+      session_id: null, leaf_id: null, selection_generation: selectionGeneration,
+      revision: ++conversationRevision, availability: "unavailable", reason: "unsupported",
+      exchanges: [], ...(requestId ? { request_id: requestId } : {}),
+    };
+    if (!supportsConversation(context)) return capConversation(result);
+    try {
+      const manager = context!.sessionManager!;
+      result.session_id = manager.getSessionId!();
+      result.leaf_id = manager.getLeafId!();
+      if (typeof result.session_id !== "string" || !result.session_id || !(result.leaf_id === null || typeof result.leaf_id === "string")) {
+        result.session_id = null;
+        result.leaf_id = null;
+        result.reason = "authority_lost";
+        return capConversation(result);
+      }
+      const candidate = revalidation;
+      // Pi 1.4.0 holds tree/compact controllers through every before hook and
+      // unwind; isIdle covers those controllers, but NOT switch/fork hooks.
+      const canRevalidate = requestId && candidate?.generation === selectionGeneration &&
+        candidate.manager === manager && context?.isIdle?.() === true;
+      if (conversationSuspended && !canRevalidate) {
+        result.reason = "selection_changing";
+        return capConversation(result);
+      }
+      result.exchanges = conversationExchanges(manager.getBranch!(), busy !== "idle");
+      if (result.selection_generation !== selectionGeneration || manager !== context?.sessionManager) {
+        result.exchanges = [];
+        result.reason = "selection_changing";
+        return capConversation(result);
+      }
+      if (conversationSuspended && canRevalidate && candidate === revalidation) {
+        conversationSuspended = false;
+        revalidation = null;
+      }
+      result.availability = "ready";
+      result.reason = null;
+    } catch {
+      result.reason = "authority_lost";
+      result.exchanges = [];
+    }
+    return capConversation(result);
+  }
   let currentModel: ModelLike | null = null;
   let busy: "idle" | "busy" = "idle";
   let uiPromptActive = false;
@@ -185,11 +265,12 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
       assistant_message: true,
       list_files: exec !== null,
       skills_catalog: readCommands() !== null,
+      conversation_snapshot: supportsConversation(context),
     };
   }
 
   function sendSnapshot(send: RecordSender): void {
-    send({ type: "hello", protocol_version: PROTOCOL_VERSION, capabilities: capabilities() });
+    send({ type: "hello", protocol_version: PROTOCOL_VERSION, capabilities: capabilities(), conversation_epoch: conversationEpoch });
     send({ type: "state", ...statePayload() });
     send({ type: "catalog", ...catalog() });
     if (latestAssistant !== null) {
@@ -226,6 +307,15 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
     }
     const id = request.id;
     switch (request.type) {
+      case "get_conversation": {
+        if ((message as { schema_version?: unknown }).schema_version !== 1) {
+          reply(errorResponse(id, "unsupported conversation schema"));
+          return;
+        }
+        reply(conversationRecord(id));
+        reply(okResponse(id, {}));
+        return;
+      }
       case "get_snapshot": {
         reply(
           okResponse(id, {
@@ -473,6 +563,8 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
   }
 
   async function stopServer(): Promise<void> {
+    for (const timer of conversationTimers) clearTimeout(timer);
+    conversationTimers.clear();
     const current = server;
     server = null;
     if (current) {
@@ -482,6 +574,9 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
   }
 
   bind("session_start", async (_event, ctx) => {
+    selectionGeneration += 1;
+    conversationSuspended = false;
+    revalidation = null;
     genericDialogs.stop();
     genericDialogsAvailable = ctx.mode === "tui" && ctx.hasUI === true && genericDialogs.install(ctx.ui);
     if (!genericDialogsAvailable && !wrapWarningShown) {
@@ -508,13 +603,26 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
     await ensureServer();
     // A session replacement keeps the same pane socket; refresh connected clients.
     if (server?.isRunning()) {
-      server.broadcast({ type: "hello", protocol_version: PROTOCOL_VERSION, capabilities: capabilities() });
+      server.broadcast({ type: "hello", protocol_version: PROTOCOL_VERSION, capabilities: capabilities(), conversation_epoch: conversationEpoch });
       broadcastState();
       server.broadcast({ type: "catalog", ...catalog() });
+      refreshConversation();
     }
   });
 
+  for (const event of ["session_before_switch", "session_before_fork", "session_before_tree", "session_before_compact"]) {
+    bind(event, () => invalidateConversation("selection_changing", event === "session_before_tree" || event === "session_before_compact"));
+  }
+  for (const event of ["session_tree", "session_compact", "session_compact_failed"]) {
+    bind(event, () => {
+      conversationSuspended = false;
+      revalidation = null;
+      refreshConversation();
+    });
+  }
+
   bind("session_shutdown", async () => {
+    invalidateConversation("authority_lost");
     genericDialogs.stop();
     await stopServer();
   });
@@ -522,11 +630,13 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
   bind("agent_start", () => {
     busy = "busy";
     broadcastState();
+    refreshConversation(true);
   });
 
   bind("agent_end", () => {
     busy = "idle";
     broadcastState();
+    refreshConversation(true);
   });
 
   bind("ui_prompt_start", () => {
@@ -575,6 +685,7 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
   });
 
   bind("message_end", (event) => {
+    refreshConversation(true);
     if (event?.message?.role !== "assistant") {
       return;
     }

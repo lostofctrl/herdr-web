@@ -24,9 +24,10 @@ navigation, multi-client viewing, mobile input controls, and synchronized pane s
 - Mobile-friendly text input with stage/send actions, configurable tap focus, and extended
   terminal key controls.
 - Agent-focused sidebar with styled icons for detected Codex/OpenAI, Claude, Pi, Grok, and OpenCode panes.
-- Pi mode for panes running Pi: live Pi State, a native Composer, a Key Bar that follows Pi's
-  state, command and file suggestions, Attachment Chips with a Screenshot Editor, Native Cards
-  for Pi dialogs and `ask_user_question`, and a Reader Sheet for the last answer.
+- Pi mode for panes running Pi: live Pi State, a native Composer with a shared searchable model
+  picker and per-pane prompt recall, a Key Bar that follows Pi's state, ranked command and file
+  suggestions, Attachment Chips with a Screenshot Editor, Native Cards for Pi dialogs and
+  `ask_user_question`, and a Reader Sheet for the last answer.
 - Image and file uploads from the terminal toolbar, paste, or drag/drop, with uploaded paths inserted
   into the active terminal input.
 - Context menus for renaming, closing, splitting, and moving panes between tabs or spaces.
@@ -224,6 +225,67 @@ Desktop and mobile command drafts stay separate per bridge and
 pane while switching panes, tabs, or hosts, hiding the composer, or reconnecting. Sending or staging
 clears that pane's draft, and a successful snapshot removes drafts for closed panes. Drafts live only
 in the current browser tab's memory: reloading the page clears them, and other clients do not share them.
+
+Pi panes use their own native Composer instead of the command composer, with or without a reachable
+Pi Bridge. Phone layouts start with a minimal Open Composer launcher. Opening focuses the real
+editor in an inset working surface, with bounded first/current context above it and a right-thumb
+Send, Stop, Return to terminal and ⋯ rail (one row on short viewports). The surface follows the
+visible viewport and safe areas; each exchange scrolls independently. The terminal and optional
+screen-reader mirror stay mounted and connected but hidden/inert while composing. Return to
+terminal is explicit: closing the keyboard, rotating, or backgrounding does not collapse it, and
+returning never sends Esc or clears the draft. Stop alone sends Pi's existing Esc. The Key Bar,
+Chord Composer, busy Steer/Queue and Reader Sheet are reached through ⋯ → Terminal keys and Reader;
+History and image attachment remain beside the editor. Native Cards remain outside the hidden
+terminal; terminal-only/custom dialogs are reached with Return to terminal. Desktop stays terminal-first,
+opens the Composer with Ctrl+Space and sends with Ctrl+Enter. On a phone Enter inserts a newline and the large
+Send button sends. Delivery is one bracketed paste plus Enter, so Pi itself decides whether the text
+is a prompt, steer, follow-up, `/command`, or `!bash`. Pi Composer drafts are kept per bridge and pane
+in browser storage, survive reloads, and are cleared only after the terminal socket accepted the
+prompt. If the text reached Pi but its Enter did not, the Composer says so and Send submits the
+prompt without pasting the text again. Up and Down at the draft edges walk the last 50 prompts sent
+from that pane, newest first; recall lives in memory only, so nothing is written to browser storage
+and a reload starts empty. On a phone, Composer helpers (⋯) opens commands and skills (`/`), files and paths
+(`@`), and shell-prefix editing (`!`). Choosing a helper only edits the draft and restores the editor
+caret; it never submits or runs it. File insertion respects the current selection. Prefix editing
+remains available while Bridge Offline, without autocomplete. Escape returns to the helper trigger;
+an outside tap dismisses the menu without sending terminal input. The same menu includes the shared searchable model picker, supported thinking levels, and the full
+command/skill browser (names, descriptions and sources). Catalog selection inserts a trigger into
+the live draft without sending. Explicit Abort, Compact, New session and Resume actions preserve
+unsent text and attachments; they use the existing PTY Esc or command paste plus Enter, not a new
+send API. Model, thinking and session actions require an online, idle Pi Bridge; Abort still works
+through the attached terminal while Bridge Offline. Failed requests show errors without discarding
+the draft. If a quick action reaches Pi without Enter, reopen ⋯ and choose Submit pending action;
+ordinary prompt delivery and helper/catalog insertion are blocked until that Enter-only recovery
+finishes. Key Bar/Chord keys and direct typing/paste cannot interleave with automatic delivery or
+bypass pending-input recovery; Reader remains available. Return to terminal sends no bytes and
+hands pending input to manual control, invalidating delayed uploads/queued Enter callbacks while
+keeping the draft and images. Reopening Composer does not infer completion from Enter or Esc:
+finish or clear the input in the terminal, then explicitly choose “Terminal input is empty; keep
+draft” before sending again. Unresolved input is recorded alongside the per-bridge/pane durable
+draft identity, so switching away/back, remounting the terminal or reloading cannot silently re-enable
+paste/resend; returning to that pane requires the same explicit reconciliation. Closed-pane snapshot
+cleanup removes its marker with its draft. Known unresolved markers also remain in memory until
+explicit clear/pruning, even if browser storage later becomes unavailable. A previously acquired
+storage handle preserves access to the same stored draft when the `localStorage` getter fails;
+no second copy of draft text is kept. If that handle also rejects reads, unresolved input remains
+locked but stored text cannot be recovered until storage access returns. This keeps the draft for
+deliberate reuse, not an automatic resend.
+Back returns to the initiating menu entry; dismissal returns to the helper trigger.
+Desktop retains its `/` and `@` buttons, and the Pi Side Panel remains available.
+
+Pi 1.4.0 has no verified supported API to hide only its built-in CLI editor chrome while preserving
+TUI input and PTY submission: `setEditorComponent` replaces the editor, `setWorkingVisible` affects
+only the loader, and header/footer hooks do not hide the editor. Therefore the collapsed terminal
+retains Pi's real CLI editor. No replacement TUI, ANSI erasure, terminal-geometry trick, or RPC path
+is used. Older Pi Bridges still support Composer delivery and static keys without bounded context.
+
+Mobile verification remains incomplete until physical iOS Safari and Android Chrome checks cover
+native keyboard/visualViewport, IME/dictation/autocorrect, focus/scrolling, menu reachability, and the
+read-latest → follow-up → Stop → terminal task. Physical devices are unavailable in the current
+verification environment (Android discovery previously timed out). Chromium phone emulation and
+keyboard-shaped viewport checks are not native-keyboard, comfort, or timing evidence; no production
+readiness claim is made. While the Composer is open it owns `/`, `@` and prompt history, so the Key
+Bar omits those duplicates. The Side Panel shares the Composer's searchable model picker.
 
 Terminal input payloads can be sent as JSON or binary WebSocket frames. JSON remains the default;
 binary is available for comparing terminal input performance. Terminal input batching is off by
@@ -428,7 +490,9 @@ API and WebSocket requests must use an allowed bridge `Host` header. Browser-ori
 must also be same-origin with the bridge, an explicitly allowed origin such as Android's
 `http://localhost`, or a loopback development proxy origin allowed for Vite. Hostname backends must
 be explicitly allowed with `--allow-host HOSTNAME`. This is a DNS-rebinding/CSRF guard, not user
-authentication.
+authentication. A reverse proxy that terminates its own public port forwards the original `Host`
+header, so the forwarded authority port never matches the bridge port; add `--allow-host-any-port`
+to accept an already allowed hostname on any port. It widens only the explicitly allowed hostnames.
 
 Bridge-owned notes are part of that same request policy. Any allowed bridge client can read and
 mutate saved note content, including clients connecting over a trusted LAN when the bridge is bound

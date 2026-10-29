@@ -167,6 +167,17 @@ bin/herdr-web --host 0.0.0.0 --port 4000 \
 
 Then install the Android APK and add the bridge URL in the Bridge area of Settings.
 
+A reverse proxy that terminates its own public port forwards the original `Host` header, so the
+forwarded authority port never matches the bridge port. Add `--allow-host-any-port` to accept an
+already allowed hostname on any port; it widens only the hostnames listed with `--allow-host`:
+
+```bash
+bin/herdr-web --host 0.0.0.0 --port 4000 \
+  --allow-origin https://herdr.example \
+  --allow-host herdr.example \
+  --allow-host-any-port
+```
+
 For browser-served multi-bridge use, configure both the page-serving bridge and the bridge being
 called. If a page opened from `http://host-a:8787` should connect to `http://host-b:8787`, run host
 A with:

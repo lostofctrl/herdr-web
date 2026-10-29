@@ -39,11 +39,11 @@ Pi outside Herdr behaves exactly as before: no socket, no events, no extra outpu
 Implemented as `docs/pi-mode-protocol.md` version 1:
 
 - Bridge → client: `hello`, `state`, `catalog`, `dialog_open`, `dialog_closed`,
-  `assistant_message`, `response`.
+  `assistant_message`, `conversation_update`, `response`.
 - Client → bridge: `get_snapshot`, `set_model`, `set_thinking_level`,
-  `list_files`, `dialog_answer`.
+  `list_files`, `dialog_answer`, `get_conversation`.
 - `hello.capabilities` is
-  `{generic_dialogs, assistant_message: true, list_files, skills_catalog}`.
+  `{generic_dialogs, assistant_message: true, list_files, skills_catalog, conversation_snapshot}`.
   `generic_dialogs` is true only when the startup self-check installed the shared
   `ctx.ui` wrap (ADR 0002); question dialogs are relayed from `ask_user_question`
   independently. If the wrap fails, the bridge notifies once and the terminal dialog
@@ -109,3 +109,17 @@ snapshot, state transitions, latest assistant message (and ignoring user
 messages), socket cleanup/replacement/live-conflict, `set_model`,
 `set_thinking_level`, tracked-file filtering and the 200-file cap, response
 correlation, ignored malformed records, and the 1 MiB cap.
+
+
+### Read-only conversation context
+
+The separate conversation schema 1 uses only the live manager's `getBranch()`,
+`getSessionId()` and `getLeafId()` surfaces. Missing APIs advertise
+`conversation_snapshot: false`; the legacy Reader Sheet continues unchanged.
+First/latest user-led exchanges include public text and explicit pending/running or
+interrupted states. Selection changes invalidate immediately, and recorded completions
+refresh on a later macrotask because Pi persists messages after extension handlers finish.
+Conversation records are bounded to 64 KiB encoded JSON, 16 KiB per text field and 8 KiB
+metadata, with Unicode-safe flagged truncation and latest-first allocation. See the
+protocol document for the envelope, lifecycle, compatibility and byte-allocation contract.
+The existing relay/security limits and terminal-authoritative delivery remain unchanged.
