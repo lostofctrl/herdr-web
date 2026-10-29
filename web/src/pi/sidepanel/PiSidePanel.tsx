@@ -2,8 +2,7 @@ import { PanelRight } from "lucide-react";
 import { useId, useState } from "react";
 
 import { usePiBridge } from "../PiBridgeContext";
-import { PI_ESCAPE_KEY } from "../piKeys";
-import { piComposerDeliveryParts } from "../../pi-mode/piComposerDelivery";
+import { PI_QUICK_ACTIONS, piQuickActionParts } from "./piQuickActions";
 import { insertPiComposerText } from "./piComposerInsert";
 import { piCatalogTrigger, piSidePanelEntries } from "./piSidePanelCatalog";
 import { PiModelPicker } from "../../pi-mode/PiModelPicker";
@@ -79,15 +78,9 @@ export function PiSidePanel({ bridgeId, paneId, disabled, onSend }: PiSidePanelP
             </section>
           ) : null}
           <section aria-label="Pi quick actions" className="pi-side-panel-actions">
-            <button type="button" aria-label="Abort Pi" disabled={disabled}
-              onClick={() => onSend([PI_ESCAPE_KEY])}>Abort</button>
-            {[
-              ["Compact Pi session", "Compact", "/compact"],
-              ["New Pi session", "New session", "/new"],
-              ["Resume Pi session", "Resume", "/resume"],
-            ].map(([label, title, command]) => (
-              <button key={command} type="button" aria-label={label} disabled={disabled}
-                onClick={() => onSend(piComposerDeliveryParts(command))}>{title}</button>
+            {PI_QUICK_ACTIONS.map(({ label, title, command }) => (
+              <button key={label} type="button" aria-label={label} disabled={disabled}
+                onClick={() => onSend(piQuickActionParts(command))}>{title}</button>
             ))}
           </section>
           {error ? <p role="alert">{error}</p> : null}

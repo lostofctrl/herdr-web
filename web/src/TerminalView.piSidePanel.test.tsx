@@ -91,13 +91,12 @@ async function renderTerminalView({ agent = "pi", mobile = true, bridgeId = BRID
   document.body.appendChild(container);
   const root = createRoot(container);
   roots.push(root);
-  await act(async () => {
-    root.render(
+  const render = (connectionKey = "test-connection", paneId = PANE_ID) => root.render(
       <CommandDraftContext.Provider value={createCommandDraftStore()}>
         <TerminalView
           bridgeId={bridgeId}
-          pane={testPane(agent)}
-          connectionKey="test-connection"
+          pane={{ ...testPane(agent), pane_id: paneId, terminal_id: `${paneId}-terminal` }}
+          connectionKey={connectionKey}
           resumeToken={0}
           httpUrl={(path) => path}
           wsUrl={(path, query) => (query ? `${path}?${query}` : path)}
@@ -108,8 +107,8 @@ async function renderTerminalView({ agent = "pi", mobile = true, bridgeId = BRID
         />
       </CommandDraftContext.Provider>,
     );
-  });
-  return { container, root };
+  await act(async () => render());
+  return { container, root, reconnect: (paneId = PANE_ID) => act(async () => render("reconnected", paneId)) };
 }
 
 function terminalSocket() {
@@ -213,6 +212,202 @@ function sentTerminalInput(socket: TestSocket): string[] {
 }
 
 describe("TerminalView Pi Side Panel (Seam 3)", () => {
+  it("searches the full mobile catalog with metadata and inserts through the production Composer", async () => {
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Unsent draft");
+    const { container } = await renderTerminalView();
+    const { terminal } = await openSockets();
+    await sendPiRecord({ type: "hello", capabilities: { skills_catalog: true } });
+    await showState("idle");
+    await sendPiRecord({ type: "catalog", commands: [
+      { name: "review", description: "Review extension", source: "extension" },
+      { name: "template", description: "Prompt template", source: "prompt" },
+    ], skills: [{ name: "tdd", description: "Red green workflow", source: "project" }], skills_note: "Supported catalog only" });
+    await click(container, "Composer helpers");
+    await click(container, "Browse commands and skills");
+    expect(container.textContent).toContain("Prompt template");
+    expect(container.textContent).toContain("command · extension");
+    expect(container.textContent).toContain("Supported catalog only");
+    const search = control<HTMLInputElement>(container, "Search commands and skills");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "PROJECT");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.querySelector('[aria-label="Insert /review"]')).toBeNull();
+    await click(container, "Insert /skill:tdd");
+    const field = control<HTMLTextAreaElement>(container, "Pi prompt");
+    expect(field.value).toBe("Unsent draft\n/skill:tdd");
+    expect(document.activeElement).toBe(field);
+    expect(readPiComposerDraft(BRIDGE_ID, PANE_ID)).toBe("Unsent draft\n/skill:tdd");
+    expect(sentTerminalInput(terminal)).toEqual([]);
+  });
+
+  it("offers only supported mobile thinking levels, reports request failure and keeps the unsent draft", async () => {
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Keep thinking draft");
+    const { container } = await renderTerminalView();
+    const { pi, terminal } = await openSockets();
+    await showState("idle");
+    await click(container, "Composer helpers");
+    await click(container, "Choose Pi thinking level");
+    expect(container.querySelector('[aria-label="Use thinking level max"]')).toBeNull();
+    await click(container, "Use thinking level high");
+    expect(container.textContent).toContain("Changing thinking level");
+    expect(control<HTMLButtonElement>(container, "Use thinking level low").disabled).toBe(true);
+    const request = piRequests(pi).at(-1)!;
+    expect(request).toMatchObject({ type: "set_thinking_level", level: "high" });
+    await sendPiRecord({ type: "response", id: request.id, ok: false, error: "Thinking unavailable" });
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Thinking unavailable");
+    expect(control<HTMLButtonElement>(container, "Use thinking level medium").getAttribute("aria-pressed")).toBe("true");
+    expect(control<HTMLTextAreaElement>(container, "Pi prompt").value).toBe("Keep thinking draft");
+    expect(sentTerminalInput(terminal)).toEqual([]);
+    await click(container, "Use thinking level low");
+    await sendPiRecord({ type: "response", id: piRequests(pi).at(-1)!.id, ok: true });
+    expect(container.querySelector('[aria-label="Pi thinking levels"]')).toBeNull();
+    expect(document.activeElement).toBe(control(container, "Composer helpers"));
+  });
+
+  it("exposes explicit mobile quick actions using exact PTY bytes without clearing an authored draft", async () => {
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Keep quick action draft");
+    const { container } = await renderTerminalView();
+    const { terminal } = await openSockets();
+    await showState("idle");
+    for (const label of ["Abort Pi", "Compact Pi session", "New Pi session", "Resume Pi session"]) {
+      await click(container, "Composer helpers");
+      await click(container, label);
+      await act(async () => vi.advanceTimersByTime(80));
+      expect(control<HTMLTextAreaElement>(container, "Pi prompt").value).toBe("Keep quick action draft");
+    }
+    expect(sentTerminalInput(terminal)).toEqual([
+      "\x1b", "\x1b[200~/compact\x1b[201~", "\r",
+      "\x1b[200~/new\x1b[201~", "\r", "\x1b[200~/resume\x1b[201~", "\r",
+    ]);
+    expect(readPiComposerDraft(BRIDGE_ID, PANE_ID)).toBe("Keep quick action draft");
+  });
+
+  it("settles a dismissed quick action and blocks draft delivery/insertion until Enter-only recovery", async () => {
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Keep recovery draft");
+    const { container, reconnect } = await renderTerminalView();
+    const { terminal } = await openSockets();
+    await showState("idle");
+    terminal.send.mockImplementation((data: string) => {
+      if (JSON.parse(data).data === "\x1b[200~/compact\x1b[201~") terminal.readyState = 3;
+    });
+    await click(container, "Composer helpers");
+    await click(container, "Compact Pi session");
+    await act(async () => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await reconnect();
+    const reconnected = TestSocket.instances.filter((socket) => socket.url.startsWith("/ws/terminal")).at(-1)!;
+    await act(async () => reconnected.dispatchEvent(new Event("open")));
+    expect(control<HTMLButtonElement>(container, "Send prompt").disabled).toBe(true);
+    await insertInAct(BRIDGE_ID, PANE_ID, "/review");
+    expect(control<HTMLTextAreaElement>(container, "Pi prompt").value).toBe("Keep recovery draft");
+    terminal.readyState = 1;
+    await click(container, "Composer helpers");
+    expect(control<HTMLButtonElement>(container, "Browse commands and skills").disabled).toBe(true);
+    await click(container, "Submit pending Pi action");
+    await act(async () => vi.advanceTimersByTime(80));
+    expect([...sentTerminalInput(terminal), ...sentTerminalInput(reconnected)]).toEqual(["\x1b[200~/compact\x1b[201~", "\r"]);
+    expect(control<HTMLButtonElement>(container, "Send prompt").disabled).toBe(false);
+    expect(readPiComposerDraft(BRIDGE_ID, PANE_ID)).toBe("Keep recovery draft");
+  });
+
+  it("uses the shared searchable model picker as the only mobile subview and retains draft on failures", async () => {
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Keep model draft");
+    const { container } = await renderTerminalView();
+    const { pi } = await openSockets();
+    await showState("idle");
+    await click(container, "Composer helpers");
+    await click(container, "Choose Pi model");
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+    expect(container.querySelectorAll('[aria-label="Select Pi model"]')).toHaveLength(1);
+    await typeSearch(container, "openai");
+    expect(pickerRows(container)).toHaveLength(1);
+    await act(async () => pickerRows(container)[0].click());
+    const request = piRequests(pi).at(-1)!;
+    expect(request).toMatchObject({ type: "set_model", provider: "openai", model: "gpt" });
+    await sendPiRecord({ type: "response", id: request.id, ok: false, error: "Model unavailable" });
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Model unavailable");
+    expect(control<HTMLTextAreaElement>(container, "Pi prompt").value).toBe("Keep model draft");
+    await act(async () => pickerRows(container)[0].click());
+    await sendPiRecord({ type: "response", id: piRequests(pi).at(-1)!.id, ok: true });
+    expect(container.querySelector('[aria-label="Select Pi model"]')).toBeNull();
+    expect(document.activeElement).toBe(control(container, "Composer helpers"));
+  });
+
+  it.each(["connection", "pane"])("rejects old model responses and catalogs after the %s owner changes", async (owner) => {
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Owner draft");
+    const { container, reconnect } = await renderTerminalView();
+    const { pi: oldPi } = await openSockets();
+    await showState("idle");
+    await sendPiRecord({ type: "catalog", commands: [{ name: "old", description: "Old catalog", source: "extension" }], skills: [] });
+    await click(container, "Composer helpers");
+    await click(container, "Choose Pi model");
+    await act(async () => pickerRows(container)[1].click());
+    const oldRequest = piRequests(oldPi).at(-1)!;
+    await reconnect(owner === "pane" ? "pane-b" : PANE_ID);
+    expect(container.querySelector('[aria-label="Pi model controls"]')).toBeNull();
+    const newPi = TestSocket.instances.filter((socket) => socket.url.startsWith("/ws/pi")).at(-1)!;
+    const record = async (socket: TestSocket, value: Record<string, unknown>) => act(async () => socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(value) })));
+    await act(async () => newPi.dispatchEvent(new Event("open")));
+    const newTerminal = TestSocket.instances.filter((socket) => socket.url.startsWith("/ws/terminal")).at(-1)!;
+    await act(async () => newTerminal.dispatchEvent(new Event("open")));
+    await record(newPi, { type: "state", busy: "idle", model: null, models: [{ provider: "new", id: "new-model", label: "New model" }], thinking_level: "low", thinking_levels: ["low"], cwd: "/new" });
+    await click(container, "Composer helpers");
+    await click(container, "Choose Pi model");
+    const focused = document.activeElement;
+    await record(oldPi, { type: "response", id: oldRequest.id, ok: true });
+    await record(oldPi, { type: "catalog", commands: [{ name: "late-old", description: "Late old catalog", source: "extension" }], skills: [] });
+    expect(document.activeElement).toBe(focused);
+    expect(pickerRows(container).map((row) => row.textContent)).toEqual(["New modelnew-model · new"]);
+    await click(container, "Back to Composer helpers");
+    expect(control<HTMLButtonElement>(container, "Browse commands and skills").disabled).toBe(true);
+    expect(control<HTMLTextAreaElement>(container, "Pi prompt").value).toBe(owner === "pane" ? "" : "Owner draft");
+    expect(readPiComposerDraft(BRIDGE_ID, PANE_ID)).toBe("Owner draft");
+  });
+
+  it("dismisses bridge subviews on offline and ignores late thinking completion without stealing focus", async () => {
+    const { container } = await renderTerminalView();
+    const { pi } = await openSockets();
+    await showState("idle");
+    await click(container, "Composer helpers");
+    await click(container, "Choose Pi thinking level");
+    await click(container, "Use thinking level high");
+    const request = piRequests(pi).at(-1)!;
+    await act(async () => pi.dispatchEvent(new CloseEvent("close", { code: 4500, reason: "bridge_offline" })));
+    expect(container.querySelector('[aria-label="Pi thinking levels"]')).toBeNull();
+    await click(container, "Composer helpers");
+    expect(control<HTMLButtonElement>(container, "Choose Pi model").disabled).toBe(true);
+    expect(control<HTMLButtonElement>(container, "Abort Pi").disabled).toBe(false);
+    const focus = document.activeElement;
+    await sendPiRecord({ type: "response", id: request.id, ok: true });
+    expect(document.activeElement).toBe(focus);
+    expect(container.querySelector('[role="menu"]')).not.toBeNull();
+  });
+
+  it("gates mobile actions while detached, busy, dialog-blocked or offline without executing on open", async () => {
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Busy draft");
+    const { container } = await renderTerminalView();
+    expect(control<HTMLButtonElement>(container, "Composer helpers").disabled).toBe(true);
+    const { terminal, pi } = await openSockets();
+    for (const busy of ["busy", "dialog"] as const) {
+      await showState(busy);
+      await click(container, "Composer helpers");
+      for (const label of ["Choose Pi model", "Choose Pi thinking level", "Compact Pi session", "New Pi session", "Resume Pi session"]) {
+        expect(control<HTMLButtonElement>(container, label).disabled, label).toBe(true);
+      }
+      expect(control<HTMLButtonElement>(container, "Abort Pi").disabled).toBe(false);
+      expect(container.textContent).toContain("require an idle session");
+      await click(container, "Composer helpers");
+    }
+    await act(async () => pi.dispatchEvent(new CloseEvent("close", { code: 4500, reason: "bridge_offline" })));
+    await click(container, "Composer helpers");
+    expect(control<HTMLButtonElement>(container, "Browse commands and skills").disabled).toBe(true);
+    expect(control<HTMLButtonElement>(container, "Abort Pi").disabled).toBe(false);
+    expect(sentTerminalInput(terminal)).toEqual([]);
+    await click(container, "Abort Pi");
+    expect(sentTerminalInput(terminal)).toEqual(["\x1b"]);
+    expect(readPiComposerDraft(BRIDGE_ID, PANE_ID)).toBe("Busy draft");
+  });
+
   it("requests a model and thinking change but displays only the next Pi State", async () => {
     const { container } = await renderTerminalView();
     const { pi } = await openSockets();

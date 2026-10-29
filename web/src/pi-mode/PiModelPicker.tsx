@@ -14,6 +14,8 @@ export type PiModelPickerProps = {
   disabled?: boolean;
   /** Renders compact Composer trigger text; the side panel uses the same control. */
   compact?: boolean;
+  /** Share the searchable picker inside the Composer-owned popup. */
+  embedded?: boolean;
   /** Optional controlled open state so the Composer can keep one popup at a time. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -23,7 +25,7 @@ export type PiModelPickerProps = {
  * One searchable model control shared by the Composer and side panel. The
  * displayed model always comes from the authoritative bridge snapshot.
  */
-export function PiModelPicker({ api, disabled = false, compact = false, open: openProp, onOpenChange }: PiModelPickerProps) {
+export function PiModelPicker({ api, disabled = false, compact = false, embedded = false, open: openProp, onOpenChange }: PiModelPickerProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const open = openProp ?? uncontrolledOpen;
   const setOpen = (next: boolean) => {
@@ -39,7 +41,7 @@ export function PiModelPicker({ api, disabled = false, compact = false, open: op
   const searchRef = useRef<HTMLInputElement | null>(null);
   const mountedRef = useRef(true);
   const [placement, setPlacement] = useState<PiModelPickerPlacement | null>(null);
-  const panelMounted = open && placement !== null;
+  const panelMounted = open && (embedded || placement !== null);
   const identity = api ? `${api.paneId}:${api.status}` : "";
   const pendingFor = useRef<string | null>(null);
   const listId = useId();
@@ -58,7 +60,7 @@ export function PiModelPicker({ api, disabled = false, compact = false, open: op
 
   useEffect(() => {
     // Pane switches and disconnects invalidate both the open panel and its result.
-    setOpen(false);
+    if (!embedded) setOpen(false);
     setQuery("");
     setPending(false);
     setError(null);
@@ -66,7 +68,7 @@ export function PiModelPicker({ api, disabled = false, compact = false, open: op
   }, [identity]);
 
   useLayoutEffect(() => {
-    if (!open) {
+    if (!open || embedded) {
       setPlacement(null);
       return;
     }
@@ -88,7 +90,7 @@ export function PiModelPicker({ api, disabled = false, compact = false, open: op
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [open]);
+  }, [open, embedded]);
 
   useEffect(() => {
     // Focus once, when the panel is on screen; repositioning must not steal focus
@@ -98,7 +100,7 @@ export function PiModelPicker({ api, disabled = false, compact = false, open: op
   }, [panelMounted]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || embedded) return;
     const onPointer = (event: MouseEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) close();
     };
@@ -133,7 +135,7 @@ export function PiModelPicker({ api, disabled = false, compact = false, open: op
   }
 
   function select(model: PiModel) {
-    if (!api || pending || disabled) return;
+    if (!api || pending || disabled || !online) return;
     const target = `${piModelKey(model)}:${identity}`;
     const generation = openGeneration.current;
     pendingFor.current = target;
@@ -161,22 +163,23 @@ export function PiModelPicker({ api, disabled = false, compact = false, open: op
 
   return (
     <div ref={rootRef} className="pi-model-picker" data-compact={compact} data-open={open}>
-      <button ref={triggerRef} type="button" className="pi-model-picker-trigger"
+      {!embedded ? <button ref={triggerRef} type="button" className="pi-model-picker-trigger"
         aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? listId : undefined}
         aria-label={`Current model: ${current ? `${current.id}, ${current.provider}` : "none"}`}
         title={current ? `${current.id} · ${current.provider}` : "Select model"}
         disabled={disabled || !online || !state}
         onClick={toggle}>
         <span>{label}</span>{compact ? null : current ? <small>{current.provider}</small> : null}
-      </button>
-      {panelMounted && placement ? (
+      </button> : null}
+      {panelMounted ? (
         <div
           ref={panelRef}
           className="pi-model-picker-panel"
           role="dialog"
           aria-label="Select Pi model"
           id={listId}
-          style={{
+          data-embedded={embedded}
+          style={embedded || !placement ? undefined : {
             left: placement.left,
             top: placement.top,
             width: placement.width,
@@ -194,7 +197,7 @@ export function PiModelPicker({ api, disabled = false, compact = false, open: op
             {models.map((model) => {
               const selected = !!current && piModelKey(current) === piModelKey(model);
               return <li key={piModelKey(model)} role="option" aria-selected={selected}>
-                <button type="button" disabled={pending} data-model-key={piModelKey(model)}
+                <button type="button" disabled={pending || disabled || !online} data-model-key={piModelKey(model)}
                   onClick={() => select(model)}>
                   <strong>{model.label}</strong><small>{model.id} · {model.provider}</small>
                   {selected ? <span aria-label="Selected">✓</span> : null}

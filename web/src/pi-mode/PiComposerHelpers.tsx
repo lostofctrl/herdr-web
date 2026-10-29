@@ -1,9 +1,21 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { PI_QUICK_ACTIONS, piQuickActionParts } from "../pi/sidepanel/piQuickActions";
+import { PiModelPicker } from "./PiModelPicker";
+import type { PiComposerProps } from "./PiComposer";
+import type { PiBridgeApi } from "../pi/PiBridgeContext";
+import { piCatalogTrigger, piSidePanelEntries } from "../pi/sidepanel/piSidePanelCatalog";
 import "./pi-composer-helpers.css";
 
 export type PiComposerHelper = "slash" | "file" | "shell";
 
 type Props = {
+  api: PiBridgeApi | null;
+  onQuickAction: PiComposerProps["onSend"];
+  actionRecovery: boolean;
+  actionPending: boolean;
+  actionError: string | null;
+  authoringBlocked: boolean;
+  onInsertCatalog: (text: string) => void;
   open: boolean;
   disabled: boolean;
   online: boolean;
@@ -13,12 +25,25 @@ type Props = {
   onPick: (kind: PiComposerHelper) => void;
 };
 
-/** Authoring only: none of these actions delivers terminal input. */
-export function PiComposerHelpers({ open, disabled, online, filesAvailable, onOpen, onClose, onPick }: Props) {
+/** One popup owner for authoring helpers and explicit Pi actions. */
+export function PiComposerHelpers({ api, onQuickAction, actionRecovery, actionPending, actionError, authoringBlocked, onInsertCatalog, open, disabled, online, filesAvailable, onOpen, onClose, onPick }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const id = useId();
+  const returnFocusRef = useRef<string | null>(null);
+  const [view, setView] = useState<"root" | "catalog" | "thinking" | "model">("root");
+  const [query, setQuery] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const generationRef = useRef(0);
+
+  useEffect(() => {
+    ++generationRef.current;
+    setPending(false);
+    setError(null);
+    return () => { ++generationRef.current; };
+  }, [open, view, api?.paneId, api?.status]);
   const [bounds, setBounds] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number; width: number }>({ left: 8, top: 8, maxHeight: 240, width: 280 });
 
   useLayoutEffect(() => {
@@ -53,8 +78,13 @@ export function PiComposerHelpers({ open, disabled, online, filesAvailable, onOp
   }, [open]);
 
   useEffect(() => {
-    if (open) menuRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
-  }, [open]);
+    if (open) {
+      const returning = view === "root" && returnFocusRef.current
+        ? menuRef.current?.querySelector<HTMLButtonElement>(`[aria-label="${returnFocusRef.current}"]:not(:disabled)`)
+        : null;
+      (returning ?? menuRef.current?.querySelector<HTMLInputElement>("input") ?? menuRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)"))?.focus();
+    } else { setView("root"); setQuery(""); returnFocusRef.current = null; }
+  }, [open, view]);
 
   useEffect(() => {
     if (!open) return;
@@ -75,7 +105,15 @@ export function PiComposerHelpers({ open, disabled, online, filesAvailable, onOp
     };
   }, [open, onClose]);
 
+  const catalogEntries = api?.catalog ? piSidePanelEntries(api.catalog, api.capabilities.skills_catalog === true, query) : [];
   const closeAndFocus = () => { onClose(); triggerRef.current?.focus(); };
+  const quickAction = (parts: string[]) => {
+    const generation = generationRef.current;
+    onQuickAction(parts, (delivered, total) => {
+      // Transport settlement belongs to Composer even after this popup closes.
+      if (generation === generationRef.current && delivered === total) closeAndFocus();
+    });
+  };
   return (
     <div ref={rootRef} className="pi-composer-helpers" onBlur={(event) => {
       if (open && !event.currentTarget.contains(event.relatedTarget as Node | null)) onClose();
@@ -91,24 +129,83 @@ export function PiComposerHelpers({ open, disabled, online, filesAvailable, onOp
         }}>
         <span aria-hidden="true">⋯</span>
       </button>
-      {open ? <div ref={menuRef} id={id} role="menu" aria-label="Composer helpers"
+      {open ? <div ref={menuRef} id={id} role={view === "root" ? "menu" : "dialog"} aria-label={view === "root" ? "Composer helpers" : view === "catalog" ? "Commands and skills" : view === "thinking" ? "Pi thinking levels" : "Pi model controls"}
         className="pi-composer-helpers-menu" style={bounds}
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
           event.stopPropagation();
           if (event.key === "Escape") { event.preventDefault(); closeAndFocus(); return; }
+          if (view !== "root") return;
           if (event.key === "Tab") { closeAndFocus(); return; }
-          const buttons = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [])];
+          const buttons = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? [])];
           const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
           const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1
             : event.key === "ArrowDown" ? (index + 1) % buttons.length
             : event.key === "ArrowUp" ? (index - 1 + buttons.length) % buttons.length : null;
           if (next !== null) { event.preventDefault(); buttons[next]?.focus(); }
         }}>
+        {view === "root" ? <>
         {([ ["slash", "/ Commands and skills"], ["file", "@ Files and paths"], ["shell", "! Shell command"] ] as const).map(([kind, label]) => (
           <button key={kind} type="button" role="menuitem" tabIndex={-1} data-helper={kind}
-            onClick={() => onPick(kind)}>{label}</button>
+            disabled={authoringBlocked} onClick={() => onPick(kind)}>{label}</button>
         ))}
+        <button type="button" role="menuitem" tabIndex={-1} aria-label="Browse commands and skills"
+          disabled={authoringBlocked || !online || !api?.catalog} onClick={() => { returnFocusRef.current = "Browse commands and skills"; setView("catalog"); }}>Browse commands and skills</button>
+        <button type="button" role="menuitem" tabIndex={-1} aria-label="Choose Pi model"
+          disabled={authoringBlocked || !online || !api?.state || api.state.busy !== "idle"} onClick={() => { returnFocusRef.current = "Choose Pi model"; setView("model"); }}>Model</button>
+        <button type="button" role="menuitem" tabIndex={-1} aria-label="Choose Pi thinking level"
+          disabled={authoringBlocked || !online || !api?.state?.thinking_levels.length || api.state.busy !== "idle"}
+          onClick={() => { returnFocusRef.current = "Choose Pi thinking level"; setView("thinking"); }}>Thinking level</button>
+        {PI_QUICK_ACTIONS.map(({ label, title, command }) => <button key={label} type="button" role="menuitem" tabIndex={-1}
+          aria-label={label} disabled={disabled || authoringBlocked || (command !== null && (!online || api?.state?.busy !== "idle"))}
+          onClick={() => quickAction(piQuickActionParts(command))}>{title}</button>)}
+        {actionRecovery ? <button type="button" role="menuitem" tabIndex={-1} aria-label="Submit pending Pi action"
+          disabled={disabled || actionPending} onClick={() => quickAction(["\r"])}>Submit pending action</button> : null}
+        {actionPending ? <p role="status">Sending Pi action…</p> : null}
+        </> : view === "model" ? <>
+          <button type="button" aria-label="Back to Composer helpers" onClick={() => setView("root")}>Back</button>
+          <PiModelPicker api={api} disabled={disabled || api?.state?.busy !== "idle"} embedded open
+            onOpenChange={(next) => { if (!next) closeAndFocus(); }} />
+        </> : view === "thinking" ? <>
+          <button type="button" aria-label="Back to Composer helpers" onClick={() => setView("root")}>Back</button>
+          {api?.state?.thinking_levels.map((level) => <button type="button" key={level}
+            aria-label={`Use thinking level ${level}`} aria-pressed={api.state?.thinking_level === level}
+            disabled={pending || !online || disabled || api.state?.busy !== "idle"}
+            onClick={() => {
+              if (!api || pending || disabled || !online) return;
+              const generation = generationRef.current;
+              setPending(true);
+              setError(null);
+              void api.setThinkingLevel(level).then(() => {
+                if (generation !== generationRef.current) return;
+                setPending(false);
+                closeAndFocus();
+              }).catch((reason: unknown) => {
+                if (generation !== generationRef.current) return;
+                setPending(false);
+                setError(reason instanceof Error ? reason.message : "Thinking change failed.");
+              });
+            }}>{level}</button>)}
+          {pending ? <p role="status">Changing thinking level…</p> : null}
+        </> : <>
+          <button type="button" aria-label="Back to Composer helpers" onClick={() => setView("root")}>Back</button>
+          <input type="search" aria-label="Search commands and skills" placeholder="Search name, description, source"
+            value={query} onChange={(event) => setQuery(event.target.value)} />
+          {api?.catalog?.skills_note ? <p role="note">{api.catalog.skills_note}</p> : api?.capabilities.skills_catalog !== true ? <p role="note">Skills are unavailable on this Pi Bridge; commands remain available.</p> : null}
+          <ul aria-label="Command and skill catalog">
+            {catalogEntries.map((entry, index) => {
+              const trigger = piCatalogTrigger(entry, entry.kind);
+              return <li key={`${entry.kind}:${entry.name}:${index}`}>
+                <button type="button" aria-label={`Insert ${trigger}`} onClick={() => onInsertCatalog(trigger)}>
+                  <strong>{trigger}</strong><span>{entry.description}</span><small>{entry.kind} · {entry.source}</small>
+                </button>
+              </li>;
+            })}
+          </ul>
+          {catalogEntries.length === 0 ? <p role="status">No matching commands or skills.</p> : null}
+        </>}
+        {error || actionError ? <p role="alert">{error ?? actionError}</p> : null}
+        {api?.state?.busy !== "idle" && online ? <p role="note">Pi is {api?.state?.busy ?? "unavailable"}. Model, thinking and session actions require an idle session. Abort and authoring remain available.</p> : null}
         {!online ? <p role="status">Bridge offline. Prefix editing is available; autocomplete is unavailable.</p>
           : !filesAvailable ? <p role="status">File autocomplete is unavailable on this Pi Bridge.</p> : null}
       </div> : null}

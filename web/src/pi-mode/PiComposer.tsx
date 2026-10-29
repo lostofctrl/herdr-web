@@ -35,7 +35,7 @@ import {
   piComposerDraftKey,
   usePiComposerDraft,
 } from "./piComposerDraft";
-import { PI_COMPOSER_INSERT_EVENT, type PiComposerInsertDetail } from "../pi/sidepanel/piComposerInsert";
+import { PI_COMPOSER_INSERT_EVENT, insertPiComposerText, type PiComposerInsertDetail } from "../pi/sidepanel/piComposerInsert";
 import "./pi-mode.css";
 
 export type PiComposerProps = {
@@ -103,6 +103,8 @@ export function PiComposer({
   const acceptedValueRef = useRef("");
   const pendingSendRef = useRef(false);
   const [deliveryPending, setDeliveryPending] = useState(false);
+  const [actionRecovery, setActionRecovery] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [value, setValue, setTransientValue] = usePiComposerDraft(bridgeId, paneId);
   acceptedValueRef.current = value;
   const piBridge = usePiBridge(paneId);
@@ -136,7 +138,7 @@ export function PiComposer({
     setHelpersOpen(false);
     setHistoryOpen(false);
     setModelOpen(false);
-  }, [bridgeId, paneId, active, disabled]);
+  }, [bridgeId, paneId, active, disabled, piBridge?.status]);
   /** The user text behind a partial delivery, so recovery records it exactly once. */
   const recoveryTextRef = useRef<string | null>(null);
   const [open, setOpen] = useState(mobile);
@@ -299,6 +301,7 @@ export function PiComposer({
       // without having persisted it (a recalled prompt) is not overwritten by
       // the stored draft.
       event.preventDefault();
+      if (pendingSendRef.current || awaitingSubmit || actionRecovery) return;
       const next = `${value}${value && !/\s$/.test(value) ? "\n" : ""}${text}`;
       pendingCaretRef.current = next.length;
       setAuthoredValue(next);
@@ -307,7 +310,7 @@ export function PiComposer({
     };
     window.addEventListener(PI_COMPOSER_INSERT_EVENT, onInsert);
     return () => window.removeEventListener(PI_COMPOSER_INSERT_EVENT, onInsert);
-  }, [bridgeId, paneId, openComposer, setAuthoredValue, value]);
+  }, [bridgeId, paneId, openComposer, setAuthoredValue, value, awaitingSubmit, actionRecovery]);
 
   const closeComposer = useCallback(() => {
     setHelpersOpen(false);
@@ -376,6 +379,7 @@ export function PiComposer({
   }, [value]);
 
   const pickSuggestion = (item: PiComposerSuggestion) => {
+    if (pendingSendRef.current || awaitingSubmit || actionRecovery) return;
     const next = suggestion.pick(item);
     if (!next) {
       return;
@@ -386,7 +390,7 @@ export function PiComposer({
   };
 
   const insertSuggestionTrigger = (kind: PiComposerHelper) => {
-    if (disabled || sending || pendingSendRef.current || composingRef.current) return;
+    if (disabled || sending || pendingSendRef.current || awaitingSubmit || actionRecovery || composingRef.current) return;
     setHelpersOpen(false);
     setModelOpen(false);
     setHistoryOpen(false);
@@ -490,7 +494,7 @@ export function PiComposer({
   const send = async () => {
     // The draft clears only after the last frame reaches the socket, so a second
     // Send or Ctrl+Enter while that is pending would deliver the prompt twice.
-    if (disabled || composingRef.current || sending || pendingSendRef.current) {
+    if (disabled || composingRef.current || sending || pendingSendRef.current || actionRecovery) {
       return;
     }
     const sentValue = value;
@@ -586,6 +590,31 @@ export function PiComposer({
     setHelpersOpen(false);
     setHistoryOpen(next);
     if (next) setHistoryEntries(getPiComposerHistory(bridgeId, paneId));
+  };
+
+  // Explicit Side Panel commands share the terminal queue, not draft delivery:
+  // completing one must never clear or record the user's unsent prompt.
+  const sendQuickAction: PiComposerProps["onSend"] = (parts, onDelivered) => {
+    if (disabled || sending || pendingSendRef.current || awaitingSubmit || composingRef.current || (actionRecovery && (parts.length !== 1 || parts[0] !== "\r"))) return false;
+    pendingSendRef.current = true;
+    setDeliveryPending(true);
+    setActionError(null);
+    const accepted = onSend(parts, (delivered, total) => {
+      if (!mountedRef.current) return;
+      pendingSendRef.current = false;
+      setDeliveryPending(false);
+      setActionRecovery(delivered !== total && (delivered > 0 || actionRecovery));
+      setActionError(delivered === total ? null : delivered > 0 || actionRecovery
+        ? "Command text reached Pi without Enter. Submit the pending action without pasting again."
+        : "Action was not delivered. The draft is unchanged.");
+      onDelivered(delivered, total);
+    });
+    if (!accepted) {
+      setActionError("Action could not be queued. The draft is unchanged.");
+      pendingSendRef.current = false;
+      setDeliveryPending(false);
+    }
+    return accepted;
   };
 
   const submit = () => {
@@ -820,7 +849,7 @@ export function PiComposer({
           }}
         />
       ) : null}
-      {suggestion.isOpen && !modelOpen && !historyOpen && !helpersOpen ? (
+      {suggestion.isOpen && !awaitingSubmit && !actionRecovery && !deliveryPending && !modelOpen && !historyOpen && !helpersOpen ? (
         <PiComposerSuggest
           id={suggestionId}
           items={suggestion.items}
@@ -866,8 +895,20 @@ export function PiComposer({
         </button>
         {mobile ? (
           <PiComposerHelpers
+            key={piComposerDraftKey(bridgeId, paneId)}
+            api={piBridge}
+            onQuickAction={sendQuickAction}
+            actionRecovery={actionRecovery}
+            actionPending={deliveryPending}
+            actionError={actionError}
+            authoringBlocked={awaitingSubmit || actionRecovery || deliveryPending}
+            onInsertCatalog={(text) => {
+              if (disabled || sending || pendingSendRef.current || awaitingSubmit || actionRecovery || composingRef.current) return;
+              setHelpersOpen(false);
+              insertPiComposerText(bridgeId, paneId, text);
+            }}
             open={helpersOpen}
-            disabled={disabled || !active || sending || deliveryPending}
+            disabled={disabled || !active || sending || (deliveryPending && !helpersOpen)}
             online={piBridge?.status === "online"}
             filesAvailable={piBridge?.capabilities.list_files === true}
             onOpen={() => {
@@ -995,7 +1036,7 @@ export function PiComposer({
         <button
           className="term-send pi-composer-send"
           type="submit"
-          disabled={disabled || sending || (value.length === 0 && attachments.length === 0)}
+          disabled={disabled || sending || deliveryPending || actionRecovery || (value.length === 0 && attachments.length === 0)}
           aria-label={awaitingSubmit ? "Submit prompt" : "Send prompt"}
           title={awaitingSubmit ? "Submit the pasted prompt" : "Send (Ctrl+Enter)"}
         >

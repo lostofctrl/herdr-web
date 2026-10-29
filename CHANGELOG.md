@@ -6,6 +6,12 @@
 
 ### Added
 
+- Mobile Pi Composer: the helpers (⋯) menu now includes the shared model picker, supported
+  thinking levels, full searchable command/skill metadata and explicit Abort, Compact, New session
+  and Resume actions. Quick actions preserve unsent drafts and attachments, report failures, and
+  offer Enter-only recovery after partial delivery without mixing in a new prompt. Bridge-only
+  actions are gated offline/busy; Abort retains terminal Esc semantics. Desktop Side Panel stays.
+
 - Mobile Pi Composer: one accessible Composer helpers (⋯) menu for command/skill (`/`),
   file/path (`@`) and shell-prefix (`!`) authoring. Helpers preserve selection, caret and draft
   without submitting; menu targets are touch-sized, keyboard navigable and viewport-scrollable.

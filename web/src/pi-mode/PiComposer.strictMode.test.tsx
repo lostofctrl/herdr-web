@@ -162,6 +162,43 @@ describe("PiComposer under StrictMode", () => {
     expect(field.value).toBe("keep this");
   });
 
+  it("preserves attached images through explicit Abort without uploading or sending the draft", async () => {
+    const { container, onSend, onUploadImages } = await renderUnderStrictMode();
+    await attachImage(container);
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Composer helpers"]')?.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Abort Pi"]')?.click());
+    expect(onSend.mock.calls.map(([parts]) => parts)).toEqual([["\u001b"]]);
+    expect(onUploadImages).not.toHaveBeenCalled();
+    expect(container.querySelector('[aria-label="Edit shot.png"]')).not.toBeNull();
+  });
+
+  it("reports a rejected quick action without clearing attachments or leaving it pending", async () => {
+    const { container } = await renderUnderStrictMode({ onSend: () => false });
+    await attachImage(container);
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Composer helpers"]')?.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Abort Pi"]')?.click());
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Action could not be queued");
+    expect(container.querySelector<HTMLButtonElement>('[aria-label="Abort Pi"]')?.disabled).toBe(false);
+    expect(container.querySelector('[aria-label="Edit shot.png"]')).not.toBeNull();
+  });
+
+  it("prevents quick actions and insertion while an ordinary prompt awaits Enter-only recovery", async () => {
+    const onSend = vi.fn((_parts: string[], delivered: (count: number, total: number) => void) => { delivered(1, 2); return true; });
+    const { container } = await renderUnderStrictMode({ onSend });
+    const field = promptField(container);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(field, "Partial prompt");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send prompt"]')?.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Composer helpers"]')?.click());
+    expect(container.querySelector<HTMLButtonElement>('[aria-label="Abort Pi"]')?.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('[data-helper="file"]')?.disabled).toBe(true);
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(field.value).toBe("Partial prompt");
+    expect(container.querySelector('[aria-label="Submit prompt"]')).not.toBeNull();
+  });
+
   it("replaces a selected range with a spaced file trigger while offline", async () => {
     const { container, onSend } = await renderUnderStrictMode();
     const field = promptField(container);
@@ -187,7 +224,7 @@ describe("PiComposer under StrictMode", () => {
     await act(async () => trigger.click());
     expect((document.activeElement as HTMLElement).dataset.helper).toBe("slash");
     await act(async () => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
-    expect((document.activeElement as HTMLElement).dataset.helper).toBe("shell");
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Abort Pi");
     await act(async () => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(container.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(trigger);

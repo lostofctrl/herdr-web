@@ -239,8 +239,16 @@ and a reload starts empty. On a phone, Composer helpers (⋯) opens commands and
 (`@`), and shell-prefix editing (`!`). Choosing a helper only edits the draft and restores the editor
 caret; it never submits or runs it. File insertion respects the current selection. Prefix editing
 remains available while Bridge Offline, without autocomplete. Escape returns to the helper trigger;
-an outside tap dismisses the menu without sending terminal input. Desktop retains its `/` and `@`
-buttons, and the Pi Side Panel remains available. While the Composer is open it owns `/`, `@` and prompt history, so the Key
+an outside tap dismisses the menu without sending terminal input. The same menu includes the shared searchable model picker, supported thinking levels, and the full
+command/skill browser (names, descriptions and sources). Catalog selection inserts a trigger into
+the live draft without sending. Explicit Abort, Compact, New session and Resume actions preserve
+unsent text and attachments; they use the existing PTY Esc or command paste plus Enter, not a new
+send API. Model, thinking and session actions require an online, idle Pi Bridge; Abort still works
+through the attached terminal while Bridge Offline. Failed requests show errors without discarding
+the draft. If a quick action reaches Pi without Enter, reopen ⋯ and choose Submit pending action;
+ordinary prompt delivery and helper/catalog insertion are blocked until that Enter-only recovery
+finishes. Back returns to the initiating menu entry; dismissal returns to the helper trigger.
+Desktop retains its `/` and `@` buttons, and the Pi Side Panel remains available. While the Composer is open it owns `/`, `@` and prompt history, so the Key
 Bar omits those duplicates. The Side Panel shares the Composer's searchable model picker.
 
 Terminal input payloads can be sent as JSON or binary WebSocket frames. JSON remains the default;
