@@ -235,7 +235,12 @@ in browser storage, survive reloads, and are cleared only after the terminal soc
 prompt. If the text reached Pi but its Enter did not, the Composer says so and Send submits the
 prompt without pasting the text again. Up and Down at the draft edges walk the last 50 prompts sent
 from that pane, newest first; recall lives in memory only, so nothing is written to browser storage
-and a reload starts empty. While the Composer is open it owns `/`, `@` and prompt history, so the Key
+and a reload starts empty. On a phone, Composer helpers (⋯) opens commands and skills (`/`), files and paths
+(`@`), and shell-prefix editing (`!`). Choosing a helper only edits the draft and restores the editor
+caret; it never submits or runs it. File insertion respects the current selection. Prefix editing
+remains available while Bridge Offline, without autocomplete. Escape returns to the helper trigger;
+an outside tap dismisses the menu without sending terminal input. Desktop retains its `/` and `@`
+buttons, and the Pi Side Panel remains available. While the Composer is open it owns `/`, `@` and prompt history, so the Key
 Bar omits those duplicates. The Side Panel shares the Composer's searchable model picker.
 
 Terminal input payloads can be sent as JSON or binary WebSocket frames. JSON remains the default;

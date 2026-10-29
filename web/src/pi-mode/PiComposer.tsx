@@ -1,6 +1,6 @@
 import { History, ImagePlus, Send, TextCursorInput, X } from "lucide-react";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import type { ChangeEvent, DragEvent, KeyboardEvent, ClipboardEvent, RefObject } from "react";
+import type { ChangeEvent, DragEvent, KeyboardEvent, ClipboardEvent, ReactNode, RefObject } from "react";
 
 import { compositionGuardDeadline, isLateCompositionEdit } from "../commandTextFieldGuard";
 import { hasOpenMenu, hasOpenModal, isShortcutTextEntryTarget } from "../keyboardShortcutTargets";
@@ -11,6 +11,7 @@ import type { ScreenshotSaveResult } from "../pi/screenshot";
 import type { UploadCandidate, UploadedFile } from "../terminalUploads";
 import { PiComposerSuggest, usePiComposerSuggest } from "./composer-suggest";
 import { PiModelPicker } from "./PiModelPicker";
+import { PiComposerHelpers, type PiComposerHelper } from "./PiComposerHelpers";
 import { PiComposerHistory } from "./PiComposerHistory";
 import type { PiComposerSuggestion } from "./composer-suggest";
 import {
@@ -66,6 +67,8 @@ export type PiComposerProps = {
    * attaching images is not available on this surface.
    */
   onUploadImages?: (files: UploadCandidate[]) => Promise<UploadedFile[]>;
+  /** Optional pane-owned context rendered above the open editor. */
+  conversationContext?: ReactNode;
   onTerminalFocus: () => void;
   onControlsHeightChange: (heightPx: number | null) => void;
 };
@@ -85,6 +88,7 @@ export function PiComposer({
   focusToken = 0,
   onSend,
   onUploadImages,
+  conversationContext,
   onTerminalFocus,
   onControlsHeightChange,
 }: PiComposerProps) {
@@ -98,6 +102,7 @@ export function PiComposer({
   const compositionGuardUntilRef = useRef(0);
   const acceptedValueRef = useRef("");
   const pendingSendRef = useRef(false);
+  const [deliveryPending, setDeliveryPending] = useState(false);
   const [value, setValue, setTransientValue] = usePiComposerDraft(bridgeId, paneId);
   acceptedValueRef.current = value;
   const piBridge = usePiBridge(paneId);
@@ -123,9 +128,15 @@ export function PiComposer({
     [endHistoryBrowsing, setValue],
   );
   // Only one Composer popup may be open: completion, model picker or history.
+  const [helpersOpen, setHelpersOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyEntries, setHistoryEntries] = useState<string[]>([]);
+  useEffect(() => {
+    setHelpersOpen(false);
+    setHistoryOpen(false);
+    setModelOpen(false);
+  }, [bridgeId, paneId, active, disabled]);
   /** The user text behind a partial delivery, so recovery records it exactly once. */
   const recoveryTextRef = useRef<string | null>(null);
   const [open, setOpen] = useState(mobile);
@@ -299,6 +310,9 @@ export function PiComposer({
   }, [bridgeId, paneId, openComposer, setAuthoredValue, value]);
 
   const closeComposer = useCallback(() => {
+    setHelpersOpen(false);
+    setHistoryOpen(false);
+    setModelOpen(false);
     setOpen(false);
     onTerminalFocus();
   }, [onTerminalFocus]);
@@ -371,22 +385,28 @@ export function PiComposer({
     setCursor(next.cursor);
   };
 
-  const insertSuggestionTrigger = (kind: "slash" | "file") => {
+  const insertSuggestionTrigger = (kind: PiComposerHelper) => {
+    if (disabled || sending || pendingSendRef.current || composingRef.current) return;
+    setHelpersOpen(false);
+    setModelOpen(false);
+    setHistoryOpen(false);
     const field = fieldRef.current;
     let start = field?.selectionStart ?? value.length;
     let end = field?.selectionEnd ?? start;
-    const trigger = kind === "slash" ? "/" : "@";
-    // A slash command must be the draft's first character, so the button
-    // prepends it instead of leaving an unusable token mid-prompt.
-    if (kind === "slash" && !value.startsWith("/")) {
+    const trigger = kind === "slash" ? "/" : kind === "shell" ? "!" : "@";
+    // Commands and shell mode own the first character; file references use
+    // the current selection and production spacing semantics.
+    if (kind !== "file") {
       start = 0;
-      end = 0;
+      end = /^[!/]/.test(value) ? 1 : 0;
     }
     field?.focus();
     const prefix = kind === "file" && start > 0 && !/\s/.test(value[start - 1]) ? " " : "";
     const nextValue = value.slice(0, start) + prefix + trigger + value.slice(end);
     const nextCursor = start + prefix.length + trigger.length;
     pendingCaretRef.current = nextCursor;
+    field?.setSelectionRange(nextCursor, nextCursor);
+    suggestion.reopen();
     setCursor(nextCursor);
     setAuthoredValue(nextValue);
   };
@@ -440,10 +460,12 @@ export function PiComposer({
     onDelivered: () => void,
   ) => {
     pendingSendRef.current = true;
+    setDeliveryPending(true);
     let settled = false;
     const accepted = onSend(parts, (deliveredParts, totalParts) => {
       settled = true;
       pendingSendRef.current = false;
+      setDeliveryPending(false);
       if (deliveredParts === totalParts) {
         setAwaitingSubmit(false);
         if (acceptedValueRef.current === sentValue) {
@@ -460,6 +482,7 @@ export function PiComposer({
     });
     if (!accepted && !settled) {
       pendingSendRef.current = false;
+      setDeliveryPending(false);
     }
     return accepted;
   };
@@ -560,6 +583,7 @@ export function PiComposer({
     const next = !historyOpen;
     suggestion.close();
     setModelOpen(false);
+    setHelpersOpen(false);
     setHistoryOpen(next);
     if (next) setHistoryEntries(getPiComposerHistory(bridgeId, paneId));
   };
@@ -796,7 +820,7 @@ export function PiComposer({
           }}
         />
       ) : null}
-      {suggestion.isOpen && !modelOpen && !historyOpen ? (
+      {suggestion.isOpen && !modelOpen && !historyOpen && !helpersOpen ? (
         <PiComposerSuggest
           id={suggestionId}
           items={suggestion.items}
@@ -822,6 +846,7 @@ export function PiComposer({
             if (next) {
               suggestion.close();
               setHistoryOpen(false);
+              setHelpersOpen(false);
             }
             setModelOpen(next);
           }}
@@ -839,6 +864,22 @@ export function PiComposer({
           <History size={16} aria-hidden="true" />
           <span className="pi-composer-action-label">History</span>
         </button>
+        {mobile ? (
+          <PiComposerHelpers
+            open={helpersOpen}
+            disabled={disabled || !active || sending || deliveryPending}
+            online={piBridge?.status === "online"}
+            filesAvailable={piBridge?.capabilities.list_files === true}
+            onOpen={() => {
+              suggestion.close();
+              setModelOpen(false);
+              setHistoryOpen(false);
+              setHelpersOpen(true);
+            }}
+            onClose={() => setHelpersOpen(false)}
+            onPick={insertSuggestionTrigger}
+          />
+        ) : <>
         <button
           className="term-key pi-composer-suggest-trigger"
           type="button"
@@ -863,7 +904,9 @@ export function PiComposer({
           <span aria-hidden="true">@</span>
           <span className="pi-composer-action-label">File</span>
         </button>
+        </>}
       </div>
+      {conversationContext}
       <form
         className="term-input-row pi-composer-row"
         data-expanding="true"

@@ -460,12 +460,12 @@ describe("TerminalView Pi Composer (Seam 3)", () => {
     ).toBeNull();
     expect(container.querySelectorAll("textarea, input.term-native-input").length).toBe(1);
 
-    // One compact meta row holds the model picker and the two prefix triggers.
+    // Mobile helpers share one trigger; model and history remain available.
     const meta = container.querySelector(".pi-composer-meta");
-    expect(meta?.querySelectorAll("button")).toHaveLength(4);
+    expect(meta?.querySelectorAll("button")).toHaveLength(3);
     expect(meta?.querySelector(".pi-model-picker-trigger")).not.toBeNull();
-    expect(meta?.querySelector('button[aria-label="Open slash suggestions"]')).not.toBeNull();
-    expect(meta?.querySelector('button[aria-label="Open file suggestions"]')).not.toBeNull();
+    expect(meta?.querySelector('button[aria-label="Composer helpers"]')).not.toBeNull();
+    expect(meta?.querySelector('button[aria-label="Open file suggestions"]')).toBeNull();
     expect(meta?.querySelector('button[aria-label="Open prompt history"]')).not.toBeNull();
     // The Composer owns `/`, so the Key Bar no longer duplicates it there.
     expect(container.querySelector('button[aria-label="Slash command"]')).toBeNull();
@@ -1155,22 +1155,40 @@ describe("TerminalView Pi Composer suggestions (Seam 3)", () => {
     expect(suggestionPopup(container)).toBeNull();
   });
 
-  it("opens the popup from the dedicated / and @ buttons and focuses the field", async () => {
+  it("opens production / and @ autocomplete from the helper menu and focuses the field", async () => {
     const { pane, paneId } = testPane(PANE_A);
     const { container } = await renderTerminalView({ paneId, pane, mobile: true });
     await openSocket();
     await openPiBridgeWithCatalog();
     const field = promptField(container);
 
-    await clickButton(container, "Open slash suggestions");
+    await clickButton(container, "Composer helpers");
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-helper="slash"]')?.click());
     expect(field.value).toBe("/");
     expect(suggestionLabels(container)).toEqual(["/compact", "/review", "/skill:tdd"]);
     expect(document.activeElement).toBe(field);
 
     await typePrompt(field, "");
-    await clickButton(container, "Open file suggestions");
+    await clickButton(container, "Composer helpers");
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-helper="file"]')?.click());
     expect(field.value).toBe("@");
     expect(suggestionPopup(container)).not.toBeNull();
+  });
+
+  it("reopens an unchanged slash query after dismissing it through the helper menu", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    const socket = await openSocket();
+    await openPiBridgeWithCatalog();
+    const field = promptField(container);
+    await typePrompt(field, "/");
+    await clickButton(container, "Composer helpers");
+    expect(suggestionPopup(container)).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-helper="slash"]')?.click());
+    expect(field.value).toBe("/");
+    expect(field.selectionStart).toBe(1);
+    expect(suggestionLabels(container)).toEqual(["/compact", "/review", "/skill:tdd"]);
+    expect(sentTerminalInput(socket)).toEqual([]);
   });
 
   it("moves through suggestions with the keyboard and selects with Enter", async () => {
@@ -1378,7 +1396,8 @@ describe("Pi Composer prompt recall (Seam 3)", () => {
     await pressKey(field, "ArrowUp");
     expect(field.value).toBe("remembered");
     // A trigger button is an authored edit even though the field onChange never ran.
-    await clickButton(container, "Open slash suggestions");
+    await clickButton(container, "Composer helpers");
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-helper="slash"]')?.click());
     expect(field.value).toBe("/remembered");
     await pressKey(field, "ArrowDown");
     expect(field.value).toBe("/remembered");
