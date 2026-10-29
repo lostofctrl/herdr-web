@@ -5161,6 +5161,7 @@ mod tests {
     use flate2::read::GzDecoder;
     use socket2::SockRef;
     use std::convert::Infallible;
+    use std::future::{poll_fn, Future};
     use std::io::Read;
     use std::pin::Pin;
     use std::task::{Context, Poll};
@@ -5178,17 +5179,28 @@ mod tests {
         State(state): State<ActivitySocketTestState>,
     ) -> Response {
         let activity_rx = state.activity_tx.subscribe();
-        state.ready.notify_one();
+        let ready = state.ready.clone();
         let closed_at = state.closed_at.clone();
         ws.write_buffer_size(0)
             .on_upgrade(move |socket| async move {
-                handle_activity_socket(socket, activity_rx).await;
+                let mut handler = Box::pin(handle_activity_socket(socket, activity_rx));
+                // A subscribed receiver alone does not prove the upgraded handler is active.
+                poll_fn(|cx| {
+                    assert!(
+                        handler.as_mut().poll(cx).is_pending(),
+                        "activity handler closed before readiness"
+                    );
+                    Poll::Ready(())
+                })
+                .await;
+                ready.notify_one();
+                handler.await;
                 *closed_at.lock().expect("test close timestamp lock") = Some(Instant::now());
             })
             .into_response()
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn activity_socket_closes_when_peer_stops_reading() {
         let (activity_tx, _) = tokio::sync::broadcast::channel(2);
         let state = ActivitySocketTestState {
@@ -5222,11 +5234,14 @@ mod tests {
             .expect("small test WebSocket receive buffer");
         ready.notified().await;
 
+        // Real TCP/upgrade waits must not auto-advance the heartbeat before the payload.
+        // Pause only after the handler is active; no await separates pause and enqueue.
+        tokio::time::pause();
         let started_at = Instant::now();
         let reason = "x".repeat(8 * 1024 * 1024);
         activity_tx
             .send(ActivityMessage::ResyncRequired { reason })
-            .expect("activity socket test receiver");
+            .unwrap_or_else(|_| panic!("activity socket receiver closed before payload enqueue"));
 
         let heartbeat_deadline = started_at + crate::websocket_heartbeat::WEBSOCKET_PING_INTERVAL;
         while Instant::now() < heartbeat_deadline {
