@@ -108,6 +108,10 @@
 
 ### Fixed
 
+- Pi Screenshot Editor: keep Save, Cancel and editing controls above the expanded mobile Composer
+  so image edits remain reachable.
+  [PR #20](https://github.com/lostofctrl/herdr-web/pull/20)
+
 - Mobile Pi Composer: keep the full-viewport working surface above the sidebar on landscape/tablet
   widths, so the left side of context and draft text remains visible and reachable. Collapsed and
   desktop terminal layering stays unchanged.
