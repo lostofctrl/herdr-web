@@ -142,13 +142,13 @@ export function PiComposer({
   /** The user text behind a partial delivery, so recovery records it exactly once. */
   const recoveryTextRef = useRef<string | null>(null);
   const [open, setOpen] = useState(mobile);
-  const suggestion = usePiComposerSuggest({ api: piBridge, draft: value, cursor, enabled: open && active && fieldFocused && !disabled });
+  /** The prompt text reached Pi but its Enter did not, so resending must not paste again. */
+  const [awaitingSubmit, setAwaitingSubmit] = useState(false);
+  const suggestion = usePiComposerSuggest({ api: piBridge, draft: value, cursor, enabled: open && active && fieldFocused && !disabled && !awaitingSubmit && !actionRecovery && !deliveryPending });
   const [attachments, setAttachments] = useState<PiComposerAttachment[]>([]);
   const attachmentsRef = useRef<PiComposerAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  /** The prompt text reached Pi but its Enter did not, so resending must not paste again. */
-  const [awaitingSubmit, setAwaitingSubmit] = useState(false);
   const [editing, setEditing] = useState<{
     attachment: PiComposerAttachment;
     image: { src: string; width: number; height: number };

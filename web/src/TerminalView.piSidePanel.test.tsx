@@ -294,12 +294,21 @@ describe("TerminalView Pi Side Panel (Seam 3)", () => {
     await click(container, "Composer helpers");
     await click(container, "Compact Pi session");
     await act(async () => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await sendPiRecord({ type: "catalog", commands: [{ name: "review", description: "Review", source: "extension" }], skills: [] });
+    const field = control<HTMLTextAreaElement>(container, "Pi prompt");
+    await act(async () => {
+      field.focus();
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, "/rev");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(field.value).toBe("/rev");
     await reconnect();
     const reconnected = TestSocket.instances.filter((socket) => socket.url.startsWith("/ws/terminal")).at(-1)!;
     await act(async () => reconnected.dispatchEvent(new Event("open")));
     expect(control<HTMLButtonElement>(container, "Send prompt").disabled).toBe(true);
     await insertInAct(BRIDGE_ID, PANE_ID, "/review");
-    expect(control<HTMLTextAreaElement>(container, "Pi prompt").value).toBe("Keep recovery draft");
+    expect(control<HTMLTextAreaElement>(container, "Pi prompt").value).toBe("/rev");
     terminal.readyState = 1;
     await click(container, "Composer helpers");
     expect(control<HTMLButtonElement>(container, "Browse commands and skills").disabled).toBe(true);
@@ -307,7 +316,7 @@ describe("TerminalView Pi Side Panel (Seam 3)", () => {
     await act(async () => vi.advanceTimersByTime(80));
     expect([...sentTerminalInput(terminal), ...sentTerminalInput(reconnected)]).toEqual(["\x1b[200~/compact\x1b[201~", "\r"]);
     expect(control<HTMLButtonElement>(container, "Send prompt").disabled).toBe(false);
-    expect(readPiComposerDraft(BRIDGE_ID, PANE_ID)).toBe("Keep recovery draft");
+    expect(readPiComposerDraft(BRIDGE_ID, PANE_ID)).toBe("/rev");
   });
 
   it("uses the shared searchable model picker as the only mobile subview and retains draft on failures", async () => {
