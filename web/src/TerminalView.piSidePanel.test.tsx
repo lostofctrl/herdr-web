@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CommandDraftContext, createCommandDraftStore } from "./commandDrafts";
 import { TerminalView } from "./TerminalView";
 import type { PaneInfo } from "./types";
-import { readPiComposerDraft, writePiComposerDraft } from "./pi-mode/piComposerDraft";
+import { readPiComposerDraft, retainPiComposerDrafts, writePiComposerDraft } from "./pi-mode/piComposerDraft";
 import { insertPiComposerText } from "./pi/sidepanel/piComposerInsert";
 
 const renderer = vi.hoisted(() => ({
@@ -68,6 +68,7 @@ afterEach(async () => {
     }
   });
   document.body.innerHTML = "";
+  retainPiComposerDrafts(BRIDGE_ID, []);
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
@@ -545,6 +546,51 @@ describe("TerminalView Pi Side Panel (Seam 3)", () => {
     expect(sentTerminalInput(returned)).toEqual([]);
     await click(container, "Terminal input is empty; keep draft");
     expect(control<HTMLButtonElement>(container, "Send prompt").disabled).toBe(false);
+  });
+
+  it("clears a known zero-byte send failure before remount without requiring reconciliation", async () => {
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Never delivered");
+    const { container, reconnect } = await renderTerminalView();
+    const { terminal } = await openSockets();
+    terminal.readyState = 3;
+    await click(container, "Send prompt");
+    expect(sentTerminalInput(terminal)).toEqual([]);
+    await reconnect("pane-b");
+    await reconnect(PANE_ID);
+    const returned = terminalSocket();
+    await act(async () => returned.dispatchEvent(new Event("open")));
+    expect(control<HTMLTextAreaElement>(container, "Pi prompt").value).toBe("Never delivered");
+    expect(control<HTMLButtonElement>(container, "Send prompt").disabled).toBe(false);
+    expect(container.textContent).not.toContain("Finish or clear the pending input in the terminal");
+  });
+
+  it("keeps known unresolved input and draft when the storage getter fails while away from the pane", async () => {
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Storage outage draft");
+    const { container, reconnect } = await renderTerminalView();
+    const { terminal } = await openSockets();
+    terminal.send.mockImplementation((data: string) => {
+      if (JSON.parse(data).data === "\x1b[200~Storage outage draft\x1b[201~") terminal.readyState = 3;
+    });
+    await click(container, "Send prompt");
+    await click(container, "Return to terminal");
+    await reconnect("pane-b");
+    const descriptor = Object.getOwnPropertyDescriptor(window, "localStorage")!;
+    Object.defineProperty(window, "localStorage", { configurable: true, get: () => { throw new Error("storage denied"); } });
+    try {
+      await reconnect(PANE_ID);
+      const returned = terminalSocket();
+      await act(async () => returned.dispatchEvent(new Event("open")));
+      expect(control<HTMLButtonElement>(container, "Send prompt").disabled).toBe(true);
+      expect(container.textContent).toContain("Finish or clear the pending input in the terminal");
+      expect(control<HTMLTextAreaElement>(container, "Pi prompt").value).toBe("Storage outage draft");
+      await click(container, "Send prompt");
+      await act(async () => vi.advanceTimersByTime(100));
+      expect(sentTerminalInput(returned)).toEqual([]);
+      await click(container, "Terminal input is empty; keep draft");
+      expect(control<HTMLButtonElement>(container, "Send prompt").disabled).toBe(false);
+    } finally {
+      Object.defineProperty(window, "localStorage", descriptor);
+    }
   });
 
   it("keeps unresolved ordinary delivery across whole TerminalView unmount and rejects its queued Enter", async () => {

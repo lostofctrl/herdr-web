@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 
 const STORAGE_PREFIX = "herdr.pi-mode.composer-draft";
 const unresolvedInMemory = new Set<string>();
+let lastStorage: Storage | null = null;
 const inputMarkerKey = (bridgeId: string, paneId: string) => `${piComposerDraftKey(bridgeId, paneId)}:input-unresolved`;
 
 /** Stable per-bridge, per-pane draft identity so drafts survive pane switches and reloads. */
@@ -11,9 +12,12 @@ export function piComposerDraftKey(bridgeId: string, paneId: string) {
 
 function storageOrNull(): Storage | null {
   try {
-    return typeof window === "undefined" ? null : window.localStorage;
+    if (typeof window === "undefined") return null;
+    lastStorage = window.localStorage;
+    return lastStorage;
   } catch {
-    return null;
+    // Reuse the storage handle, not a second copy of draft text, if its getter fails.
+    return lastStorage;
   }
 }
 
@@ -57,7 +61,9 @@ export function readPiComposerInputUnresolved(bridgeId: string, paneId: string, 
   const key = inputMarkerKey(bridgeId, paneId);
   if (unresolvedInMemory.has(key)) return true;
   try {
-    return storage?.getItem(key) === "1";
+    const unresolved = storage?.getItem(key) === "1";
+    if (unresolved) unresolvedInMemory.add(key);
+    return unresolved;
   } catch {
     // An unreadable marker is not proof that terminal input is empty.
     return true;
@@ -72,7 +78,6 @@ export function writePiComposerInputUnresolved(bridgeId: string, paneId: string,
     if (!storage) return;
     if (unresolved) storage.setItem(key, "1");
     else storage.removeItem(key);
-    unresolvedInMemory.delete(key);
   } catch {
     // Keep uncertainty across remounts even when browser storage is unavailable.
   }

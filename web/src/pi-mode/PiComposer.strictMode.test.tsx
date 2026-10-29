@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PiComposer } from "./PiComposer";
+import { retainPiComposerDrafts } from "./piComposerDraft";
 
 /**
  * The app renders under <StrictMode>, which mounts, unmounts and remounts every
@@ -63,6 +64,7 @@ afterEach(async () => {
     }
   });
   document.body.innerHTML = "";
+  retainPiComposerDrafts("bridge-1", []);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });

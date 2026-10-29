@@ -264,7 +264,12 @@ finish or clear the input in the terminal, then explicitly choose “Terminal in
 draft” before sending again. Unresolved input is recorded alongside the per-bridge/pane durable
 draft identity, so switching away/back, remounting the terminal or reloading cannot silently re-enable
 paste/resend; returning to that pane requires the same explicit reconciliation. Closed-pane snapshot
-cleanup removes its marker with its draft. This keeps the draft for deliberate reuse, not an automatic resend.
+cleanup removes its marker with its draft. Known unresolved markers also remain in memory until
+explicit clear/pruning, even if browser storage later becomes unavailable. A previously acquired
+storage handle preserves access to the same stored draft when the `localStorage` getter fails;
+no second copy of draft text is kept. If that handle also rejects reads, unresolved input remains
+locked but stored text cannot be recovered until storage access returns. This keeps the draft for
+deliberate reuse, not an automatic resend.
 Back returns to the initiating menu entry; dismissal returns to the helper trigger.
 Desktop retains its `/` and `@` buttons, and the Pi Side Panel remains available.
 

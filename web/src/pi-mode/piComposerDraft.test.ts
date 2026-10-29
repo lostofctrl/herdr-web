@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearPiComposerDraftIf,
@@ -15,6 +15,8 @@ const BRIDGE = "bridge:1";
 const OTHER_BRIDGE = "bridge-2";
 
 beforeEach(() => {
+  retainPiComposerDrafts(BRIDGE, []);
+  retainPiComposerDrafts(OTHER_BRIDGE, []);
   window.localStorage.clear();
 });
 
@@ -60,6 +62,29 @@ describe("Pi Composer drafts", () => {
     expect(readPiComposerInputUnresolved(OTHER_BRIDGE, "pane-a")).toBe(true);
     writePiComposerInputUnresolved(BRIDGE, "pane-a", false);
     expect(readPiComposerInputUnresolved(BRIDGE, "pane-a")).toBe(false);
+  });
+
+  it("retains successfully persisted uncertainty when storage later disappears, until explicit clear or closed-pane pruning", () => {
+    writePiComposerInputUnresolved(BRIDGE, "persisted", true);
+    writePiComposerInputUnresolved(OTHER_BRIDGE, "persisted", true);
+    expect(readPiComposerInputUnresolved(BRIDGE, "persisted", null)).toBe(true);
+    writePiComposerInputUnresolved(BRIDGE, "persisted", false, null);
+    expect(readPiComposerInputUnresolved(BRIDGE, "persisted", null)).toBe(false);
+    expect(readPiComposerInputUnresolved(OTHER_BRIDGE, "persisted", null)).toBe(true);
+    writePiComposerInputUnresolved(BRIDGE, "persisted", true);
+    retainPiComposerDrafts(BRIDGE, [], null);
+    expect(readPiComposerInputUnresolved(BRIDGE, "persisted", null)).toBe(false);
+    expect(readPiComposerInputUnresolved(OTHER_BRIDGE, "persisted", null)).toBe(true);
+  });
+
+  it("retains uncertainty read from durable storage after a fresh module load", async () => {
+    writePiComposerInputUnresolved(BRIDGE, "from-storage", true);
+    vi.resetModules();
+    const fresh = await import("./piComposerDraft");
+    expect(fresh.readPiComposerInputUnresolved(BRIDGE, "from-storage")).toBe(true);
+    expect(fresh.readPiComposerInputUnresolved(BRIDGE, "from-storage", null)).toBe(true);
+    fresh.retainPiComposerDrafts(BRIDGE, []);
+    expect(fresh.readPiComposerInputUnresolved(BRIDGE, "from-storage", null)).toBe(false);
   });
 
   it("keeps an in-memory unresolved marker when browser storage is unavailable", () => {

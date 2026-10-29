@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CommandDraftContext, createCommandDraftStore } from "./commandDrafts";
 import { insertPiComposerText } from "./pi/sidepanel/piComposerInsert";
-import { piComposerDraftKey } from "./pi-mode/piComposerDraft";
+import { piComposerDraftKey, retainPiComposerDrafts } from "./pi-mode/piComposerDraft";
 import { clearPiComposerHistory, getPiComposerHistory } from "./pi-mode/piComposerHistory";
 import { TerminalView } from "./TerminalView";
 import type { PaneInfo } from "./types";
@@ -70,6 +70,7 @@ afterEach(async () => {
     }
   });
   document.body.innerHTML = "";
+  retainPiComposerDrafts(BRIDGE_ID, []);
   window.localStorage.clear();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -790,6 +791,29 @@ describe("TerminalView Pi Composer attachments (Seam 3)", () => {
     expect(sentTerminalInput(socket)).toEqual([paste, "\r"]);
     expect(promptField(container).value).toBe("");
     expect(attachmentChips(container)).toHaveLength(0);
+  });
+
+  it("never delivers a delayed image upload after whole TerminalView unmount", async () => {
+    const { pending } = stubUploads();
+    const { pane, paneId } = testPane(PANE_A);
+    const first = await renderTerminalView({ paneId, pane, mobile: true });
+    const original = await openSocket();
+    await dropFiles(composerRoot(first.container), [pngFile("late.png")]);
+    await typePrompt(promptField(first.container), "Keep during upload");
+    await clickButton(first.container, "Send prompt");
+    await flushAsync();
+    expect(pending).toHaveLength(1);
+    await unmount(first.root);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    const next = await openSocket();
+    await act(async () => pending[0].resolve());
+    await flushAsync();
+    await act(async () => vi.advanceTimersByTime(100));
+    expect(sentTerminalInput(original)).toEqual([]);
+    expect(sentTerminalInput(next)).toEqual([]);
+    expect(promptField(container).value).toBe("Keep during upload");
+    expect(container.querySelector<HTMLButtonElement>('[aria-label="Send prompt"]')?.disabled).toBe(true);
+    expect(container.textContent).toContain("Finish or clear the pending input in the terminal");
   });
 
   it("uploads in chip order and pastes the paths in that order", async () => {
