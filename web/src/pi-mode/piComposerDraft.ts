@@ -1,6 +1,8 @@
 import { useCallback, useState } from "react";
 
 const STORAGE_PREFIX = "herdr.pi-mode.composer-draft";
+const unresolvedInMemory = new Set<string>();
+const inputMarkerKey = (bridgeId: string, paneId: string) => `${piComposerDraftKey(bridgeId, paneId)}:input-unresolved`;
 
 /** Stable per-bridge, per-pane draft identity so drafts survive pane switches and reloads. */
 export function piComposerDraftKey(bridgeId: string, paneId: string) {
@@ -50,6 +52,32 @@ export function writePiComposerDraft(
   }
 }
 
+/** Input uncertainty shares draft identity/lifetime, never the draft's text payload. */
+export function readPiComposerInputUnresolved(bridgeId: string, paneId: string, storage = storageOrNull()): boolean {
+  const key = inputMarkerKey(bridgeId, paneId);
+  if (unresolvedInMemory.has(key)) return true;
+  try {
+    return storage?.getItem(key) === "1";
+  } catch {
+    // An unreadable marker is not proof that terminal input is empty.
+    return true;
+  }
+}
+
+export function writePiComposerInputUnresolved(bridgeId: string, paneId: string, unresolved: boolean, storage = storageOrNull()) {
+  const key = inputMarkerKey(bridgeId, paneId);
+  if (unresolved) unresolvedInMemory.add(key);
+  else unresolvedInMemory.delete(key);
+  try {
+    if (!storage) return;
+    if (unresolved) storage.setItem(key, "1");
+    else storage.removeItem(key);
+    unresolvedInMemory.delete(key);
+  } catch {
+    // Keep uncertainty across remounts even when browser storage is unavailable.
+  }
+}
+
 /**
  * Clears the stored draft only while it still holds `expected`. A prompt that is
  * already in flight can be superseded by recall or a new draft, and that newer
@@ -81,11 +109,12 @@ export function retainPiComposerDrafts(
   paneIds: readonly string[],
   storage: Storage | null = storageOrNull(),
 ) {
-  if (!storage) {
-    return;
-  }
   const prefix = `${STORAGE_PREFIX}:${encodeURIComponent(bridgeId)}:`;
-  const live = new Set(paneIds.map((paneId) => piComposerDraftKey(bridgeId, paneId)));
+  const live = new Set(paneIds.flatMap((paneId) => [piComposerDraftKey(bridgeId, paneId), inputMarkerKey(bridgeId, paneId)]));
+  for (const key of unresolvedInMemory) {
+    if (key.startsWith(prefix) && !live.has(key)) unresolvedInMemory.delete(key);
+  }
+  if (!storage) return;
   try {
     const stale: string[] = [];
     for (let index = 0; index < storage.length; index += 1) {

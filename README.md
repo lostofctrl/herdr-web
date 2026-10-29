@@ -261,7 +261,10 @@ bypass pending-input recovery; Reader remains available. Return to terminal send
 hands pending input to manual control, invalidating delayed uploads/queued Enter callbacks while
 keeping the draft and images. Reopening Composer does not infer completion from Enter or Esc:
 finish or clear the input in the terminal, then explicitly choose “Terminal input is empty; keep
-draft” before sending again. This keeps the draft for deliberate reuse, not an automatic resend.
+draft” before sending again. Unresolved input is recorded alongside the per-bridge/pane durable
+draft identity, so switching away/back, remounting the terminal or reloading cannot silently re-enable
+paste/resend; returning to that pane requires the same explicit reconciliation. Closed-pane snapshot
+cleanup removes its marker with its draft. This keeps the draft for deliberate reuse, not an automatic resend.
 Back returns to the initiating menu entry; dismissal returns to the helper trigger.
 Desktop retains its `/` and `@` buttons, and the Pi Side Panel remains available.
 

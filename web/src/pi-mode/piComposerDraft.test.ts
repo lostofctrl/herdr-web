@@ -5,6 +5,8 @@ import {
   clearPiComposerDraftIf,
   piComposerDraftKey,
   readPiComposerDraft,
+  readPiComposerInputUnresolved,
+  writePiComposerInputUnresolved,
   retainPiComposerDrafts,
   writePiComposerDraft,
 } from "./piComposerDraft";
@@ -46,6 +48,30 @@ describe("Pi Composer drafts", () => {
     expect(readPiComposerDraft(OTHER_BRIDGE, "pane-b")).toBe("other bridge");
   });
 
+  it("retains unresolved input with live pane drafts without treating draft clearing as terminal-empty confirmation", () => {
+    writePiComposerDraft(BRIDGE, "pane-a", "keep draft");
+    writePiComposerInputUnresolved(BRIDGE, "pane-a", true);
+    writePiComposerInputUnresolved(BRIDGE, "pane-closed", true);
+    writePiComposerInputUnresolved(OTHER_BRIDGE, "pane-a", true);
+    retainPiComposerDrafts(BRIDGE, ["pane-a"]);
+    clearPiComposerDraftIf(BRIDGE, "pane-a", "keep draft");
+    expect(readPiComposerInputUnresolved(BRIDGE, "pane-a")).toBe(true);
+    expect(readPiComposerInputUnresolved(BRIDGE, "pane-closed")).toBe(false);
+    expect(readPiComposerInputUnresolved(OTHER_BRIDGE, "pane-a")).toBe(true);
+    writePiComposerInputUnresolved(BRIDGE, "pane-a", false);
+    expect(readPiComposerInputUnresolved(BRIDGE, "pane-a")).toBe(false);
+  });
+
+  it("keeps an in-memory unresolved marker when browser storage is unavailable", () => {
+    writePiComposerInputUnresolved(BRIDGE, "no-storage", true, null);
+    expect(readPiComposerInputUnresolved(BRIDGE, "no-storage", null)).toBe(true);
+    expect(readPiComposerInputUnresolved(OTHER_BRIDGE, "no-storage", null)).toBe(false);
+    retainPiComposerDrafts(BRIDGE, ["no-storage"], null);
+    expect(readPiComposerInputUnresolved(BRIDGE, "no-storage", null)).toBe(true);
+    writePiComposerInputUnresolved(BRIDGE, "no-storage", false, null);
+    expect(readPiComposerInputUnresolved(BRIDGE, "no-storage", null)).toBe(false);
+  });
+
   it("drops a delivered draft without discarding newer text", () => {
     writePiComposerDraft(BRIDGE, "pane-a", "delivered prompt");
     clearPiComposerDraftIf(BRIDGE, "pane-a", "delivered prompt");
@@ -79,6 +105,10 @@ describe("Pi Composer drafts", () => {
     } as unknown as Storage;
 
     expect(readPiComposerDraft(BRIDGE, "pane-a", throwing)).toBe("");
+    expect(readPiComposerInputUnresolved(BRIDGE, "pane-a", throwing)).toBe(true);
+    writePiComposerInputUnresolved(BRIDGE, "unwritable", true, throwing);
+    expect(readPiComposerInputUnresolved(BRIDGE, "unwritable", null)).toBe(true);
+    writePiComposerInputUnresolved(BRIDGE, "unwritable", false, null);
     expect(() => writePiComposerDraft(BRIDGE, "pane-a", "value", throwing)).not.toThrow();
     expect(() => retainPiComposerDrafts(BRIDGE, [], throwing)).not.toThrow();
   });

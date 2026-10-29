@@ -514,6 +514,62 @@ describe("TerminalView Pi Side Panel (Seam 3)", () => {
     expect(control<HTMLButtonElement>(container, "Send prompt").disabled).toBe(false);
   });
 
+  it.each(["prompt", "action"])("requires reconciliation after pane-away/back with partial %s input", async (kind) => {
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Pane-owned draft");
+    const { container, reconnect } = await renderTerminalView();
+    const { terminal } = await openSockets();
+    await showState("idle");
+    const paste = kind === "prompt" ? "\x1b[200~Pane-owned draft\x1b[201~" : "\x1b[200~/compact\x1b[201~";
+    terminal.send.mockImplementation((data: string) => {
+      if (JSON.parse(data).data === paste) terminal.readyState = 3;
+    });
+    if (kind === "prompt") await click(container, "Send prompt");
+    else {
+      await click(container, "Composer helpers");
+      await click(container, "Compact Pi session");
+    }
+    await click(container, "Return to terminal");
+    await reconnect("pane-b");
+    await act(async () => terminalSocket().dispatchEvent(new Event("open")));
+    expect(control<HTMLButtonElement>(container, "Send prompt").disabled).toBe(true); // blank other-pane draft
+    expect(container.textContent).not.toContain("Finish or clear the pending input in the terminal");
+    await reconnect(PANE_ID);
+    const returned = terminalSocket();
+    await act(async () => returned.dispatchEvent(new Event("open")));
+    expect(control<HTMLTextAreaElement>(container, "Pi prompt").value).toBe("Pane-owned draft");
+    expect(control<HTMLButtonElement>(container, "Send prompt").disabled).toBe(true);
+    expect(container.textContent).toContain("Finish or clear the pending input in the terminal");
+    await click(container, "Send prompt");
+    await act(async () => vi.advanceTimersByTime(100));
+    expect(sentTerminalInput(terminal)).toEqual([paste]);
+    expect(sentTerminalInput(returned)).toEqual([]);
+    await click(container, "Terminal input is empty; keep draft");
+    expect(control<HTMLButtonElement>(container, "Send prompt").disabled).toBe(false);
+  });
+
+  it("keeps unresolved ordinary delivery across whole TerminalView unmount and rejects its queued Enter", async () => {
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Unmounted draft");
+    const first = await renderTerminalView();
+    const { terminal } = await openSockets();
+    await click(first.container, "Send prompt");
+    expect(sentTerminalInput(terminal)).toEqual(["\x1b[200~Unmounted draft\x1b[201~"]);
+    await act(async () => first.root.unmount());
+    roots.splice(roots.indexOf(first.root), 1);
+    const { container } = await renderTerminalView();
+    const next = terminalSocket();
+    await act(async () => next.dispatchEvent(new Event("open")));
+    await act(async () => vi.advanceTimersByTime(100));
+    expect(control<HTMLButtonElement>(container, "Send prompt").disabled).toBe(true);
+    expect(container.textContent).toContain("Finish or clear the pending input in the terminal");
+    expect(control<HTMLTextAreaElement>(container, "Pi prompt").value).toBe("Unmounted draft");
+    expect(sentTerminalInput(terminal)).toEqual(["\x1b[200~Unmounted draft\x1b[201~"]);
+    expect(sentTerminalInput(next)).toEqual([]);
+    await click(container, "Terminal input is empty; keep draft");
+    await click(container, "Send prompt");
+    await act(async () => vi.advanceTimersByTime(100));
+    expect(sentTerminalInput(next)).toEqual(["\x1b[200~Unmounted draft\x1b[201~", "\r"]);
+  });
+
   it("uses the shared searchable model picker as the only mobile subview and retains draft on failures", async () => {
     writePiComposerDraft(BRIDGE_ID, PANE_ID, "Keep model draft");
     const { container } = await renderTerminalView();

@@ -106,7 +106,9 @@
 
 - Pi Composer: shared terminal-input ownership prevents Key Bar, typing/paste and delayed callbacks
   from bypassing partial delivery recovery. Return hands pending input to explicit manual control
-  without sending keys or losing drafts/images. Image-prompt recovery sends Enter without repasting.
+  without sending keys or losing drafts/images. Unresolved input stays pane/bridge-owned across
+  Composer/terminal remounts and reloads until explicit reconciliation, instead of allowing duplicate
+  paste after switching away/back. Image-prompt recovery sends Enter without repasting.
 - Pi conversation: resync after cancelled tree/compaction now restores subsequent publication once
   the public idle boundary proves unwind. Switch/fork cancellations stay explicitly unavailable
   until a real lifecycle restores authority because Pi 1.4.0 exposes no public cancellation verdict.

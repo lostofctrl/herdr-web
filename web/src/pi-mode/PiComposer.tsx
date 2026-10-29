@@ -34,6 +34,8 @@ import {
 import {
   clearPiComposerDraftIf,
   piComposerDraftKey,
+  readPiComposerInputUnresolved,
+  writePiComposerInputUnresolved,
   usePiComposerDraft,
 } from "./piComposerDraft";
 import { PI_COMPOSER_INSERT_EVENT, insertPiComposerText, type PiComposerInsertDetail } from "../pi/sidepanel/piComposerInsert";
@@ -120,23 +122,27 @@ export function PiComposer({
   const acceptedValueRef = useRef("");
   const localInputOwner = useRef<PiComposerInputOwner>({ generation: 0, mode: "idle" });
   const owner = inputOwner ?? localInputOwner;
-  const [manualInput, setManualInput] = useState(false);
+  const [manualInput, setManualInput] = useState(() => readPiComposerInputUnresolved(bridgeId, paneId));
+  const setInputMode = useCallback((mode: PiComposerInputOwner["mode"]) => {
+    writePiComposerInputUnresolved(bridgeId, paneId, mode !== "idle");
+    owner.current.mode = mode;
+  }, [bridgeId, paneId, owner]);
   const pendingSendRef = useRef(false);
   const claimInput = () => {
-    owner.current.mode = "automatic";
+    setInputMode("automatic");
     return ++owner.current.generation;
   };
   const ownsInput = (generation: number) => mountedRef.current && owner.current.generation === generation;
   const handoffInput = useCallback(() => {
     if (owner.current.mode !== "automatic" && owner.current.mode !== "recovery") return;
     ++owner.current.generation;
-    owner.current.mode = "manual";
+    setInputMode("manual");
     pendingSendRef.current = false;
     setDeliveryPending(false);
     setSending(false);
     setActionError(null);
     setManualInput(true);
-  }, [owner]);
+  }, [owner, setInputMode]);
   const [deliveryPending, setDeliveryPending] = useState(false);
   const [actionRecovery, setActionRecovery] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -208,14 +214,21 @@ export function PiComposer({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      ++owner.current.generation;
-      owner.current.mode = "idle";
       for (const attachment of attachmentsRef.current) {
         releasePiComposerAttachment(attachment);
       }
       attachmentsRef.current = [];
     };
-  }, [owner]);
+  }, []);
+
+  // Input uncertainty outlives both keyed Composer and whole TerminalView mounts.
+  useLayoutEffect(() => {
+    owner.current.mode = readPiComposerInputUnresolved(bridgeId, paneId) ? "manual" : "idle";
+    return () => {
+      ++owner.current.generation;
+      if (owner.current.mode !== "idle") setInputMode("manual");
+    };
+  }, [bridgeId, paneId, owner, setInputMode]);
 
   useLayoutEffect(() => {
     onExpandedChange?.(mobile && open && active);
@@ -528,7 +541,7 @@ export function PiComposer({
     let settled = false;
     const accepted = onSend(parts, (deliveredParts, totalParts) => {
       if (!ownsInput(generation)) return;
-      owner.current.mode = deliveredParts === totalParts || (deliveredParts === 0 && !awaitingSubmit) ? "idle" : "recovery";
+      setInputMode(deliveredParts === totalParts || (deliveredParts === 0 && !awaitingSubmit) ? "idle" : "recovery");
       settled = true;
       pendingSendRef.current = false;
       setDeliveryPending(false);
@@ -547,7 +560,7 @@ export function PiComposer({
       setAwaitingSubmit(deliveredParts > 0 || awaitingSubmit);
     });
     if (!accepted && !settled) {
-      owner.current.mode = awaitingSubmit ? "recovery" : "idle";
+      setInputMode(awaitingSubmit ? "recovery" : "idle");
       pendingSendRef.current = false;
       setDeliveryPending(false);
     }
@@ -616,7 +629,7 @@ export function PiComposer({
       }
     } catch (error) {
       if (!ownsInput(generation)) return;
-      owner.current.mode = "idle";
+      setInputMode("idle");
       pendingSendRef.current = false;
       setAttachmentError(error instanceof Error ? error.message : "Upload failed");
     } finally {
@@ -666,7 +679,7 @@ export function PiComposer({
     setActionError(null);
     const accepted = onSend(parts, (delivered, total) => {
       if (!ownsInput(generation)) return;
-      owner.current.mode = delivered === total || (delivered === 0 && !actionRecovery) ? "idle" : "recovery";
+      setInputMode(delivered === total || (delivered === 0 && !actionRecovery) ? "idle" : "recovery");
       pendingSendRef.current = false;
       setDeliveryPending(false);
       setActionRecovery(delivered !== total && (delivered > 0 || actionRecovery));
@@ -676,7 +689,7 @@ export function PiComposer({
       onDelivered(delivered, total);
     });
     if (!accepted) {
-      owner.current.mode = actionRecovery ? "recovery" : "idle";
+      setInputMode(actionRecovery ? "recovery" : "idle");
       setActionError("Action could not be queued. The draft is unchanged.");
       pendingSendRef.current = false;
       setDeliveryPending(false);
@@ -912,7 +925,7 @@ export function PiComposer({
         <p>Finish or clear the pending input in the terminal. Draft and images are kept; Enter/Esc do not confirm completion.</p>
         <button type="button" aria-label="Terminal input is empty; keep draft" onClick={() => {
           ++owner.current.generation;
-          owner.current.mode = "idle";
+          setInputMode("idle");
           setManualInput(false);
           setAwaitingSubmit(false);
           setActionRecovery(false);
