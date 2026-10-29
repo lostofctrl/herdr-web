@@ -13,21 +13,25 @@
   retains Key Bar, Chord Composer and Reader access. Pi 1.4.0 cannot selectively hide CLI editor
   chrome through a supported API, so the collapsed terminal remains unchanged. Physical Safari and
   Android keyboard/IME/task verification is pending; emulation is not a readiness or usability claim.
+  [PR #20](https://github.com/lostofctrl/herdr-web/pull/20)
 
 - Mobile Pi Composer: the helpers (⋯) menu now includes the shared model picker, supported
   thinking levels, full searchable command/skill metadata and explicit Abort, Compact, New session
   and Resume actions. Quick actions preserve unsent drafts and attachments, report failures, and
   offer Enter-only recovery after partial delivery without mixing in a new prompt. Bridge-only
   actions are gated offline/busy; Abort retains terminal Esc semantics. Desktop Side Panel stays.
+  [PR #20](https://github.com/lostofctrl/herdr-web/pull/20)
 
 - Pi mode: the mobile Composer shows read-only first/latest exchanges from the live selected
   branch, including pending/running and interrupted replies, explicit truncation and unavailable
   states. A capability-gated conversation schema keeps legacy peers and terminal delivery working;
   context is bounded, cleared on authority changes, and never persisted by the browser.
+  [PR #20](https://github.com/lostofctrl/herdr-web/pull/20)
 - Mobile Pi Composer: one accessible Composer helpers (⋯) menu for command/skill (`/`),
   file/path (`@`) and shell-prefix (`!`) authoring. Helpers preserve selection, caret and draft
   without submitting; menu targets are touch-sized, keyboard navigable and viewport-scrollable.
   Desktop helper buttons and Pi Side Panel access remain available.
+  [PR #20](https://github.com/lostofctrl/herdr-web/pull/20)
 
 - Pi mode: panes running Pi get native surfaces instead of an opaque terminal. A new in-repo
   `pi-bridge` package publishes Pi State, the command and skill catalog, dialogs and the last
@@ -107,6 +111,7 @@
 - Mobile Pi Composer: keep the full-viewport working surface above the sidebar on landscape/tablet
   widths, so the left side of context and draft text remains visible and reachable. Collapsed and
   desktop terminal layering stays unchanged.
+  [PR #20](https://github.com/lostofctrl/herdr-web/pull/20)
 
 - Pi Composer: shared terminal-input ownership prevents Key Bar, typing/paste and delayed callbacks
   from bypassing partial delivery recovery. Return hands pending input to explicit manual control
@@ -114,9 +119,11 @@
   Composer/terminal remounts and reloads until explicit reconciliation, instead of allowing duplicate
   paste after switching away/back. Known markers survive later browser-storage failures in memory
   until explicit clear/pruning. Image-prompt recovery sends Enter without repasting.
+  [PR #20](https://github.com/lostofctrl/herdr-web/pull/20)
 - Pi conversation: resync after cancelled tree/compaction now restores subsequent publication once
   the public idle boundary proves unwind. Switch/fork cancellations stay explicitly unavailable
   until a real lifecycle restores authority because Pi 1.4.0 exposes no public cancellation verdict.
+  [PR #20](https://github.com/lostofctrl/herdr-web/pull/20)
 
 - Pi mode: Key Bar keys rendered 4–19px wide with overlapping symbols because the shared key
   sizing variables were only defined inside the Composer's container, and the Stop key's danger
