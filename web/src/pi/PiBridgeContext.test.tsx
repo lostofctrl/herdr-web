@@ -317,7 +317,7 @@ it("capability-gates fresh conversation resync, rejects stale authority/revision
   const { container } = await renderProbe();
   const pi = await openPiSocket();
   expect(sentRecords(pi).some((r) => r.type === "get_conversation")).toBe(false);
-  await send({ type: "hello", protocol_version: 1, conversation_epoch: "epoch-a", capabilities: { conversation_context: true } });
+  await send({ type: "hello", protocol_version: 1, conversation_epoch: "epoch-a", capabilities: { conversation_snapshot: true } });
   expect(sentRecords(pi).filter((r) => r.type === "get_conversation")).toMatchObject([{ schema_version: 1 }]);
   await send(CONTEXT);
   expect(text(container, "conversation")).toContain("public answer");
@@ -337,7 +337,7 @@ it("capability-gates fresh conversation resync, rejects stale authority/revision
 it("treats malformed/oversized/unsupported conversation as unavailable without disabling ordinary Pi controls", async () => {
   const { container } = await renderProbe();
   await openPiSocket();
-  await send({ type: "hello", protocol_version: 1, conversation_epoch: "epoch-a", capabilities: { conversation_context: true } });
+  await send({ type: "hello", protocol_version: 1, conversation_epoch: "epoch-a", capabilities: { conversation_snapshot: true } });
   for (const bad of [
     { ...CONTEXT, schema_version: 2 },
     { ...CONTEXT, exchanges: [{ ...CONTEXT.exchanges[0], user: "x".repeat(16385) }] },
@@ -359,7 +359,7 @@ it("treats malformed/oversized/unsupported conversation as unavailable without d
 it("resync clears cached context and ignores delayed replies, superseded sockets and epoch resets", async () => {
   const { container } = await renderProbe();
   const pi = await openPiSocket();
-  await send({ type: "hello", protocol_version: 1, conversation_epoch: "epoch-a", capabilities: { conversation_context: true } });
+  await send({ type: "hello", protocol_version: 1, conversation_epoch: "epoch-a", capabilities: { conversation_snapshot: true } });
   const request = sentRecords(pi).find((r) => r.type === "get_conversation")!;
   await send({ ...CONTEXT, request_id: request.id });
   expect(text(container, "conversation")).toContain("public answer");
@@ -370,7 +370,7 @@ it("resync clears cached context and ignores delayed replies, superseded sockets
   const next = sentRecords(pi).filter((r) => r.type === "get_conversation").at(-1)!;
   await send({ ...CONTEXT, request_id: next.id, revision: 2 });
   expect(text(container, "conversation")).toContain("public answer");
-  await send({ type: "hello", protocol_version: 1, conversation_epoch: "epoch-b", capabilities: { conversation_context: true } });
+  await send({ type: "hello", protocol_version: 1, conversation_epoch: "epoch-b", capabilities: { conversation_snapshot: true } });
   await send({ ...CONTEXT, revision: 99 });
   expect(text(container, "conversation")).toBe("null");
   await send({ ...CONTEXT, epoch: "epoch-b" });
@@ -386,7 +386,7 @@ it("resync clears cached context and ignores delayed replies, superseded sockets
 it("does not carry conversation into a different pane or bridge runtime while the new socket awaits hello", async () => {
   const { root, container } = await renderProbe();
   await openPiSocket();
-  await send({ type: "hello", protocol_version: 1, conversation_epoch: "epoch-a", capabilities: { conversation_context: true } });
+  await send({ type: "hello", protocol_version: 1, conversation_epoch: "epoch-a", capabilities: { conversation_snapshot: true } });
   await send(CONTEXT);
   expect(text(container, "conversation")).toContain("public answer");
   await act(async () => root.render(

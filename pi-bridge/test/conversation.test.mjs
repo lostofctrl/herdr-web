@@ -35,7 +35,7 @@ async function context(socket, id = "context") {
 test("conversation uses active ancestry and returns distinct first/latest public exchanges separately from the legacy snapshot", async (t) => {
   const { socket } = await setup(t, [user("first"), assistant("answer one"), user("middle"), assistant("answer two"), user("current")]);
   const hello = await socket.next((r) => r.type === "hello");
-  assert.equal(hello.capabilities.conversation_context, true);
+  assert.equal(hello.capabilities.conversation_snapshot, true);
   const result = await context(socket);
   assert.equal(result.schema_version, 1);
   assert.equal(result.session_id, "session-a");
@@ -157,9 +157,24 @@ test("session replacement, compaction and authority loss refresh separately, wit
   assert.deepEqual(lost.exchanges, []);
   delete fake.ctx.sessionManager.getBranch;
   await fake.emit("session_start", { reason: "reload" });
-  assert.equal((await socket.next((r) => r.type === "hello" && r.capabilities.conversation_context === false)).protocol_version, 1);
+  assert.equal((await socket.next((r) => r.type === "hello" && r.capabilities.conversation_snapshot === false)).protocol_version, 1);
   socket.send({ type: "get_snapshot", id: "old-client" });
   assert.equal((await socket.next((r) => r.type === "response" && r.id === "old-client")).ok, true);
   socket.send({ type: "get_conversation", id: "unsupported", schema_version: 2 });
   assert.equal((await socket.next((r) => r.type === "response" && r.id === "unsupported")).ok, false);
+});
+
+
+test("a successful empty completed assistant leaves the current user pending, not falsely answered", async (t) => {
+  const { socket, fake, setBranch } = await setup(t, [user("still unanswered"), assistant("")]);
+  const pending = await context(socket);
+  assert.deepEqual(pending.exchanges.map((e) => [e.user, e.assistant, e.status]), [["still unanswered", "", "pending"]]);
+  await fake.emit("agent_start");
+  const running = await socket.next((r) => r.type === "conversation_update" && r.exchanges[0]?.status === "running");
+  assert.equal(running.exchanges[0].assistant, "");
+  await fake.emit("agent_end");
+  await socket.next((r) => r.type === "conversation_update" && r.revision > running.revision && r.exchanges[0]?.status === "pending");
+  setBranch([user("answered"), assistant("public answer"), assistant("")]);
+  const answered = await context(socket, "answered-empty");
+  assert.deepEqual([answered.exchanges[0].assistant, answered.exchanges[0].status], ["public answer", "complete"]);
 });

@@ -43,7 +43,7 @@ Implemented as `docs/pi-mode-protocol.md` version 1:
 - Client → bridge: `get_snapshot`, `set_model`, `set_thinking_level`,
   `list_files`, `dialog_answer`, `get_conversation`.
 - `hello.capabilities` is
-  `{generic_dialogs, assistant_message: true, list_files, skills_catalog, conversation_context}`.
+  `{generic_dialogs, assistant_message: true, list_files, skills_catalog, conversation_snapshot}`.
   `generic_dialogs` is true only when the startup self-check installed the shared
   `ctx.ui` wrap (ADR 0002); question dialogs are relayed from `ask_user_question`
   independently. If the wrap fails, the bridge notifies once and the terminal dialog
@@ -115,7 +115,7 @@ correlation, ignored malformed records, and the 1 MiB cap.
 
 The separate conversation schema 1 uses only the live manager's `getBranch()`,
 `getSessionId()` and `getLeafId()` surfaces. Missing APIs advertise
-`conversation_context: false`; the legacy Reader Sheet continues unchanged.
+`conversation_snapshot: false`; the legacy Reader Sheet continues unchanged.
 First/latest user-led exchanges include public text and explicit pending/running or
 interrupted states. Selection changes invalidate immediately, and recorded completions
 refresh on a later macrotask because Pi persists messages after extension handlers finish.

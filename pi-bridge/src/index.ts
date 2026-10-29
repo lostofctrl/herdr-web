@@ -250,7 +250,7 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
       assistant_message: true,
       list_files: exec !== null,
       skills_catalog: readCommands() !== null,
-      conversation_context: supportsConversation(context),
+      conversation_snapshot: supportsConversation(context),
     };
   }
 

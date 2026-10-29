@@ -173,7 +173,7 @@ successful `hello`. The terminal WebSocket on the same pane is unaffected.
 ## Read-only conversation context (conversation schema 1)
 
 This additive feature is independent of protocol v1 snapshots and the legacy Reader Sheet.
-`hello.capabilities.conversation_context` is true only when the live session manager exposes
+`hello.capabilities.conversation_snapshot` is true only when the live session manager exposes
 `getBranch()`, `getSessionId()` and `getLeafId()`. `hello.conversation_epoch` identifies the
 extension runtime. Missing capability/epoch means unavailable context, not disabled terminal
 or Composer controls. Old clients ignore these additive records; new clients do not ask old
@@ -207,7 +207,10 @@ assistant messages are joined until the next user. Empty/tool-only updates do no
 prior public text or an interrupted status. Thinking, tool calls/results, images, custom
 messages, compaction and branch summaries are excluded. An unanswered user stays separate
 from the prior answer. Status is `pending`, `running`, `complete`, `aborted`, or `error`;
-completed interrupted text remains readable. Streaming deltas are not published.
+completed interrupted text remains readable. A successful completed assistant message with no
+public text leaves an unanswered current user `pending` (or `running` while the run is active),
+not falsely answered. An empty completion after eligible public text preserves that text and its
+status. Streaming deltas are not published.
 
 Before selection/authority changes, updates immediately become unavailable and empty.
 Session start/reload/new/resume/fork, tree navigation, compaction success/failure, run-status

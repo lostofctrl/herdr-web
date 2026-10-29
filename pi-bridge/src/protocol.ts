@@ -71,7 +71,7 @@ export interface BridgeCapabilities {
   assistant_message: boolean;
   list_files: boolean;
   skills_catalog: boolean;
-  conversation_context: boolean;
+  conversation_snapshot: boolean;
 }
 
 export interface BridgeError {

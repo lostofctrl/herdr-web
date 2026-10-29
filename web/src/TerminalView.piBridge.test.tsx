@@ -294,7 +294,7 @@ it("renders read-only first/current context inside the real mobile Composer unde
   const pi = piSockets().at(-1)!;
   const send = async (record: unknown) => act(async () => pi.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(record) })));
   await act(async () => pi.dispatchEvent(new Event("open")));
-  await send({ type: "hello", protocol_version: 1, conversation_epoch: "live-epoch", capabilities: { conversation_context: true } });
+  await send({ type: "hello", protocol_version: 1, conversation_epoch: "live-epoch", capabilities: { conversation_snapshot: true } });
   await send({
     type: "conversation_update", schema_version: 1, epoch: "live-epoch", session_id: "live-session", leaf_id: "live-leaf", selection_generation: 1, revision: 1,
     availability: "ready", reason: null,

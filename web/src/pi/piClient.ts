@@ -174,7 +174,7 @@ export class PiBridgeClient {
 
   private requestConversation() {
     this.patch({ conversation: null });
-    if (!this.state.capabilities.conversation_context || !this.conversationEpoch) return;
+    if (!this.state.capabilities.conversation_snapshot || !this.conversationEpoch) return;
     const id = String(this.nextRequestId);
     this.conversationRequestId = id;
     void this.request("get_conversation", { schema_version: 1 }).catch(() => {
@@ -215,7 +215,7 @@ export class PiBridgeClient {
 
     switch (record.type) {
       case "conversation_update": {
-        if (!this.state.capabilities.conversation_context || !this.conversationEpoch) return;
+        if (!this.state.capabilities.conversation_snapshot || !this.conversationEpoch) return;
         const value = parseConversation(raw);
         if (!value) {
           this.patch({ conversation: null });
