@@ -21,7 +21,7 @@ export function ConversationContext({ paneId }: { paneId: string }) {
       ) : conversation.exchanges.length === 0 ? (
         <p className="pi-conversation-status">No recorded exchanges yet.</p>
       ) : conversation.exchanges.map((exchange, index) => (
-        <article className="pi-conversation-exchange" key={index}>
+        <article className="pi-conversation-exchange" key={index} tabIndex={0}>
           <header>
             <strong>{conversation.exchanges.length === 1 ? "First / current exchange" : index === 0 ? "First exchange" : "Latest / current exchange"}</strong>
             <span className="pi-conversation-status">{STATUS[exchange.status]}</span>

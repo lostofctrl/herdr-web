@@ -107,6 +107,7 @@ async function renderTerminalView(pane: PaneInfo, selected: boolean, mobile = fa
       </CommandDraftContext.Provider></Wrapper>,
     );
   });
+  if (mobile) await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Open Composer"]')?.click());
   return { container, root };
 }
 

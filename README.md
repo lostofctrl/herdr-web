@@ -227,8 +227,17 @@ clears that pane's draft, and a successful snapshot removes drafts for closed pa
 in the current browser tab's memory: reloading the page clears them, and other clients do not share them.
 
 Pi panes use their own native Composer instead of the command composer, with or without a reachable
-Pi Bridge. Phone layouts keep it open with the Key Bar, chord composer, and upload above it; desktop
-opens it with Ctrl+Space and sends with Ctrl+Enter. On a phone Enter inserts a newline and the large
+Pi Bridge. Phone layouts start with a minimal Open Composer launcher. Opening focuses the real
+editor in an inset working surface, with bounded first/current context above it and a right-thumb
+Send, Stop, Return to terminal and ⋯ rail (one row on short viewports). The surface follows the
+visible viewport and safe areas; each exchange scrolls independently. The terminal and optional
+screen-reader mirror stay mounted and connected but hidden/inert while composing. Return to
+terminal is explicit: closing the keyboard, rotating, or backgrounding does not collapse it, and
+returning never sends Esc or clears the draft. Stop alone sends Pi's existing Esc. The Key Bar,
+Chord Composer, busy Steer/Queue and Reader Sheet are reached through ⋯ → Terminal keys and Reader;
+History and image attachment remain beside the editor. Native Cards remain outside the hidden
+terminal; terminal-only/custom dialogs are reached with Return to terminal. Desktop stays terminal-first,
+opens the Composer with Ctrl+Space and sends with Ctrl+Enter. On a phone Enter inserts a newline and the large
 Send button sends. Delivery is one bracketed paste plus Enter, so Pi itself decides whether the text
 is a prompt, steer, follow-up, `/command`, or `!bash`. Pi Composer drafts are kept per bridge and pane
 in browser storage, survive reloads, and are cleared only after the terminal socket accepted the
@@ -248,7 +257,20 @@ through the attached terminal while Bridge Offline. Failed requests show errors 
 the draft. If a quick action reaches Pi without Enter, reopen ⋯ and choose Submit pending action;
 ordinary prompt delivery and helper/catalog insertion are blocked until that Enter-only recovery
 finishes. Back returns to the initiating menu entry; dismissal returns to the helper trigger.
-Desktop retains its `/` and `@` buttons, and the Pi Side Panel remains available. While the Composer is open it owns `/`, `@` and prompt history, so the Key
+Desktop retains its `/` and `@` buttons, and the Pi Side Panel remains available.
+
+Pi 1.4.0 has no verified supported API to hide only its built-in CLI editor chrome while preserving
+TUI input and PTY submission: `setEditorComponent` replaces the editor, `setWorkingVisible` affects
+only the loader, and header/footer hooks do not hide the editor. Therefore the collapsed terminal
+retains Pi's real CLI editor. No replacement TUI, ANSI erasure, terminal-geometry trick, or RPC path
+is used. Older Pi Bridges still support Composer delivery and static keys without bounded context.
+
+Mobile verification remains incomplete until physical iOS Safari and Android Chrome checks cover
+native keyboard/visualViewport, IME/dictation/autocorrect, focus/scrolling, menu reachability, and the
+read-latest → follow-up → Stop → terminal task. Physical devices are unavailable in the current
+verification environment (Android discovery previously timed out). Chromium phone emulation and
+keyboard-shaped viewport checks are not native-keyboard, comfort, or timing evidence; no production
+readiness claim is made. While the Composer is open it owns `/`, `@` and prompt history, so the Key
 Bar omits those duplicates. The Side Panel shares the Composer's searchable model picker.
 
 Terminal input payloads can be sent as JSON or binary WebSocket frames. JSON remains the default;

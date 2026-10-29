@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -86,13 +86,13 @@ function testPane(agent: string): PaneInfo {
   };
 }
 
-async function renderTerminalView({ agent = "pi", mobile = true, bridgeId = BRIDGE_ID, selected = true } = {}) {
+async function renderTerminalView({ agent = "pi", mobile = true, bridgeId = BRIDGE_ID, selected = true, collapsed = false, screenReader = false } = {}) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
   roots.push(root);
   const render = (connectionKey = "test-connection", paneId = PANE_ID) => root.render(
-      <CommandDraftContext.Provider value={createCommandDraftStore()}>
+      <StrictMode><CommandDraftContext.Provider value={createCommandDraftStore()}>
         <TerminalView
           bridgeId={bridgeId}
           pane={{ ...testPane(agent), pane_id: paneId, terminal_id: `${paneId}-terminal` }}
@@ -104,15 +104,22 @@ async function renderTerminalView({ agent = "pi", mobile = true, bridgeId = BRID
           mobileControls={mobile}
           terminalOutputCoalesceMs={0}
           selected={selected}
+          terminalScreenReaderText={screenReader}
         />
-      </CommandDraftContext.Provider>,
+      </CommandDraftContext.Provider></StrictMode>,
     );
   await act(async () => render());
-  return { container, root, reconnect: (paneId = PANE_ID) => act(async () => render("reconnected", paneId)) };
+  if (mobile && !collapsed) {
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Open Composer"]')?.click());
+  }
+  return { container, root, reconnect: async (paneId = PANE_ID) => {
+    await act(async () => render("reconnected", paneId));
+    if (mobile && !collapsed) await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Open Composer"]')?.click());
+  } };
 }
 
 function terminalSocket() {
-  const socket = TestSocket.instances.find((candidate) => candidate.url.startsWith("/ws/terminal"));
+  const socket = [...TestSocket.instances].reverse().find((candidate) => candidate.url.startsWith("/ws/terminal"));
   if (!socket) {
     throw new Error("Expected a terminal WebSocket");
   }
@@ -120,7 +127,7 @@ function terminalSocket() {
 }
 
 function piSocket() {
-  const socket = TestSocket.instances.find((candidate) => candidate.url.startsWith("/ws/pi"));
+  const socket = [...TestSocket.instances].reverse().find((candidate) => candidate.url.startsWith("/ws/pi"));
   if (!socket) {
     throw new Error("Expected a Pi bridge WebSocket");
   }
@@ -212,6 +219,107 @@ function sentTerminalInput(socket: TestSocket): string[] {
 }
 
 describe("TerminalView Pi Side Panel (Seam 3)", () => {
+  it("dismisses menus for Native Cards and leaves terminal-only dialogs reachable without losing the draft", async () => {
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Draft behind dialog");
+    const { container } = await renderTerminalView();
+    const { terminal } = await openSockets();
+    await sendPiRecord({ type: "hello", capabilities: { generic_dialogs: true } });
+    await showState("idle");
+    await click(container, "Composer helpers");
+    await showState("dialog");
+    await sendPiRecord({ type: "dialog_open", dialog: { id: "confirm-1", kind: "confirm", title: "Continue?", message: "Choose", timeout_ms: null } });
+    const card = control<HTMLElement>(container, "Continue?");
+    expect(card.closest('[inert]')).toBeNull();
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+    expect(card.contains(document.activeElement)).toBe(true);
+    expect(control<HTMLButtonElement>(container, "Composer helpers").disabled).toBe(false);
+    await sendPiRecord({ type: "dialog_closed", id: "confirm-1", resolution: "terminal" });
+    await sendPiRecord({ type: "hello", capabilities: { generic_dialogs: false } });
+    expect(container.textContent).toContain("terminal-only dialogs");
+    await click(container, "Return to terminal");
+    expect(sentTerminalInput(terminal)).toEqual([]);
+    expect(readPiComposerDraft(BRIDGE_ID, PANE_ID)).toBe("Draft behind dialog");
+  });
+
+  it("starts another pane collapsed, dismisses its predecessor's menu and isolates drafts", async () => {
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Pane A draft");
+    writePiComposerDraft(BRIDGE_ID, "pane-b", "Pane B draft");
+    const { container, reconnect } = await renderTerminalView({ collapsed: true });
+    await openSockets();
+    await click(container, "Open Composer");
+    await click(container, "Composer helpers");
+    await reconnect("pane-b");
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Pi prompt"]')).toBeNull();
+    expect(container.querySelector(".pi-terminal-workspace")?.hasAttribute("inert")).toBe(false);
+    await click(container, "Open Composer");
+    expect(control<HTMLTextAreaElement>(container, "Pi prompt").value).toBe("Pane B draft");
+    expect(readPiComposerDraft(BRIDGE_ID, PANE_ID)).toBe("Pane A draft");
+  });
+
+  it("refits without blur on keyboard close/rotation and keeps Stop separate from terminal return", async () => {
+    const viewport = Object.assign(new EventTarget(), { width: 390, height: 320, offsetTop: 48, offsetLeft: 2 });
+    vi.stubGlobal("visualViewport", viewport);
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Keep while busy");
+    const { container } = await renderTerminalView();
+    const { terminal } = await openSockets();
+    await showState("busy");
+    const surface = container.querySelector<HTMLElement>(".pi-composer")!;
+    expect(surface.style.getPropertyValue("--pi-viewport-height")).toBe("320px");
+    const field = control<HTMLTextAreaElement>(container, "Pi prompt");
+    await act(async () => field.focus());
+    expect(document.activeElement).toBe(field);
+    await act(async () => {
+      Object.assign(viewport, { height: 844, offsetTop: 0 });
+      viewport.dispatchEvent(new Event("resize"));
+    });
+    expect(document.activeElement).toBe(field);
+    expect(surface.style.getPropertyValue("--pi-viewport-height")).toBe("844px");
+    await act(async () => {
+      Object.assign(viewport, { width: 740, height: 240, offsetLeft: 0 });
+      viewport.dispatchEvent(new Event("resize"));
+      viewport.dispatchEvent(new Event("scroll"));
+    });
+    expect(surface.style.getPropertyValue("--pi-viewport-width")).toBe("740px");
+    await click(container, "Stop Pi");
+    expect(sentTerminalInput(terminal)).toEqual(["\u001b"]);
+    expect(field.value).toBe("Keep while busy");
+    await click(container, "Return to terminal");
+    expect(sentTerminalInput(terminal)).toEqual(["\u001b"]);
+  });
+
+  it("opens a collapsed mobile Composer and explicitly returns without disconnecting or discarding the draft", async () => {
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Keep this draft");
+    const { container } = await renderTerminalView({ collapsed: true, screenReader: true });
+    const { terminal } = await openSockets();
+    expect(container.querySelector('[aria-label="Pi prompt"]')).toBeNull();
+    const workspace = container.querySelector<HTMLElement>(".pi-terminal-workspace")!;
+    await click(container, "Open Composer");
+    const field = control<HTMLTextAreaElement>(container, "Pi prompt");
+    expect(document.activeElement).toBe(field);
+    expect(workspace.getAttribute("aria-hidden")).toBe("true");
+    expect(workspace.hasAttribute("inert")).toBe(true);
+    const mirror = container.querySelector<HTMLElement>(".terminal-accessible-screen")!;
+    expect(mirror.getAttribute("aria-hidden")).toBe("true");
+    expect(mirror.hasAttribute("inert")).toBe(true);
+    expect(terminal.close).not.toHaveBeenCalled();
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"));
+      window.dispatchEvent(new Event("pagehide"));
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("pageshow"));
+    });
+    expect(control<HTMLTextAreaElement>(container, "Pi prompt").value).toBe("Keep this draft");
+    await click(container, "Return to terminal");
+    expect(workspace.hasAttribute("inert")).toBe(false);
+    expect(workspace.getAttribute("aria-hidden")).not.toBe("true");
+    expect(sentTerminalInput(terminal)).toEqual([]);
+    expect(readPiComposerDraft(BRIDGE_ID, PANE_ID)).toBe("Keep this draft");
+    expect(renderer.focusTextInput).toHaveBeenCalled();
+    await click(container, "Open Composer");
+    expect(control<HTMLTextAreaElement>(container, "Pi prompt").value).toBe("Keep this draft");
+  });
+
   it("searches the full mobile catalog with metadata and inserts through the production Composer", async () => {
     writePiComposerDraft(BRIDGE_ID, PANE_ID, "Unsent draft");
     const { container } = await renderTerminalView();
@@ -539,8 +647,10 @@ describe("TerminalView Pi Side Panel (Seam 3)", () => {
       expect(container.querySelector(`[aria-label="${label}"]`)).toBeNull();
     }
     expect(control<HTMLTextAreaElement>(container, "Pi prompt").disabled).toBe(false);
-    expect(container.querySelector(".pi-key-bar")).not.toBeNull();
     expect(container.querySelector('[aria-label="Abort Pi"]')).not.toBeNull();
+    await click(container, "Composer helpers");
+    await click(container, "Terminal keys and Reader");
+    expect(container.querySelector(".pi-key-bar")).not.toBeNull();
   });
 
   it("reveals the Composer and inserts into its live value when closed on desktop", async () => {

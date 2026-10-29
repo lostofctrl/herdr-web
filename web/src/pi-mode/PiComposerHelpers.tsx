@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { PI_QUICK_ACTIONS, piQuickActionParts } from "../pi/sidepanel/piQuickActions";
 import { PiModelPicker } from "./PiModelPicker";
@@ -10,6 +11,7 @@ export type PiComposerHelper = "slash" | "file" | "shell";
 
 type Props = {
   api: PiBridgeApi | null;
+  tools?: ReactNode;
   onQuickAction: PiComposerProps["onSend"];
   actionRecovery: boolean;
   actionPending: boolean;
@@ -26,13 +28,13 @@ type Props = {
 };
 
 /** One popup owner for authoring helpers and explicit Pi actions. */
-export function PiComposerHelpers({ api, onQuickAction, actionRecovery, actionPending, actionError, authoringBlocked, onInsertCatalog, open, disabled, online, filesAvailable, onOpen, onClose, onPick }: Props) {
+export function PiComposerHelpers({ api, tools, onQuickAction, actionRecovery, actionPending, actionError, authoringBlocked, onInsertCatalog, open, disabled, online, filesAvailable, onOpen, onClose, onPick }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const id = useId();
   const returnFocusRef = useRef<string | null>(null);
-  const [view, setView] = useState<"root" | "catalog" | "thinking" | "model">("root");
+  const [view, setView] = useState<"root" | "catalog" | "thinking" | "model" | "tools">("root");
   const [query, setQuery] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +92,10 @@ export function PiComposerHelpers({ api, onQuickAction, actionRecovery, actionPe
     if (!open) return;
     const outside = (event: Event) => {
       if (rootRef.current?.contains(event.target as Node)) return;
+      if ((event.target as Element)?.closest?.("[data-pi-dialog-cards], .pi-composer-terminal")) {
+        onClose();
+        return;
+      }
       // Consume the dismissal gesture rather than focusing/typing into the PTY.
       event.preventDefault();
       event.stopPropagation();
@@ -129,7 +135,7 @@ export function PiComposerHelpers({ api, onQuickAction, actionRecovery, actionPe
         }}>
         <span aria-hidden="true">⋯</span>
       </button>
-      {open ? <div ref={menuRef} id={id} role={view === "root" ? "menu" : "dialog"} aria-label={view === "root" ? "Composer helpers" : view === "catalog" ? "Commands and skills" : view === "thinking" ? "Pi thinking levels" : "Pi model controls"}
+      {open ? <div ref={menuRef} id={id} role={view === "root" ? "menu" : "dialog"} aria-label={view === "root" ? "Composer helpers" : view === "tools" ? "Terminal keys and Reader" : view === "catalog" ? "Commands and skills" : view === "thinking" ? "Pi thinking levels" : "Pi model controls"}
         className="pi-composer-helpers-menu" style={bounds}
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
@@ -159,9 +165,14 @@ export function PiComposerHelpers({ api, onQuickAction, actionRecovery, actionPe
         {PI_QUICK_ACTIONS.map(({ label, title, command }) => <button key={label} type="button" role="menuitem" tabIndex={-1}
           aria-label={label} disabled={disabled || authoringBlocked || (command !== null && (!online || api?.state?.busy !== "idle"))}
           onClick={() => quickAction(piQuickActionParts(command))}>{title}</button>)}
+        {tools ? <button type="button" role="menuitem" tabIndex={-1} aria-label="Terminal keys and Reader"
+          onClick={() => { returnFocusRef.current = "Terminal keys and Reader"; setView("tools"); }}>Terminal keys and Reader</button> : null}
         {actionRecovery ? <button type="button" role="menuitem" tabIndex={-1} aria-label="Submit pending Pi action"
           disabled={disabled || actionPending} onClick={() => quickAction(["\r"])}>Submit pending action</button> : null}
         {actionPending ? <p role="status">Sending Pi action…</p> : null}
+        </> : view === "tools" ? <>
+          <button type="button" aria-label="Back to Composer helpers" onClick={() => setView("root")}>Back</button>
+          {tools}
         </> : view === "model" ? <>
           <button type="button" aria-label="Back to Composer helpers" onClick={() => setView("root")}>Back</button>
           <PiModelPicker api={api} disabled={disabled || api?.state?.busy !== "idle"} embedded open

@@ -131,6 +131,7 @@ async function renderTerminalView({
   await act(async () => {
     root.render(renderTree("test-connection"));
   });
+  if (mobile && pane.agent === "pi") await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Open Composer"]')?.click());
   // Reconnect by swapping the connection key, keeping this pane and Composer mounted.
   const reconnect = async () => {
     await act(async () => {
@@ -444,12 +445,14 @@ describe("TerminalView Pi Composer (Seam 3)", () => {
     expect(sentTerminalInput(socket)).toEqual(["\x1b[200~saferm -rf /\x1b[201~"]);
   });
 
-  it("keeps the Pi Key Bar and image attach control next to the Composer", async () => {
+  it("keeps the Key Bar reachable through the mobile menu and image attach beside the Composer", async () => {
     const { pane, paneId } = testPane(PANE_A);
     const { container } = await renderTerminalView({ paneId, pane, mobile: true });
     const socket = await openSocket();
 
     expect(promptField(container)).toBeTruthy();
+    await clickButton(container, "Composer helpers");
+    await clickButton(container, "Terminal keys and Reader");
     expect(container.querySelector('[aria-label="Pi keys"]')).toBeTruthy();
     expect(container.querySelector('button[aria-label="Attach image"]')).toBeTruthy();
     // Pi mode must not also render a generic command row or Stage button.
@@ -464,7 +467,7 @@ describe("TerminalView Pi Composer (Seam 3)", () => {
     const meta = container.querySelector(".pi-composer-meta");
     expect(meta?.querySelectorAll("button")).toHaveLength(3);
     expect(meta?.querySelector(".pi-model-picker-trigger")).not.toBeNull();
-    expect(meta?.querySelector('button[aria-label="Composer helpers"]')).not.toBeNull();
+    expect(container.querySelector('.pi-composer-thumbrail button[aria-label="Composer helpers"]')).not.toBeNull();
     expect(meta?.querySelector('button[aria-label="Open file suggestions"]')).toBeNull();
     expect(meta?.querySelector('button[aria-label="Open prompt history"]')).not.toBeNull();
     // The Composer owns `/`, so the Key Bar no longer duplicates it there.
@@ -1407,7 +1410,7 @@ describe("Pi Composer prompt recall (Seam 3)", () => {
 });
 
 describe("Pi controls stack height (Seam 3)", () => {
-  it("reports the Key Bar and the Composer together so overlays clear both", async () => {
+  it("keeps the desktop Key Bar and Composer stack height contract", async () => {
     const original = HTMLElement.prototype.getBoundingClientRect;
     HTMLElement.prototype.getBoundingClientRect = function boundingRect(this: HTMLElement) {
       const height = this.classList.contains("pi-key-bar")
@@ -1429,7 +1432,7 @@ describe("Pi controls stack height (Seam 3)", () => {
     };
     try {
       const { pane, paneId } = testPane(PANE_A);
-      const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+      const { container } = await renderTerminalView({ paneId, pane, mobile: false });
       await openSocket();
       const stage = container.querySelector<HTMLElement>(".terminal-stage");
       expect(container.querySelector(".pi-key-bar")).not.toBeNull();
@@ -1943,6 +1946,9 @@ describe("TerminalView Reader Sheet (Seam 3)", () => {
         assistant_message: message,
       },
     });
+    await openSocket();
+    await clickButton(container, "Composer helpers");
+    await clickButton(container, "Terminal keys and Reader");
     return { container, pi };
   }
 

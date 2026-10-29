@@ -246,6 +246,7 @@ export function TerminalView({
   const [closeReason, setCloseReason] = useState<string | null>(null);
   const [rendererReady, setRendererReady] = useState<TerminalRendererReady | null>(null);
   const [accessibleScreen, setAccessibleScreen] = useState("");
+  const [piComposerExpanded, setPiComposerExpanded] = useState(false);
   const [hasAttachedForTerminal, setHasAttachedForTerminal] = useState(false);
   const terminalAttachCountRef = useRef(0);
   const [showConnectionOverlay, setShowConnectionOverlay] = useState(false);
@@ -1534,7 +1535,10 @@ export function TerminalView({
       onPasteCapture={handlePaste}
     >
       {piPane ? (
-        <div className="pi-terminal-workspace">
+        <div className="pi-terminal-workspace"
+          data-composer-hidden={mobileControls && piComposerExpanded ? "true" : undefined}
+          aria-hidden={mobileControls && piComposerExpanded ? true : undefined}
+          inert={mobileControls && piComposerExpanded ? true : undefined}>
           <div ref={hostRef} className="terminal-host" />
           {pane && selected ? (
             <PiSidePanel
@@ -1550,6 +1554,8 @@ export function TerminalView({
       {pane && terminalScreenReaderText ? (
         <div
           className="terminal-accessible-screen sr-only"
+          aria-hidden={mobileControls && piComposerExpanded ? true : undefined}
+          inert={mobileControls && piComposerExpanded ? true : undefined}
           role="region"
           tabIndex={-1}
           aria-label={`${accessibilityLabel} screen contents`}
@@ -1591,7 +1597,7 @@ export function TerminalView({
         </button>
       ) : null}
       {pane && piPane ? <PiDialogCards paneId={pane.pane_id} /> : null}
-      {showCommandControls && pane && piPane ? (
+      {!mobileControls && showCommandControls && pane && piPane ? (
         <PiKeyBar
           key={JSON.stringify(["keybar", bridgeId, pane.pane_id])}
           paneId={pane.pane_id}
@@ -1607,6 +1613,11 @@ export function TerminalView({
           paneId={pane.pane_id}
           mobile={mobileControls}
           conversationContext={mobileControls ? <ConversationContext paneId={pane.pane_id} /> : undefined}
+          mobileTools={mobileControls ? <>
+            <PiKeyBar paneId={pane.pane_id} disabled={connectionState !== "attached"}
+              onInput={(data) => enqueueTerminalInput([data])} />
+            <ReaderSheet paneId={pane.pane_id} />
+          </> : undefined}
           active={selected}
           disabled={connectionState !== "attached"}
           inputRef={piComposerInputRef}
@@ -1614,6 +1625,7 @@ export function TerminalView({
           onSend={sendPiComposerPrompt}
           onUploadImages={uploadPiComposerImages}
           onTerminalFocus={() => rendererRef.current?.focusTextInput()}
+          onExpandedChange={setPiComposerExpanded}
           onControlsHeightChange={setPiComposerHeight}
         />
       ) : null}
@@ -1638,7 +1650,7 @@ export function TerminalView({
           onSubmitCommand={(command) => enqueueTerminalInput([command, "\r"])}
         />
       ) : null}
-      {pane && piPane ? <ReaderSheet paneId={pane.pane_id} /> : null}
+      {!mobileControls && pane && piPane ? <ReaderSheet paneId={pane.pane_id} /> : null}
       {mobileSelectionAction ? (
         <MobileSelectionActions
           action={mobileSelectionAction}

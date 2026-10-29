@@ -106,6 +106,7 @@ async function renderTerminalView(agent = "pi", mobileControls = true) {
       </CommandDraftContext.Provider>,
     );
   });
+  if (agent === "pi" && mobileControls) await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Open Composer"]')?.click());
   return { container };
 }
 
@@ -130,6 +131,7 @@ async function openSockets() {
   await act(async () => terminal.dispatchEvent(new Event("open")));
   const pi = piSocket();
   await act(async () => pi.dispatchEvent(new Event("open")));
+  await openMobileKeys();
   return { terminal, pi };
 }
 
@@ -139,6 +141,13 @@ async function sendPiRecord(record: Record<string, unknown>) {
       new MessageEvent("message", { data: JSON.stringify(record) }),
     );
   });
+}
+
+async function openMobileKeys() {
+  const container = document.body;
+  if (container.querySelector(".pi-key-bar")) return;
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Composer helpers"]')?.click());
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Terminal keys and Reader"]')?.click());
 }
 
 async function showState(busy: "idle" | "busy" | "dialog") {
@@ -151,6 +160,7 @@ async function showState(busy: "idle" | "busy" | "dialog") {
     thinking_levels: ["low", "medium", "high"],
     cwd: "/workspace",
   });
+  await openMobileKeys();
 }
 
 /** Key Bar keys in order, named by their accessible label. */
@@ -264,6 +274,7 @@ describe("TerminalView Pi Key Bar (Seam 3)", () => {
       pi.dispatchEvent(new CloseEvent("close", { code: 4500, reason: "bridge_offline" }));
     });
 
+    await openMobileKeys();
     expect(keyLabels(container).slice(0, 2)).toEqual(["Shell command", "Cycle thinking level"]);
     expect(container.querySelector('button[aria-label="Compose any key"]')).not.toBeNull();
   });

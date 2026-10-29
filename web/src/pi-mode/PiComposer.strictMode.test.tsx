@@ -96,6 +96,7 @@ async function renderUnderStrictMode(props: Partial<Parameters<typeof PiComposer
       </StrictMode>,
     );
   await act(async () => render());
+  if (props.mobile !== false) await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Open Composer"]')?.click());
   return { container, onSend, onUploadImages, rerender: async (next: typeof props) => act(async () => render(next)) };
 }
 
@@ -125,6 +126,24 @@ async function attachImage(container: HTMLElement) {
 }
 
 describe("PiComposer under StrictMode", () => {
+  it("retains Attachment Chips and the authored draft across explicit mobile terminal return", async () => {
+    const { container, onSend, onUploadImages } = await renderUnderStrictMode();
+    const field = promptField(container);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(field, "Keep with image");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await attachImage(container);
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Return to terminal"]')?.click());
+    expect(container.querySelector('[aria-label="Pi prompt"]')).toBeNull();
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Open Composer"]')?.click());
+    expect(promptField(container).value).toBe("Keep with image");
+    expect(container.querySelector('[aria-label="Edit shot.png"]')).not.toBeNull();
+    expect(onUploadImages).not.toHaveBeenCalled();
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
   it("opens one mobile authoring menu and inserts a shell prefix without submitting", async () => {
     const { container, onSend } = await renderUnderStrictMode();
     const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="Composer helpers"]');
@@ -193,6 +212,7 @@ describe("PiComposer under StrictMode", () => {
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send prompt"]')?.click());
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Composer helpers"]')?.click());
     expect(container.querySelector<HTMLButtonElement>('[aria-label="Abort Pi"]')?.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('[aria-label="Stop Pi"]')?.disabled).toBe(true);
     expect(container.querySelector<HTMLButtonElement>('[data-helper="file"]')?.disabled).toBe(true);
     expect(onSend).toHaveBeenCalledTimes(1);
     expect(field.value).toBe("Partial prompt");

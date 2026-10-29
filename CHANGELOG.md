@@ -6,6 +6,14 @@
 
 ### Added
 
+- Mobile Pi Composer: B Thumbrail inset working surface with an explicit launcher/terminal return,
+  visible-viewport and safe-area fitting, independently scrolling bounded context and bottom-right
+  Send/Stop/Terminal/helpers actions. The connected terminal and assistive mirror are hidden/inert
+  while composing; drafts survive keyboard closure, rotation and resume. The single helpers menu
+  retains Key Bar, Chord Composer and Reader access. Pi 1.4.0 cannot selectively hide CLI editor
+  chrome through a supported API, so the collapsed terminal remains unchanged. Physical Safari and
+  Android keyboard/IME/task verification is pending; emulation is not a readiness or usability claim.
+
 - Mobile Pi Composer: the helpers (⋯) menu now includes the shared model picker, supported
   thinking levels, full searchable command/skill metadata and explicit Abort, Compact, New session
   and Resume actions. Quick actions preserve unsent drafts and attachments, report failures, and
