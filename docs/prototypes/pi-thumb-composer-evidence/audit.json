@@ -1,0 +1,3670 @@
+{
+  "generatedAt": "2026-10-29T04:59:02.673Z",
+  "engine": "Chromium",
+  "keyboard": "300px geometry simulation; NOT a native keyboard",
+  "devices": [
+    {
+      "name": "iPhone-13-Chromium",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "deviceScaleFactor": 3,
+      "userAgent": "Mozilla/5.0 (Linux; Android 13; iPhone 13 Chromium emulation) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Chromium/131.0.0.0"
+    },
+    {
+      "name": "Pixel-7-Chromium",
+      "viewport": {
+        "width": 412,
+        "height": 915
+      },
+      "deviceScaleFactor": 2.625,
+      "userAgent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Chromium/131.0.0.0"
+    }
+  ],
+  "captures": [
+    {
+      "id": "iPhone-13-Chromium-A-collapsed",
+      "variant": "A",
+      "device": "iPhone-13-Chromium",
+      "view": "collapsed",
+      "screenshot": "iPhone-13-Chromium-A-collapsed.png",
+      "audit": {
+        "controls": [
+          {
+            "index": 0,
+            "tag": "button",
+            "name": "Write to Pi",
+            "rect": {
+              "x": 231.015625,
+              "y": 726,
+              "width": 146.984375,
+              "height": 44,
+              "right": 378,
+              "bottom": 770
+            }
+          },
+          {
+            "index": 1,
+            "tag": "button",
+            "name": "Previous variant",
+            "rect": {
+              "x": 19,
+              "y": 785,
+              "width": 44,
+              "height": 44,
+              "right": 63,
+              "bottom": 829
+            }
+          },
+          {
+            "index": 2,
+            "tag": "button",
+            "name": "A · Conversation dock Lab / state",
+            "rect": {
+              "x": 71,
+              "y": 785,
+              "width": 248,
+              "height": 44,
+              "right": 319,
+              "bottom": 829
+            }
+          },
+          {
+            "index": 3,
+            "tag": "button",
+            "name": "Next variant",
+            "rect": {
+              "x": 327,
+              "y": 785,
+              "width": 44,
+              "height": 44,
+              "right": 371,
+              "bottom": 829
+            }
+          }
+        ],
+        "primary": [
+          {
+            "name": "Write to Pi",
+            "rect": {
+              "x": 231.015625,
+              "y": 726,
+              "width": 146.984375,
+              "height": 44,
+              "right": 378,
+              "bottom": 770
+            }
+          }
+        ],
+        "shell": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 844,
+          "right": 390,
+          "bottom": 844
+        },
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "simulatedBottomGap": 0,
+        "horizontalOverflow": false,
+        "terminalVisible": true,
+        "stateJSON": "",
+        "failures": [],
+        "failuresAtLimit": false
+      }
+    },
+    {
+      "id": "iPhone-13-Chromium-A-focused",
+      "variant": "A",
+      "device": "iPhone-13-Chromium",
+      "view": "focused",
+      "screenshot": "iPhone-13-Chromium-A-focused.png",
+      "audit": {
+        "controls": [
+          {
+            "index": 0,
+            "tag": "textarea",
+            "name": "Pi prompt",
+            "rect": {
+              "x": 12,
+              "y": 654,
+              "width": 366,
+              "height": 64,
+              "right": 378,
+              "bottom": 718
+            }
+          },
+          {
+            "index": 1,
+            "tag": "button",
+            "name": "Terminal",
+            "rect": {
+              "x": 12,
+              "y": 726,
+              "width": 116.65625,
+              "height": 44,
+              "right": 128.65625,
+              "bottom": 770
+            }
+          },
+          {
+            "index": 2,
+            "tag": "button",
+            "name": "Cancel",
+            "rect": {
+              "x": 136.65625,
+              "y": 726,
+              "width": 116.671875,
+              "height": 44,
+              "right": 253.328125,
+              "bottom": 770
+            }
+          },
+          {
+            "index": 3,
+            "tag": "button",
+            "name": "Send ↑",
+            "rect": {
+              "x": 261.328125,
+              "y": 726,
+              "width": 116.671875,
+              "height": 44,
+              "right": 378,
+              "bottom": 770
+            }
+          },
+          {
+            "index": 4,
+            "tag": "button",
+            "name": "Previous variant",
+            "rect": {
+              "x": 19,
+              "y": 785,
+              "width": 44,
+              "height": 44,
+              "right": 63,
+              "bottom": 829
+            }
+          },
+          {
+            "index": 5,
+            "tag": "button",
+            "name": "A · Conversation dock Lab / state",
+            "rect": {
+              "x": 71,
+              "y": 785,
+              "width": 248,
+              "height": 44,
+              "right": 319,
+              "bottom": 829
+            }
+          },
+          {
+            "index": 6,
+            "tag": "button",
+            "name": "Next variant",
+            "rect": {
+              "x": 327,
+              "y": 785,
+              "width": 44,
+              "height": 44,
+              "right": 371,
+              "bottom": 829
+            }
+          }
+        ],
+        "primary": [
+          {
+            "name": "Terminal",
+            "rect": {
+              "x": 12,
+              "y": 726,
+              "width": 116.65625,
+              "height": 44,
+              "right": 128.65625,
+              "bottom": 770
+            }
+          },
+          {
+            "name": "Cancel",
+            "rect": {
+              "x": 136.65625,
+              "y": 726,
+              "width": 116.671875,
+              "height": 44,
+              "right": 253.328125,
+              "bottom": 770
+            }
+          },
+          {
+            "name": "Send ↑",
+            "rect": {
+              "x": 261.328125,
+              "y": 726,
+              "width": 116.671875,
+              "height": 44,
+              "right": 378,
+              "bottom": 770
+            }
+          }
+        ],
+        "shell": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 844,
+          "right": 390,
+          "bottom": 844
+        },
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "simulatedBottomGap": 0,
+        "horizontalOverflow": false,
+        "terminalVisible": false,
+        "stateJSON": "",
+        "failures": [],
+        "failuresAtLimit": false
+      }
+    },
+    {
+      "id": "iPhone-13-Chromium-A-keyboard",
+      "variant": "A",
+      "device": "iPhone-13-Chromium",
+      "view": "keyboard",
+      "screenshot": "iPhone-13-Chromium-A-keyboard.png",
+      "audit": {
+        "controls": [
+          {
+            "index": 0,
+            "tag": "textarea",
+            "name": "Pi prompt",
+            "rect": {
+              "x": 12,
+              "y": 354,
+              "width": 366,
+              "height": 64,
+              "right": 378,
+              "bottom": 418
+            }
+          },
+          {
+            "index": 1,
+            "tag": "button",
+            "name": "Terminal",
+            "rect": {
+              "x": 12,
+              "y": 426,
+              "width": 116.65625,
+              "height": 44,
+              "right": 128.65625,
+              "bottom": 470
+            }
+          },
+          {
+            "index": 2,
+            "tag": "button",
+            "name": "Cancel",
+            "rect": {
+              "x": 136.65625,
+              "y": 426,
+              "width": 116.671875,
+              "height": 44,
+              "right": 253.328125,
+              "bottom": 470
+            }
+          },
+          {
+            "index": 3,
+            "tag": "button",
+            "name": "Send ↑",
+            "rect": {
+              "x": 261.328125,
+              "y": 426,
+              "width": 116.671875,
+              "height": 44,
+              "right": 378,
+              "bottom": 470
+            }
+          },
+          {
+            "index": 4,
+            "tag": "button",
+            "name": "Previous variant",
+            "rect": {
+              "x": 19,
+              "y": 485,
+              "width": 44,
+              "height": 44,
+              "right": 63,
+              "bottom": 529
+            }
+          },
+          {
+            "index": 5,
+            "tag": "button",
+            "name": "A · Conversation dock Lab / state",
+            "rect": {
+              "x": 71,
+              "y": 485,
+              "width": 248,
+              "height": 44,
+              "right": 319,
+              "bottom": 529
+            }
+          },
+          {
+            "index": 6,
+            "tag": "button",
+            "name": "Next variant",
+            "rect": {
+              "x": 327,
+              "y": 485,
+              "width": 44,
+              "height": 44,
+              "right": 371,
+              "bottom": 529
+            }
+          }
+        ],
+        "primary": [
+          {
+            "name": "Terminal",
+            "rect": {
+              "x": 12,
+              "y": 426,
+              "width": 116.65625,
+              "height": 44,
+              "right": 128.65625,
+              "bottom": 470
+            }
+          },
+          {
+            "name": "Cancel",
+            "rect": {
+              "x": 136.65625,
+              "y": 426,
+              "width": 116.671875,
+              "height": 44,
+              "right": 253.328125,
+              "bottom": 470
+            }
+          },
+          {
+            "name": "Send ↑",
+            "rect": {
+              "x": 261.328125,
+              "y": 426,
+              "width": 116.671875,
+              "height": 44,
+              "right": 378,
+              "bottom": 470
+            }
+          }
+        ],
+        "shell": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 544,
+          "right": 390,
+          "bottom": 544
+        },
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "simulatedBottomGap": 300,
+        "horizontalOverflow": false,
+        "terminalVisible": false,
+        "stateJSON": "",
+        "failures": [],
+        "failuresAtLimit": false
+      }
+    },
+    {
+      "id": "iPhone-13-Chromium-B-collapsed",
+      "variant": "B",
+      "device": "iPhone-13-Chromium",
+      "view": "collapsed",
+      "screenshot": "iPhone-13-Chromium-B-collapsed.png",
+      "audit": {
+        "controls": [
+          {
+            "index": 0,
+            "tag": "button",
+            "name": "Write to Pi",
+            "rect": {
+              "x": 334,
+              "y": 726,
+              "width": 44,
+              "height": 44,
+              "right": 378,
+              "bottom": 770
+            }
+          },
+          {
+            "index": 1,
+            "tag": "button",
+            "name": "Previous variant",
+            "rect": {
+              "x": 19,
+              "y": 785,
+              "width": 44,
+              "height": 44,
+              "right": 63,
+              "bottom": 829
+            }
+          },
+          {
+            "index": 2,
+            "tag": "button",
+            "name": "B · Thumb rail Lab / state",
+            "rect": {
+              "x": 71,
+              "y": 785,
+              "width": 248,
+              "height": 44,
+              "right": 319,
+              "bottom": 829
+            }
+          },
+          {
+            "index": 3,
+            "tag": "button",
+            "name": "Next variant",
+            "rect": {
+              "x": 327,
+              "y": 785,
+              "width": 44,
+              "height": 44,
+              "right": 371,
+              "bottom": 829
+            }
+          }
+        ],
+        "primary": [
+          {
+            "name": "Write to Pi",
+            "rect": {
+              "x": 334,
+              "y": 726,
+              "width": 44,
+              "height": 44,
+              "right": 378,
+              "bottom": 770
+            }
+          }
+        ],
+        "shell": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 844,
+          "right": 390,
+          "bottom": 844
+        },
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "simulatedBottomGap": 0,
+        "horizontalOverflow": false,
+        "terminalVisible": true,
+        "stateJSON": "",
+        "failures": [],
+        "failuresAtLimit": false
+      }
+    },
+    {
+      "id": "iPhone-13-Chromium-B-focused",
+      "variant": "B",
+      "device": "iPhone-13-Chromium",
+      "view": "focused",
+      "screenshot": "iPhone-13-Chromium-B-focused.png",
+      "audit": {
+        "controls": [
+          {
+            "index": 0,
+            "tag": "textarea",
+            "name": "Pi prompt",
+            "rect": {
+              "x": 18,
+              "y": 664,
+              "width": 214,
+              "height": 96,
+              "right": 232,
+              "bottom": 760
+            }
+          },
+          {
+            "index": 1,
+            "tag": "button",
+            "name": "Terminal",
+            "rect": {
+              "x": 240,
+              "y": 716,
+              "width": 62,
+              "height": 44,
+              "right": 302,
+              "bottom": 760
+            }
+          },
+          {
+            "index": 2,
+            "tag": "button",
+            "name": "Cancel",
+            "rect": {
+              "x": 310,
+              "y": 716,
+              "width": 62,
+              "height": 44,
+              "right": 372,
+              "bottom": 760
+            }
+          },
+          {
+            "index": 3,
+            "tag": "button",
+            "name": "Send ↑",
+            "rect": {
+              "x": 240,
+              "y": 664,
+              "width": 132,
+              "height": 44,
+              "right": 372,
+              "bottom": 708
+            }
+          },
+          {
+            "index": 4,
+            "tag": "button",
+            "name": "Previous variant",
+            "rect": {
+              "x": 19,
+              "y": 785,
+              "width": 44,
+              "height": 44,
+              "right": 63,
+              "bottom": 829
+            }
+          },
+          {
+            "index": 5,
+            "tag": "button",
+            "name": "B · Thumb rail Lab / state",
+            "rect": {
+              "x": 71,
+              "y": 785,
+              "width": 248,
+              "height": 44,
+              "right": 319,
+              "bottom": 829
+            }
+          },
+          {
+            "index": 6,
+            "tag": "button",
+            "name": "Next variant",
+            "rect": {
+              "x": 327,
+              "y": 785,
+              "width": 44,
+              "height": 44,
+              "right": 371,
+              "bottom": 829
+            }
+          }
+        ],
+        "primary": [
+          {
+            "name": "Terminal",
+            "rect": {
+              "x": 240,
+              "y": 716,
+              "width": 62,
+              "height": 44,
+              "right": 302,
+              "bottom": 760
+            }
+          },
+          {
+            "name": "Cancel",
+            "rect": {
+              "x": 310,
+              "y": 716,
+              "width": 62,
+              "height": 44,
+              "right": 372,
+              "bottom": 760
+            }
+          },
+          {
+            "name": "Send ↑",
+            "rect": {
+              "x": 240,
+              "y": 664,
+              "width": 132,
+              "height": 44,
+              "right": 372,
+              "bottom": 708
+            }
+          }
+        ],
+        "shell": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 844,
+          "right": 390,
+          "bottom": 844
+        },
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "simulatedBottomGap": 0,
+        "horizontalOverflow": false,
+        "terminalVisible": false,
+        "stateJSON": "",
+        "failures": [],
+        "failuresAtLimit": false
+      }
+    },
+    {
+      "id": "iPhone-13-Chromium-B-keyboard",
+      "variant": "B",
+      "device": "iPhone-13-Chromium",
+      "view": "keyboard",
+      "screenshot": "iPhone-13-Chromium-B-keyboard.png",
+      "audit": {
+        "controls": [
+          {
+            "index": 0,
+            "tag": "textarea",
+            "name": "Pi prompt",
+            "rect": {
+              "x": 18,
+              "y": 364,
+              "width": 214,
+              "height": 96,
+              "right": 232,
+              "bottom": 460
+            }
+          },
+          {
+            "index": 1,
+            "tag": "button",
+            "name": "Terminal",
+            "rect": {
+              "x": 240,
+              "y": 416,
+              "width": 62,
+              "height": 44,
+              "right": 302,
+              "bottom": 460
+            }
+          },
+          {
+            "index": 2,
+            "tag": "button",
+            "name": "Cancel",
+            "rect": {
+              "x": 310,
+              "y": 416,
+              "width": 62,
+              "height": 44,
+              "right": 372,
+              "bottom": 460
+            }
+          },
+          {
+            "index": 3,
+            "tag": "button",
+            "name": "Send ↑",
+            "rect": {
+              "x": 240,
+              "y": 364,
+              "width": 132,
+              "height": 44,
+              "right": 372,
+              "bottom": 408
+            }
+          },
+          {
+            "index": 4,
+            "tag": "button",
+            "name": "Previous variant",
+            "rect": {
+              "x": 19,
+              "y": 485,
+              "width": 44,
+              "height": 44,
+              "right": 63,
+              "bottom": 529
+            }
+          },
+          {
+            "index": 5,
+            "tag": "button",
+            "name": "B · Thumb rail Lab / state",
+            "rect": {
+              "x": 71,
+              "y": 485,
+              "width": 248,
+              "height": 44,
+              "right": 319,
+              "bottom": 529
+            }
+          },
+          {
+            "index": 6,
+            "tag": "button",
+            "name": "Next variant",
+            "rect": {
+              "x": 327,
+              "y": 485,
+              "width": 44,
+              "height": 44,
+              "right": 371,
+              "bottom": 529
+            }
+          }
+        ],
+        "primary": [
+          {
+            "name": "Terminal",
+            "rect": {
+              "x": 240,
+              "y": 416,
+              "width": 62,
+              "height": 44,
+              "right": 302,
+              "bottom": 460
+            }
+          },
+          {
+            "name": "Cancel",
+            "rect": {
+              "x": 310,
+              "y": 416,
+              "width": 62,
+              "height": 44,
+              "right": 372,
+              "bottom": 460
+            }
+          },
+          {
+            "name": "Send ↑",
+            "rect": {
+              "x": 240,
+              "y": 364,
+              "width": 132,
+              "height": 44,
+              "right": 372,
+              "bottom": 408
+            }
+          }
+        ],
+        "shell": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 544,
+          "right": 390,
+          "bottom": 544
+        },
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "simulatedBottomGap": 300,
+        "horizontalOverflow": false,
+        "terminalVisible": false,
+        "stateJSON": "",
+        "failures": [],
+        "failuresAtLimit": false
+      }
+    },
+    {
+      "id": "iPhone-13-Chromium-C-collapsed",
+      "variant": "C",
+      "device": "iPhone-13-Chromium",
+      "view": "collapsed",
+      "screenshot": "iPhone-13-Chromium-C-collapsed.png",
+      "audit": {
+        "controls": [
+          {
+            "index": 0,
+            "tag": "button",
+            "name": "Write to Pi",
+            "rect": {
+              "x": 12,
+              "y": 726,
+              "width": 366,
+              "height": 44,
+              "right": 378,
+              "bottom": 770
+            }
+          },
+          {
+            "index": 1,
+            "tag": "button",
+            "name": "Previous variant",
+            "rect": {
+              "x": 19,
+              "y": 785,
+              "width": 44,
+              "height": 44,
+              "right": 63,
+              "bottom": 829
+            }
+          },
+          {
+            "index": 2,
+            "tag": "button",
+            "name": "C · Context split Lab / state",
+            "rect": {
+              "x": 71,
+              "y": 785,
+              "width": 248,
+              "height": 44,
+              "right": 319,
+              "bottom": 829
+            }
+          },
+          {
+            "index": 3,
+            "tag": "button",
+            "name": "Next variant",
+            "rect": {
+              "x": 327,
+              "y": 785,
+              "width": 44,
+              "height": 44,
+              "right": 371,
+              "bottom": 829
+            }
+          }
+        ],
+        "primary": [
+          {
+            "name": "Write to Pi",
+            "rect": {
+              "x": 12,
+              "y": 726,
+              "width": 366,
+              "height": 44,
+              "right": 378,
+              "bottom": 770
+            }
+          }
+        ],
+        "shell": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 844,
+          "right": 390,
+          "bottom": 844
+        },
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "simulatedBottomGap": 0,
+        "horizontalOverflow": false,
+        "terminalVisible": true,
+        "stateJSON": "",
+        "failures": [],
+        "failuresAtLimit": false
+      }
+    },
+    {
+      "id": "iPhone-13-Chromium-C-focused",
+      "variant": "C",
+      "device": "iPhone-13-Chromium",
+      "view": "focused",
+      "screenshot": "iPhone-13-Chromium-C-focused.png",
+      "audit": {
+        "controls": [
+          {
+            "index": 0,
+            "tag": "textarea",
+            "name": "Pi prompt",
+            "rect": {
+              "x": 12,
+              "y": 654,
+              "width": 366,
+              "height": 64,
+              "right": 378,
+              "bottom": 718
+            }
+          },
+          {
+            "index": 1,
+            "tag": "button",
+            "name": "Terminal",
+            "rect": {
+              "x": 12,
+              "y": 726,
+              "width": 116.65625,
+              "height": 44,
+              "right": 128.65625,
+              "bottom": 770
+            }
+          },
+          {
+            "index": 2,
+            "tag": "button",
+            "name": "Cancel",
+            "rect": {
+              "x": 136.65625,
+              "y": 726,
+              "width": 116.671875,
+              "height": 44,
+              "right": 253.328125,
+              "bottom": 770
+            }
+          },
+          {
+            "index": 3,
+            "tag": "button",
+            "name": "Send ↑",
+            "rect": {
+              "x": 261.328125,
+              "y": 726,
+              "width": 116.671875,
+              "height": 44,
+              "right": 378,
+              "bottom": 770
+            }
+          },
+          {
+            "index": 4,
+            "tag": "button",
+            "name": "Previous variant",
+            "rect": {
+              "x": 19,
+              "y": 785,
+              "width": 44,
+              "height": 44,
+              "right": 63,
+              "bottom": 829
+            }
+          },
+          {
+            "index": 5,
+            "tag": "button",
+            "name": "C · Context split Lab / state",
+            "rect": {
+              "x": 71,
+              "y": 785,
+              "width": 248,
+              "height": 44,
+              "right": 319,
+              "bottom": 829
+            }
+          },
+          {
+            "index": 6,
+            "tag": "button",
+            "name": "Next variant",
+            "rect": {
+              "x": 327,
+              "y": 785,
+              "width": 44,
+              "height": 44,
+              "right": 371,
+              "bottom": 829
+            }
+          }
+        ],
+        "primary": [
+          {
+            "name": "Terminal",
+            "rect": {
+              "x": 12,
+              "y": 726,
+              "width": 116.65625,
+              "height": 44,
+              "right": 128.65625,
+              "bottom": 770
+            }
+          },
+          {
+            "name": "Cancel",
+            "rect": {
+              "x": 136.65625,
+              "y": 726,
+              "width": 116.671875,
+              "height": 44,
+              "right": 253.328125,
+              "bottom": 770
+            }
+          },
+          {
+            "name": "Send ↑",
+            "rect": {
+              "x": 261.328125,
+              "y": 726,
+              "width": 116.671875,
+              "height": 44,
+              "right": 378,
+              "bottom": 770
+            }
+          }
+        ],
+        "shell": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 844,
+          "right": 390,
+          "bottom": 844
+        },
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "simulatedBottomGap": 0,
+        "horizontalOverflow": false,
+        "terminalVisible": false,
+        "stateJSON": "",
+        "failures": [],
+        "failuresAtLimit": false
+      }
+    },
+    {
+      "id": "iPhone-13-Chromium-C-keyboard",
+      "variant": "C",
+      "device": "iPhone-13-Chromium",
+      "view": "keyboard",
+      "screenshot": "iPhone-13-Chromium-C-keyboard.png",
+      "audit": {
+        "controls": [
+          {
+            "index": 0,
+            "tag": "textarea",
+            "name": "Pi prompt",
+            "rect": {
+              "x": 12,
+              "y": 354,
+              "width": 366,
+              "height": 64,
+              "right": 378,
+              "bottom": 418
+            }
+          },
+          {
+            "index": 1,
+            "tag": "button",
+            "name": "Terminal",
+            "rect": {
+              "x": 12,
+              "y": 426,
+              "width": 116.65625,
+              "height": 44,
+              "right": 128.65625,
+              "bottom": 470
+            }
+          },
+          {
+            "index": 2,
+            "tag": "button",
+            "name": "Cancel",
+            "rect": {
+              "x": 136.65625,
+              "y": 426,
+              "width": 116.671875,
+              "height": 44,
+              "right": 253.328125,
+              "bottom": 470
+            }
+          },
+          {
+            "index": 3,
+            "tag": "button",
+            "name": "Send ↑",
+            "rect": {
+              "x": 261.328125,
+              "y": 426,
+              "width": 116.671875,
+              "height": 44,
+              "right": 378,
+              "bottom": 470
+            }
+          },
+          {
+            "index": 4,
+            "tag": "button",
+            "name": "Previous variant",
+            "rect": {
+              "x": 19,
+              "y": 485,
+              "width": 44,
+              "height": 44,
+              "right": 63,
+              "bottom": 529
+            }
+          },
+          {
+            "index": 5,
+            "tag": "button",
+            "name": "C · Context split Lab / state",
+            "rect": {
+              "x": 71,
+              "y": 485,
+              "width": 248,
+              "height": 44,
+              "right": 319,
+              "bottom": 529
+            }
+          },
+          {
+            "index": 6,
+            "tag": "button",
+            "name": "Next variant",
+            "rect": {
+              "x": 327,
+              "y": 485,
+              "width": 44,
+              "height": 44,
+              "right": 371,
+              "bottom": 529
+            }
+          }
+        ],
+        "primary": [
+          {
+            "name": "Terminal",
+            "rect": {
+              "x": 12,
+              "y": 426,
+              "width": 116.65625,
+              "height": 44,
+              "right": 128.65625,
+              "bottom": 470
+            }
+          },
+          {
+            "name": "Cancel",
+            "rect": {
+              "x": 136.65625,
+              "y": 426,
+              "width": 116.671875,
+              "height": 44,
+              "right": 253.328125,
+              "bottom": 470
+            }
+          },
+          {
+            "name": "Send ↑",
+            "rect": {
+              "x": 261.328125,
+              "y": 426,
+              "width": 116.671875,
+              "height": 44,
+              "right": 378,
+              "bottom": 470
+            }
+          }
+        ],
+        "shell": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 544,
+          "right": 390,
+          "bottom": 544
+        },
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "simulatedBottomGap": 300,
+        "horizontalOverflow": false,
+        "terminalVisible": false,
+        "stateJSON": "",
+        "failures": [],
+        "failuresAtLimit": false
+      }
+    },
+    {
+      "id": "Pixel-7-Chromium-A-collapsed",
+      "variant": "A",
+      "device": "Pixel-7-Chromium",
+      "view": "collapsed",
+      "screenshot": "Pixel-7-Chromium-A-collapsed.png",
+      "audit": {
+        "controls": [
+          {
+            "index": 0,
+            "tag": "button",
+            "name": "Write to Pi",
+            "rect": {
+              "x": 253.015625,
+              "y": 797,
+              "width": 146.984375,
+              "height": 44,
+              "right": 400,
+              "bottom": 841
+            }
+          },
+          {
+            "index": 1,
+            "tag": "button",
+            "name": "Previous variant",
+            "rect": {
+              "x": 19,
+              "y": 856,
+              "width": 44,
+              "height": 44,
+              "right": 63,
+              "bottom": 900
+            }
+          },
+          {
+            "index": 2,
+            "tag": "button",
+            "name": "A · Conversation dock Lab / state",
+            "rect": {
+              "x": 71,
+              "y": 856,
+              "width": 270,
+              "height": 44,
+              "right": 341,
+              "bottom": 900
+            }
+          },
+          {
+            "index": 3,
+            "tag": "button",
+            "name": "Next variant",
+            "rect": {
+              "x": 349,
+              "y": 856,
+              "width": 44,
+              "height": 44,
+              "right": 393,
+              "bottom": 900
+            }
+          }
+        ],
+        "primary": [
+          {
+            "name": "Write to Pi",
+            "rect": {
+              "x": 253.015625,
+              "y": 797,
+              "width": 146.984375,
+              "height": 44,
+              "right": 400,
+              "bottom": 841
+            }
+          }
+        ],
+        "shell": {
+          "x": 0,
+          "y": 0,
+          "width": 412,
+          "height": 915,
+          "right": 412,
+          "bottom": 915
+        },
+        "viewport": {
+          "width": 412,
+          "height": 915
+        },
+        "simulatedBottomGap": 0,
+        "horizontalOverflow": false,
+        "terminalVisible": true,
+        "stateJSON": "",
+        "failures": [],
+        "failuresAtLimit": false
+      }
+    },
+    {
+      "id": "Pixel-7-Chromium-A-focused",
+      "variant": "A",
+      "device": "Pixel-7-Chromium",
+      "view": "focused",
+      "screenshot": "Pixel-7-Chromium-A-focused.png",
+      "audit": {
+        "controls": [
+          {
+            "index": 0,
+            "tag": "textarea",
+            "name": "Pi prompt",
+            "rect": {
+              "x": 12,
+              "y": 725,
+              "width": 388,
+              "height": 64,
+              "right": 400,
+              "bottom": 789
+            }
+          },
+          {
+            "index": 1,
+            "tag": "button",
+            "name": "Terminal",
+            "rect": {
+              "x": 12,
+              "y": 797,
+              "width": 124,
+              "height": 44,
+              "right": 136,
+              "bottom": 841
+            }
+          },
+          {
+            "index": 2,
+            "tag": "button",
+            "name": "Cancel",
+            "rect": {
+              "x": 144,
+              "y": 797,
+              "width": 124,
+              "height": 44,
+              "right": 268,
+              "bottom": 841
+            }
+          },
+          {
+            "index": 3,
+            "tag": "button",
+            "name": "Send ↑",
+            "rect": {
+              "x": 276,
+              "y": 797,
+              "width": 124,
+              "height": 44,
+              "right": 400,
+              "bottom": 841
+            }
+          },
+          {
+            "index": 4,
+            "tag": "button",
+            "name": "Previous variant",
+            "rect": {
+              "x": 19,
+              "y": 856,
+              "width": 44,
+              "height": 44,
+              "right": 63,
+              "bottom": 900
+            }
+          },
+          {
+            "index": 5,
+            "tag": "button",
+            "name": "A · Conversation dock Lab / state",
+            "rect": {
+              "x": 71,
+              "y": 856,
+              "width": 270,
+              "height": 44,
+              "right": 341,
+              "bottom": 900
+            }
+          },
+          {
+            "index": 6,
+            "tag": "button",
+            "name": "Next variant",
+            "rect": {
+              "x": 349,
+              "y": 856,
+              "width": 44,
+              "height": 44,
+              "right": 393,
+              "bottom": 900
+            }
+          }
+        ],
+        "primary": [
+          {
+            "name": "Terminal",
+            "rect": {
+              "x": 12,
+              "y": 797,
+              "width": 124,
+              "height": 44,
+              "right": 136,
+              "bottom": 841
+            }
+          },
+          {
+            "name": "Cancel",
+            "rect": {
+              "x": 144,
+              "y": 797,
+              "width": 124,
+              "height": 44,
+              "right": 268,
+              "bottom": 841
+            }
+          },
+          {
+            "name": "Send ↑",
+            "rect": {
+              "x": 276,
+              "y": 797,
+              "width": 124,
+              "height": 44,
+              "right": 400,
+              "bottom": 841
+            }
+          }
+        ],
+        "shell": {
+          "x": 0,
+          "y": 0,
+          "width": 412,
+          "height": 915,
+          "right": 412,
+          "bottom": 915
+        },
+        "viewport": {
+          "width": 412,
+          "height": 915
+        },
+        "simulatedBottomGap": 0,
+        "horizontalOverflow": false,
+        "terminalVisible": false,
+        "stateJSON": "",
+        "failures": [],
+        "failuresAtLimit": false
+      }
+    },
+    {
+      "id": "Pixel-7-Chromium-A-keyboard",
+      "variant": "A",
+      "device": "Pixel-7-Chromium",
+      "view": "keyboard",
+      "screenshot": "Pixel-7-Chromium-A-keyboard.png",
+      "audit": {
+        "controls": [
+          {
+            "index": 0,
+            "tag": "textarea",
+            "name": "Pi prompt",
+            "rect": {
+              "x": 12,
+              "y": 425,
+              "width": 388,
+              "height": 64,
+              "right": 400,
+              "bottom": 489
+            }
+          },
+          {
+            "index": 1,
+            "tag": "button",
+            "name": "Terminal",
+            "rect": {
+              "x": 12,
+              "y": 497,
+              "width": 124,
+              "height": 44,
+              "right": 136,
+              "bottom": 541
+            }
+          },
+          {
+            "index": 2,
+            "tag": "button",
+            "name": "Cancel",
+            "rect": {
+              "x": 144,
+              "y": 497,
+              "width": 124,
+              "height": 44,
+              "right": 268,
+              "bottom": 541
+            }
+          },
+          {
+            "index": 3,
+            "tag": "button",
+            "name": "Send ↑",
+            "rect": {
+              "x": 276,
+              "y": 497,
+              "width": 124,
+              "height": 44,
+              "right": 400,
+              "bottom": 541
+            }
+          },
+          {
+            "index": 4,
+            "tag": "button",
+            "name": "Previous variant",
+            "rect": {
+              "x": 19,
+              "y": 556,
+              "width": 44,
+              "height": 44,
+              "right": 63,
+              "bottom": 600
+            }
+          },
+          {
+            "index": 5,
+            "tag": "button",
+            "name": "A · Conversation dock Lab / state",
+            "rect": {
+              "x": 71,
+              "y": 556,
+              "width": 270,
+              "height": 44,
+              "right": 341,
+              "bottom": 600
+            }
+          },
+          {
+            "index": 6,
+            "tag": "button",
+            "name": "Next variant",
+            "rect": {
+              "x": 349,
+              "y": 556,
+              "width": 44,
+              "height": 44,
+              "right": 393,
+              "bottom": 600
+            }
+          }
+        ],
+        "primary": [
+          {
+            "name": "Terminal",
+            "rect": {
+              "x": 12,
+              "y": 497,
+              "width": 124,
+              "height": 44,
+              "right": 136,
+              "bottom": 541
+            }
+          },
+          {
+            "name": "Cancel",
+            "rect": {
+              "x": 144,
+              "y": 497,
+              "width": 124,
+              "height": 44,
+              "right": 268,
+              "bottom": 541
+            }
+          },
+          {
+            "name": "Send ↑",
+            "rect": {
+              "x": 276,
+              "y": 497,
+              "width": 124,
+              "height": 44,
+              "right": 400,
+              "bottom": 541
+            }
+          }
+        ],
+        "shell": {
+          "x": 0,
+          "y": 0,
+          "width": 412,
+          "height": 615,
+          "right": 412,
+          "bottom": 615
+        },
+        "viewport": {
+          "width": 412,
+          "height": 915
+        },
+        "simulatedBottomGap": 300,
+        "horizontalOverflow": false,
+        "terminalVisible": false,
+        "stateJSON": "",
+        "failures": [],
+        "failuresAtLimit": false
+      }
+    },
+    {
+      "id": "Pixel-7-Chromium-B-collapsed",
+      "variant": "B",
+      "device": "Pixel-7-Chromium",
+      "view": "collapsed",
+      "screenshot": "Pixel-7-Chromium-B-collapsed.png",
+      "audit": {
+        "controls": [
+          {
+            "index": 0,
+            "tag": "button",
+            "name": "Write to Pi",
+            "rect": {
+              "x": 356,
+              "y": 797,
+              "width": 44,
+              "height": 44,
+              "right": 400,
+              "bottom": 841
+            }
+          },
+          {
+            "index": 1,
+            "tag": "button",
+            "name": "Previous variant",
+            "rect": {
+              "x": 19,
+              "y": 856,
+              "width": 44,
+              "height": 44,
+              "right": 63,
+              "bottom": 900
+            }
+          },
+          {
+            "index": 2,
+            "tag": "button",
+            "name": "B · Thumb rail Lab / state",
+            "rect": {
+              "x": 71,
+              "y": 856,
+              "width": 270,
+              "height": 44,
+              "right": 341,
+              "bottom": 900
+            }
+          },
+          {
+            "index": 3,
+            "tag": "button",
+            "name": "Next variant",
+            "rect": {
+              "x": 349,
+              "y": 856,
+              "width": 44,
+              "height": 44,
+              "right": 393,
+              "bottom": 900
+            }
+          }
+        ],
+        "primary": [
+          {
+            "name": "Write to Pi",
+            "rect": {
+              "x": 356,
+              "y": 797,
+              "width": 44,
+              "height": 44,
+              "right": 400,
+              "bottom": 841
+            }
+          }
+        ],
+        "shell": {
+          "x": 0,
+          "y": 0,
+          "width": 412,
+          "height": 915,
+          "right": 412,
+          "bottom": 915
+        },
+        "viewport": {
+          "width": 412,
+          "height": 915
+        },
+        "simulatedBottomGap": 0,
+        "horizontalOverflow": false,
+        "terminalVisible": true,
+        "stateJSON": "",
+        "failures": [],
+        "failuresAtLimit": false
+      }
+    },
+    {
+      "id": "Pixel-7-Chromium-B-focused",
+      "variant": "B",
+      "device": "Pixel-7-Chromium",
+      "view": "focused",
+      "screenshot": "Pixel-7-Chromium-B-focused.png",
+      "audit": {
+        "controls": [
+          {
+            "index": 0,
+            "tag": "textarea",
+            "name": "Pi prompt",
+            "rect": {
+              "x": 18,
+              "y": 735,
+              "width": 236,
+              "height": 96,
+              "right": 254,
+              "bottom": 831
+            }
+          },
+          {
+            "index": 1,
+            "tag": "button",
+            "name": "Terminal",
+            "rect": {
+              "x": 262,
+              "y": 787,
+              "width": 62,
+              "height": 44,
+              "right": 324,
+              "bottom": 831
+            }
+          },
+          {
+            "index": 2,
+            "tag": "button",
+            "name": "Cancel",
+            "rect": {
+              "x": 332,
+              "y": 787,
+              "width": 62,
+              "height": 44,
+              "right": 394,
+              "bottom": 831
+            }
+          },
+          {
+            "index": 3,
+            "tag": "button",
+            "name": "Send ↑",
+            "rect": {
+              "x": 262,
+              "y": 735,
+              "width": 132,
+              "height": 44,
+              "right": 394,
+              "bottom": 779
+            }
+          },
+          {
+            "index": 4,
+            "tag": "button",
+            "name": "Previous variant",
+            "rect": {
+              "x": 19,
+              "y": 856,
+              "width": 44,
+              "height": 44,
+              "right": 63,
+              "bottom": 900
+            }
+          },
+          {
+            "index": 5,
+            "tag": "button",
+            "name": "B · Thumb rail Lab / state",
+            "rect": {
+              "x": 71,
+              "y": 856,
+              "width": 270,
+              "height": 44,
+              "right": 341,
+              "bottom": 900
+            }
+          },
+          {
+            "index": 6,
+            "tag": "button",
+            "name": "Next variant",
+            "rect": {
+              "x": 349,
+              "y": 856,
+              "width": 44,
+              "height": 44,
+              "right": 393,
+              "bottom": 900
+            }
+          }
+        ],
+        "primary": [
+          {
+            "name": "Terminal",
+            "rect": {
+              "x": 262,
+              "y": 787,
+              "width": 62,
+              "height": 44,
+              "right": 324,
+              "bottom": 831
+            }
+          },
+          {
+            "name": "Cancel",
+            "rect": {
+              "x": 332,
+              "y": 787,
+              "width": 62,
+              "height": 44,
+              "right": 394,
+              "bottom": 831
+            }
+          },
+          {
+            "name": "Send ↑",
+            "rect": {
+              "x": 262,
+              "y": 735,
+              "width": 132,
+              "height": 44,
+              "right": 394,
+              "bottom": 779
+            }
+          }
+        ],
+        "shell": {
+          "x": 0,
+          "y": 0,
+          "width": 412,
+          "height": 915,
+          "right": 412,
+          "bottom": 915
+        },
+        "viewport": {
+          "width": 412,
+          "height": 915
+        },
+        "simulatedBottomGap": 0,
+        "horizontalOverflow": false,
+        "terminalVisible": false,
+        "stateJSON": "",
+        "failures": [],
+        "failuresAtLimit": false
+      }
+    },
+    {
+      "id": "Pixel-7-Chromium-B-keyboard",
+      "variant": "B",
+      "device": "Pixel-7-Chromium",
+      "view": "keyboard",
+      "screenshot": "Pixel-7-Chromium-B-keyboard.png",
+      "audit": {
+        "controls": [
+          {
+            "index": 0,
+            "tag": "textarea",
+            "name": "Pi prompt",
+            "rect": {
+              "x": 18,
+              "y": 435,
+              "width": 236,
+              "height": 96,
+              "right": 254,
+              "bottom": 531
+            }
+          },
+          {
+            "index": 1,
+            "tag": "button",
+            "name": "Terminal",
+            "rect": {
+              "x": 262,
+              "y": 487,
+              "width": 62,
+              "height": 44,
+              "right": 324,
+              "bottom": 531
+            }
+          },
+          {
+            "index": 2,
+            "tag": "button",
+            "name": "Cancel",
+            "rect": {
+              "x": 332,
+              "y": 487,
+              "width": 62,
+              "height": 44,
+              "right": 394,
+              "bottom": 531
+            }
+          },
+          {
+            "index": 3,
+            "tag": "button",
+            "name": "Send ↑",
+            "rect": {
+              "x": 262,
+              "y": 435,
+              "width": 132,
+              "height": 44,
+              "right": 394,
+              "bottom": 479
+            }
+          },
+          {
+            "index": 4,
+            "tag": "button",
+            "name": "Previous variant",
+            "rect": {
+              "x": 19,
+              "y": 556,
+              "width": 44,
+              "height": 44,
+              "right": 63,
+              "bottom": 600
+            }
+          },
+          {
+            "index": 5,
+            "tag": "button",
+            "name": "B · Thumb rail Lab / state",
+            "rect": {
+              "x": 71,
+              "y": 556,
+              "width": 270,
+              "height": 44,
+              "right": 341,
+              "bottom": 600
+            }
+          },
+          {
+            "index": 6,
+            "tag": "button",
+            "name": "Next variant",
+            "rect": {
+              "x": 349,
+              "y": 556,
+              "width": 44,
+              "height": 44,
+              "right": 393,
+              "bottom": 600
+            }
+          }
+        ],
+        "primary": [
+          {
+            "name": "Terminal",
+            "rect": {
+              "x": 262,
+              "y": 487,
+              "width": 62,
+              "height": 44,
+              "right": 324,
+              "bottom": 531
+            }
+          },
+          {
+            "name": "Cancel",
+            "rect": {
+              "x": 332,
+              "y": 487,
+              "width": 62,
+              "height": 44,
+              "right": 394,
+              "bottom": 531
+            }
+          },
+          {
+            "name": "Send ↑",
+            "rect": {
+              "x": 262,
+              "y": 435,
+              "width": 132,
+              "height": 44,
+              "right": 394,
+              "bottom": 479
+            }
+          }
+        ],
+        "shell": {
+          "x": 0,
+          "y": 0,
+          "width": 412,
+          "height": 615,
+          "right": 412,
+          "bottom": 615
+        },
+        "viewport": {
+          "width": 412,
+          "height": 915
+        },
+        "simulatedBottomGap": 300,
+        "horizontalOverflow": false,
+        "terminalVisible": false,
+        "stateJSON": "",
+        "failures": [],
+        "failuresAtLimit": false
+      }
+    },
+    {
+      "id": "Pixel-7-Chromium-C-collapsed",
+      "variant": "C",
+      "device": "Pixel-7-Chromium",
+      "view": "collapsed",
+      "screenshot": "Pixel-7-Chromium-C-collapsed.png",
+      "audit": {
+        "controls": [
+          {
+            "index": 0,
+            "tag": "button",
+            "name": "Write to Pi",
+            "rect": {
+              "x": 12,
+              "y": 797,
+              "width": 388,
+              "height": 44,
+              "right": 400,
+              "bottom": 841
+            }
+          },
+          {
+            "index": 1,
+            "tag": "button",
+            "name": "Previous variant",
+            "rect": {
+              "x": 19,
+              "y": 856,
+              "width": 44,
+              "height": 44,
+              "right": 63,
+              "bottom": 900
+            }
+          },
+          {
+            "index": 2,
+            "tag": "button",
+            "name": "C · Context split Lab / state",
+            "rect": {
+              "x": 71,
+              "y": 856,
+              "width": 270,
+              "height": 44,
+              "right": 341,
+              "bottom": 900
+            }
+          },
+          {
+            "index": 3,
+            "tag": "button",
+            "name": "Next variant",
+            "rect": {
+              "x": 349,
+              "y": 856,
+              "width": 44,
+              "height": 44,
+              "right": 393,
+              "bottom": 900
+            }
+          }
+        ],
+        "primary": [
+          {
+            "name": "Write to Pi",
+            "rect": {
+              "x": 12,
+              "y": 797,
+              "width": 388,
+              "height": 44,
+              "right": 400,
+              "bottom": 841
+            }
+          }
+        ],
+        "shell": {
+          "x": 0,
+          "y": 0,
+          "width": 412,
+          "height": 915,
+          "right": 412,
+          "bottom": 915
+        },
+        "viewport": {
+          "width": 412,
+          "height": 915
+        },
+        "simulatedBottomGap": 0,
+        "horizontalOverflow": false,
+        "terminalVisible": true,
+        "stateJSON": "",
+        "failures": [],
+        "failuresAtLimit": false
+      }
+    },
+    {
+      "id": "Pixel-7-Chromium-C-focused",
+      "variant": "C",
+      "device": "Pixel-7-Chromium",
+      "view": "focused",
+      "screenshot": "Pixel-7-Chromium-C-focused.png",
+      "audit": {
+        "controls": [
+          {
+            "index": 0,
+            "tag": "textarea",
+            "name": "Pi prompt",
+            "rect": {
+              "x": 12,
+              "y": 725,
+              "width": 388,
+              "height": 64,
+              "right": 400,
+              "bottom": 789
+            }
+          },
+          {
+            "index": 1,
+            "tag": "button",
+            "name": "Terminal",
+            "rect": {
+              "x": 12,
+              "y": 797,
+              "width": 124,
+              "height": 44,
+              "right": 136,
+              "bottom": 841
+            }
+          },
+          {
+            "index": 2,
+            "tag": "button",
+            "name": "Cancel",
+            "rect": {
+              "x": 144,
+              "y": 797,
+              "width": 124,
+              "height": 44,
+              "right": 268,
+              "bottom": 841
+            }
+          },
+          {
+            "index": 3,
+            "tag": "button",
+            "name": "Send ↑",
+            "rect": {
+              "x": 276,
+              "y": 797,
+              "width": 124,
+              "height": 44,
+              "right": 400,
+              "bottom": 841
+            }
+          },
+          {
+            "index": 4,
+            "tag": "button",
+            "name": "Previous variant",
+            "rect": {
+              "x": 19,
+              "y": 856,
+              "width": 44,
+              "height": 44,
+              "right": 63,
+              "bottom": 900
+            }
+          },
+          {
+            "index": 5,
+            "tag": "button",
+            "name": "C · Context split Lab / state",
+            "rect": {
+              "x": 71,
+              "y": 856,
+              "width": 270,
+              "height": 44,
+              "right": 341,
+              "bottom": 900
+            }
+          },
+          {
+            "index": 6,
+            "tag": "button",
+            "name": "Next variant",
+            "rect": {
+              "x": 349,
+              "y": 856,
+              "width": 44,
+              "height": 44,
+              "right": 393,
+              "bottom": 900
+            }
+          }
+        ],
+        "primary": [
+          {
+            "name": "Terminal",
+            "rect": {
+              "x": 12,
+              "y": 797,
+              "width": 124,
+              "height": 44,
+              "right": 136,
+              "bottom": 841
+            }
+          },
+          {
+            "name": "Cancel",
+            "rect": {
+              "x": 144,
+              "y": 797,
+              "width": 124,
+              "height": 44,
+              "right": 268,
+              "bottom": 841
+            }
+          },
+          {
+            "name": "Send ↑",
+            "rect": {
+              "x": 276,
+              "y": 797,
+              "width": 124,
+              "height": 44,
+              "right": 400,
+              "bottom": 841
+            }
+          }
+        ],
+        "shell": {
+          "x": 0,
+          "y": 0,
+          "width": 412,
+          "height": 915,
+          "right": 412,
+          "bottom": 915
+        },
+        "viewport": {
+          "width": 412,
+          "height": 915
+        },
+        "simulatedBottomGap": 0,
+        "horizontalOverflow": false,
+        "terminalVisible": false,
+        "stateJSON": "",
+        "failures": [],
+        "failuresAtLimit": false
+      }
+    },
+    {
+      "id": "Pixel-7-Chromium-C-keyboard",
+      "variant": "C",
+      "device": "Pixel-7-Chromium",
+      "view": "keyboard",
+      "screenshot": "Pixel-7-Chromium-C-keyboard.png",
+      "audit": {
+        "controls": [
+          {
+            "index": 0,
+            "tag": "textarea",
+            "name": "Pi prompt",
+            "rect": {
+              "x": 12,
+              "y": 425,
+              "width": 388,
+              "height": 64,
+              "right": 400,
+              "bottom": 489
+            }
+          },
+          {
+            "index": 1,
+            "tag": "button",
+            "name": "Terminal",
+            "rect": {
+              "x": 12,
+              "y": 497,
+              "width": 124,
+              "height": 44,
+              "right": 136,
+              "bottom": 541
+            }
+          },
+          {
+            "index": 2,
+            "tag": "button",
+            "name": "Cancel",
+            "rect": {
+              "x": 144,
+              "y": 497,
+              "width": 124,
+              "height": 44,
+              "right": 268,
+              "bottom": 541
+            }
+          },
+          {
+            "index": 3,
+            "tag": "button",
+            "name": "Send ↑",
+            "rect": {
+              "x": 276,
+              "y": 497,
+              "width": 124,
+              "height": 44,
+              "right": 400,
+              "bottom": 541
+            }
+          },
+          {
+            "index": 4,
+            "tag": "button",
+            "name": "Previous variant",
+            "rect": {
+              "x": 19,
+              "y": 556,
+              "width": 44,
+              "height": 44,
+              "right": 63,
+              "bottom": 600
+            }
+          },
+          {
+            "index": 5,
+            "tag": "button",
+            "name": "C · Context split Lab / state",
+            "rect": {
+              "x": 71,
+              "y": 556,
+              "width": 270,
+              "height": 44,
+              "right": 341,
+              "bottom": 600
+            }
+          },
+          {
+            "index": 6,
+            "tag": "button",
+            "name": "Next variant",
+            "rect": {
+              "x": 349,
+              "y": 556,
+              "width": 44,
+              "height": 44,
+              "right": 393,
+              "bottom": 600
+            }
+          }
+        ],
+        "primary": [
+          {
+            "name": "Terminal",
+            "rect": {
+              "x": 12,
+              "y": 497,
+              "width": 124,
+              "height": 44,
+              "right": 136,
+              "bottom": 541
+            }
+          },
+          {
+            "name": "Cancel",
+            "rect": {
+              "x": 144,
+              "y": 497,
+              "width": 124,
+              "height": 44,
+              "right": 268,
+              "bottom": 541
+            }
+          },
+          {
+            "name": "Send ↑",
+            "rect": {
+              "x": 276,
+              "y": 497,
+              "width": 124,
+              "height": 44,
+              "right": 400,
+              "bottom": 541
+            }
+          }
+        ],
+        "shell": {
+          "x": 0,
+          "y": 0,
+          "width": 412,
+          "height": 615,
+          "right": 412,
+          "bottom": 615
+        },
+        "viewport": {
+          "width": 412,
+          "height": 915
+        },
+        "simulatedBottomGap": 300,
+        "horizontalOverflow": false,
+        "terminalVisible": false,
+        "stateJSON": "",
+        "failures": [],
+        "failuresAtLimit": false
+      }
+    }
+  ],
+  "flows": [
+    {
+      "variant": "A",
+      "steps": [
+        "Send -> sending",
+        "Repeat Send unavailable while sending",
+        "Cancel -> focused; draft retained",
+        "Terminal -> collapsed -> reopen; draft retained",
+        "Focused Cancel -> dialog -> Keep draft closes dialog",
+        "Lab Agent reply updates live state JSON",
+        "Lab Keyboard available, actionable, and updates live state JSON",
+        "Lab Background available, actionable, and updates live state JSON",
+        "Geometry shrinks/expands without blur; focused mode and draft retained (not native IME)",
+        "Landscape resize refits shell; geometry audited",
+        "Reply while collapsed updates latest; reply behind dialog preserves dialog and draft",
+        "Floating switcher + arrow key switch layouts with draft retained"
+      ],
+      "audits": [
+        {
+          "controls": [
+            {
+              "index": 0,
+              "tag": "button",
+              "name": "Keep draft",
+              "rect": {
+                "x": 21,
+                "y": 707,
+                "width": 170,
+                "height": 44,
+                "right": 191,
+                "bottom": 751
+              }
+            },
+            {
+              "index": 1,
+              "tag": "button",
+              "name": "Discard",
+              "rect": {
+                "x": 199,
+                "y": 707,
+                "width": 170,
+                "height": 44,
+                "right": 369,
+                "bottom": 751
+              }
+            },
+            {
+              "index": 2,
+              "tag": "button",
+              "name": "Previous variant",
+              "rect": {
+                "x": 19,
+                "y": 785,
+                "width": 44,
+                "height": 44,
+                "right": 63,
+                "bottom": 829
+              }
+            },
+            {
+              "index": 3,
+              "tag": "button",
+              "name": "A · Conversation dock Lab / state",
+              "rect": {
+                "x": 71,
+                "y": 785,
+                "width": 248,
+                "height": 44,
+                "right": 319,
+                "bottom": 829
+              }
+            },
+            {
+              "index": 4,
+              "tag": "button",
+              "name": "Next variant",
+              "rect": {
+                "x": 327,
+                "y": 785,
+                "width": 44,
+                "height": 44,
+                "right": 371,
+                "bottom": 829
+              }
+            }
+          ],
+          "primary": [
+            {
+              "name": "Keep draft",
+              "rect": {
+                "x": 21,
+                "y": 707,
+                "width": 170,
+                "height": 44,
+                "right": 191,
+                "bottom": 751
+              }
+            },
+            {
+              "name": "Discard",
+              "rect": {
+                "x": 199,
+                "y": 707,
+                "width": 170,
+                "height": 44,
+                "right": 369,
+                "bottom": 751
+              }
+            }
+          ],
+          "shell": {
+            "x": 0,
+            "y": 0,
+            "width": 390,
+            "height": 844,
+            "right": 390,
+            "bottom": 844
+          },
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "simulatedBottomGap": 0,
+          "horizontalOverflow": false,
+          "terminalVisible": false,
+          "stateJSON": "",
+          "failures": [],
+          "failuresAtLimit": false
+        },
+        {
+          "controls": [
+            {
+              "index": 0,
+              "tag": "button",
+              "name": "Thumb zone off",
+              "rect": {
+                "x": 21,
+                "y": 303,
+                "width": 170,
+                "height": 44,
+                "right": 191,
+                "bottom": 347
+              }
+            },
+            {
+              "index": 1,
+              "tag": "button",
+              "name": "Keyboard",
+              "rect": {
+                "x": 199,
+                "y": 303,
+                "width": 170,
+                "height": 44,
+                "right": 369,
+                "bottom": 347
+              }
+            },
+            {
+              "index": 2,
+              "tag": "button",
+              "name": "Agent reply",
+              "rect": {
+                "x": 21,
+                "y": 355,
+                "width": 170,
+                "height": 44,
+                "right": 191,
+                "bottom": 399
+              }
+            },
+            {
+              "index": 3,
+              "tag": "button",
+              "name": "Background",
+              "rect": {
+                "x": 199,
+                "y": 355,
+                "width": 170,
+                "height": 44,
+                "right": 369,
+                "bottom": 399
+              }
+            },
+            {
+              "index": 4,
+              "tag": "button",
+              "name": "Close lab",
+              "rect": {
+                "x": 21,
+                "y": 407,
+                "width": 348,
+                "height": 44,
+                "right": 369,
+                "bottom": 451
+              }
+            },
+            {
+              "index": 5,
+              "tag": "button",
+              "name": "Previous variant",
+              "rect": {
+                "x": 19,
+                "y": 485,
+                "width": 44,
+                "height": 44,
+                "right": 63,
+                "bottom": 529
+              }
+            },
+            {
+              "index": 6,
+              "tag": "button",
+              "name": "A · Conversation dock Close lab",
+              "rect": {
+                "x": 71,
+                "y": 485,
+                "width": 248,
+                "height": 44,
+                "right": 319,
+                "bottom": 529
+              }
+            },
+            {
+              "index": 7,
+              "tag": "button",
+              "name": "Next variant",
+              "rect": {
+                "x": 327,
+                "y": 485,
+                "width": 44,
+                "height": 44,
+                "right": 371,
+                "bottom": 529
+              }
+            }
+          ],
+          "primary": [],
+          "shell": {
+            "x": 0,
+            "y": 0,
+            "width": 390,
+            "height": 544,
+            "right": 390,
+            "bottom": 544
+          },
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "simulatedBottomGap": 300,
+          "horizontalOverflow": false,
+          "terminalVisible": false,
+          "stateJSON": "{\n  \"mode\": \"focused\",\n  \"focused\": true,\n  \"sending\": false,\n  \"dialog\": false,\n  \"lab\": true,\n  \"draft\": \"Fixture-only retained draft A\",\n  \"draftKept\": true,\n  \"background\": true,\n  \"keyboardSimulation\": true,\n  \"viewport\": {\n    \"height\": 844,\n    \"width\": 390,\n    \"top\": 0,\n    \"left\": 0\n  },\n  \"controlHeight\": 186,\n  \"formattedFrames\": 2,\n  \"source\": \"labelled fixtures; local memory only\",\n  \"event\": \"Background toggled · simulation; state kept\"\n}",
+          "failures": [],
+          "failuresAtLimit": false
+        },
+        {
+          "controls": [
+            {
+              "index": 0,
+              "tag": "textarea",
+              "name": "Pi prompt",
+              "rect": {
+                "x": 12,
+                "y": 220,
+                "width": 820,
+                "height": 44,
+                "right": 832,
+                "bottom": 264
+              }
+            },
+            {
+              "index": 1,
+              "tag": "button",
+              "name": "Terminal",
+              "rect": {
+                "x": 12,
+                "y": 272,
+                "width": 268,
+                "height": 44,
+                "right": 280,
+                "bottom": 316
+              }
+            },
+            {
+              "index": 2,
+              "tag": "button",
+              "name": "Cancel",
+              "rect": {
+                "x": 288,
+                "y": 272,
+                "width": 268,
+                "height": 44,
+                "right": 556,
+                "bottom": 316
+              }
+            },
+            {
+              "index": 3,
+              "tag": "button",
+              "name": "Send ↑",
+              "rect": {
+                "x": 564,
+                "y": 272,
+                "width": 268,
+                "height": 44,
+                "right": 832,
+                "bottom": 316
+              }
+            },
+            {
+              "index": 4,
+              "tag": "button",
+              "name": "Previous variant",
+              "rect": {
+                "x": 19,
+                "y": 331,
+                "width": 44,
+                "height": 44,
+                "right": 63,
+                "bottom": 375
+              }
+            },
+            {
+              "index": 5,
+              "tag": "button",
+              "name": "A · Conversation dock Lab / state",
+              "rect": {
+                "x": 71,
+                "y": 331,
+                "width": 702,
+                "height": 44,
+                "right": 773,
+                "bottom": 375
+              }
+            },
+            {
+              "index": 6,
+              "tag": "button",
+              "name": "Next variant",
+              "rect": {
+                "x": 781,
+                "y": 331,
+                "width": 44,
+                "height": 44,
+                "right": 825,
+                "bottom": 375
+              }
+            }
+          ],
+          "primary": [
+            {
+              "name": "Terminal",
+              "rect": {
+                "x": 12,
+                "y": 272,
+                "width": 268,
+                "height": 44,
+                "right": 280,
+                "bottom": 316
+              }
+            },
+            {
+              "name": "Cancel",
+              "rect": {
+                "x": 288,
+                "y": 272,
+                "width": 268,
+                "height": 44,
+                "right": 556,
+                "bottom": 316
+              }
+            },
+            {
+              "name": "Send ↑",
+              "rect": {
+                "x": 564,
+                "y": 272,
+                "width": 268,
+                "height": 44,
+                "right": 832,
+                "bottom": 316
+              }
+            }
+          ],
+          "shell": {
+            "x": 0,
+            "y": 0,
+            "width": 844,
+            "height": 390,
+            "right": 844,
+            "bottom": 390
+          },
+          "viewport": {
+            "width": 844,
+            "height": 390
+          },
+          "simulatedBottomGap": 0,
+          "horizontalOverflow": false,
+          "terminalVisible": false,
+          "stateJSON": "",
+          "failures": [],
+          "failuresAtLimit": false
+        }
+      ]
+    },
+    {
+      "variant": "B",
+      "steps": [
+        "Send -> sending",
+        "Repeat Send unavailable while sending",
+        "Cancel -> focused; draft retained",
+        "Terminal -> collapsed -> reopen; draft retained",
+        "Focused Cancel -> dialog -> Keep draft closes dialog",
+        "Lab Agent reply updates live state JSON",
+        "Lab Keyboard available, actionable, and updates live state JSON",
+        "Lab Background available, actionable, and updates live state JSON",
+        "Geometry shrinks/expands without blur; focused mode and draft retained (not native IME)",
+        "Landscape resize refits shell; geometry audited",
+        "Reply while collapsed updates latest; reply behind dialog preserves dialog and draft",
+        "Floating switcher + arrow key switch layouts with draft retained"
+      ],
+      "audits": [
+        {
+          "controls": [
+            {
+              "index": 0,
+              "tag": "button",
+              "name": "Keep draft",
+              "rect": {
+                "x": 21,
+                "y": 707,
+                "width": 170,
+                "height": 44,
+                "right": 191,
+                "bottom": 751
+              }
+            },
+            {
+              "index": 1,
+              "tag": "button",
+              "name": "Discard",
+              "rect": {
+                "x": 199,
+                "y": 707,
+                "width": 170,
+                "height": 44,
+                "right": 369,
+                "bottom": 751
+              }
+            },
+            {
+              "index": 2,
+              "tag": "button",
+              "name": "Previous variant",
+              "rect": {
+                "x": 19,
+                "y": 785,
+                "width": 44,
+                "height": 44,
+                "right": 63,
+                "bottom": 829
+              }
+            },
+            {
+              "index": 3,
+              "tag": "button",
+              "name": "B · Thumb rail Lab / state",
+              "rect": {
+                "x": 71,
+                "y": 785,
+                "width": 248,
+                "height": 44,
+                "right": 319,
+                "bottom": 829
+              }
+            },
+            {
+              "index": 4,
+              "tag": "button",
+              "name": "Next variant",
+              "rect": {
+                "x": 327,
+                "y": 785,
+                "width": 44,
+                "height": 44,
+                "right": 371,
+                "bottom": 829
+              }
+            }
+          ],
+          "primary": [
+            {
+              "name": "Keep draft",
+              "rect": {
+                "x": 21,
+                "y": 707,
+                "width": 170,
+                "height": 44,
+                "right": 191,
+                "bottom": 751
+              }
+            },
+            {
+              "name": "Discard",
+              "rect": {
+                "x": 199,
+                "y": 707,
+                "width": 170,
+                "height": 44,
+                "right": 369,
+                "bottom": 751
+              }
+            }
+          ],
+          "shell": {
+            "x": 0,
+            "y": 0,
+            "width": 390,
+            "height": 844,
+            "right": 390,
+            "bottom": 844
+          },
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "simulatedBottomGap": 0,
+          "horizontalOverflow": false,
+          "terminalVisible": false,
+          "stateJSON": "",
+          "failures": [],
+          "failuresAtLimit": false
+        },
+        {
+          "controls": [
+            {
+              "index": 0,
+              "tag": "button",
+              "name": "Thumb zone off",
+              "rect": {
+                "x": 21,
+                "y": 303,
+                "width": 170,
+                "height": 44,
+                "right": 191,
+                "bottom": 347
+              }
+            },
+            {
+              "index": 1,
+              "tag": "button",
+              "name": "Keyboard",
+              "rect": {
+                "x": 199,
+                "y": 303,
+                "width": 170,
+                "height": 44,
+                "right": 369,
+                "bottom": 347
+              }
+            },
+            {
+              "index": 2,
+              "tag": "button",
+              "name": "Agent reply",
+              "rect": {
+                "x": 21,
+                "y": 355,
+                "width": 170,
+                "height": 44,
+                "right": 191,
+                "bottom": 399
+              }
+            },
+            {
+              "index": 3,
+              "tag": "button",
+              "name": "Background",
+              "rect": {
+                "x": 199,
+                "y": 355,
+                "width": 170,
+                "height": 44,
+                "right": 369,
+                "bottom": 399
+              }
+            },
+            {
+              "index": 4,
+              "tag": "button",
+              "name": "Close lab",
+              "rect": {
+                "x": 21,
+                "y": 407,
+                "width": 348,
+                "height": 44,
+                "right": 369,
+                "bottom": 451
+              }
+            },
+            {
+              "index": 5,
+              "tag": "button",
+              "name": "Previous variant",
+              "rect": {
+                "x": 19,
+                "y": 485,
+                "width": 44,
+                "height": 44,
+                "right": 63,
+                "bottom": 529
+              }
+            },
+            {
+              "index": 6,
+              "tag": "button",
+              "name": "B · Thumb rail Close lab",
+              "rect": {
+                "x": 71,
+                "y": 485,
+                "width": 248,
+                "height": 44,
+                "right": 319,
+                "bottom": 529
+              }
+            },
+            {
+              "index": 7,
+              "tag": "button",
+              "name": "Next variant",
+              "rect": {
+                "x": 327,
+                "y": 485,
+                "width": 44,
+                "height": 44,
+                "right": 371,
+                "bottom": 529
+              }
+            }
+          ],
+          "primary": [],
+          "shell": {
+            "x": 0,
+            "y": 0,
+            "width": 390,
+            "height": 544,
+            "right": 390,
+            "bottom": 544
+          },
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "simulatedBottomGap": 300,
+          "horizontalOverflow": false,
+          "terminalVisible": false,
+          "stateJSON": "{\n  \"mode\": \"focused\",\n  \"focused\": true,\n  \"sending\": false,\n  \"dialog\": false,\n  \"lab\": true,\n  \"draft\": \"Fixture-only retained draft B\",\n  \"draftKept\": true,\n  \"background\": true,\n  \"keyboardSimulation\": true,\n  \"viewport\": {\n    \"height\": 844,\n    \"width\": 390,\n    \"top\": 0,\n    \"left\": 0\n  },\n  \"controlHeight\": 168,\n  \"formattedFrames\": 2,\n  \"source\": \"labelled fixtures; local memory only\",\n  \"event\": \"Background toggled · simulation; state kept\"\n}",
+          "failures": [],
+          "failuresAtLimit": false
+        },
+        {
+          "controls": [
+            {
+              "index": 0,
+              "tag": "textarea",
+              "name": "Pi prompt",
+              "rect": {
+                "x": 14,
+                "y": 266,
+                "width": 648,
+                "height": 44,
+                "right": 662,
+                "bottom": 310
+              }
+            },
+            {
+              "index": 1,
+              "tag": "button",
+              "name": "Terminal",
+              "rect": {
+                "x": 670,
+                "y": 261.21875,
+                "width": 48,
+                "height": 48.78125,
+                "right": 718,
+                "bottom": 310
+              }
+            },
+            {
+              "index": 2,
+              "tag": "button",
+              "name": "Cancel",
+              "rect": {
+                "x": 726,
+                "y": 261.21875,
+                "width": 48,
+                "height": 48.78125,
+                "right": 774,
+                "bottom": 310
+              }
+            },
+            {
+              "index": 3,
+              "tag": "button",
+              "name": "Send ↑",
+              "rect": {
+                "x": 782,
+                "y": 261.21875,
+                "width": 48,
+                "height": 48.78125,
+                "right": 830,
+                "bottom": 310
+              }
+            },
+            {
+              "index": 4,
+              "tag": "button",
+              "name": "Previous variant",
+              "rect": {
+                "x": 19,
+                "y": 331,
+                "width": 44,
+                "height": 44,
+                "right": 63,
+                "bottom": 375
+              }
+            },
+            {
+              "index": 5,
+              "tag": "button",
+              "name": "B · Thumb rail Lab / state",
+              "rect": {
+                "x": 71,
+                "y": 331,
+                "width": 702,
+                "height": 44,
+                "right": 773,
+                "bottom": 375
+              }
+            },
+            {
+              "index": 6,
+              "tag": "button",
+              "name": "Next variant",
+              "rect": {
+                "x": 781,
+                "y": 331,
+                "width": 44,
+                "height": 44,
+                "right": 825,
+                "bottom": 375
+              }
+            }
+          ],
+          "primary": [
+            {
+              "name": "Terminal",
+              "rect": {
+                "x": 670,
+                "y": 261.21875,
+                "width": 48,
+                "height": 48.78125,
+                "right": 718,
+                "bottom": 310
+              }
+            },
+            {
+              "name": "Cancel",
+              "rect": {
+                "x": 726,
+                "y": 261.21875,
+                "width": 48,
+                "height": 48.78125,
+                "right": 774,
+                "bottom": 310
+              }
+            },
+            {
+              "name": "Send ↑",
+              "rect": {
+                "x": 782,
+                "y": 261.21875,
+                "width": 48,
+                "height": 48.78125,
+                "right": 830,
+                "bottom": 310
+              }
+            }
+          ],
+          "shell": {
+            "x": 0,
+            "y": 0,
+            "width": 844,
+            "height": 390,
+            "right": 844,
+            "bottom": 390
+          },
+          "viewport": {
+            "width": 844,
+            "height": 390
+          },
+          "simulatedBottomGap": 0,
+          "horizontalOverflow": false,
+          "terminalVisible": false,
+          "stateJSON": "",
+          "failures": [],
+          "failuresAtLimit": false
+        }
+      ]
+    },
+    {
+      "variant": "C",
+      "steps": [
+        "Send -> sending",
+        "Repeat Send unavailable while sending",
+        "Cancel -> focused; draft retained",
+        "Terminal -> collapsed -> reopen; draft retained",
+        "Focused Cancel -> dialog -> Keep draft closes dialog",
+        "Lab Agent reply updates live state JSON",
+        "Lab Keyboard available, actionable, and updates live state JSON",
+        "Lab Background available, actionable, and updates live state JSON",
+        "Geometry shrinks/expands without blur; focused mode and draft retained (not native IME)",
+        "Landscape resize refits shell; geometry audited",
+        "Reply while collapsed updates latest; reply behind dialog preserves dialog and draft",
+        "Floating switcher + arrow key switch layouts with draft retained"
+      ],
+      "audits": [
+        {
+          "controls": [
+            {
+              "index": 0,
+              "tag": "button",
+              "name": "Keep draft",
+              "rect": {
+                "x": 21,
+                "y": 707,
+                "width": 170,
+                "height": 44,
+                "right": 191,
+                "bottom": 751
+              }
+            },
+            {
+              "index": 1,
+              "tag": "button",
+              "name": "Discard",
+              "rect": {
+                "x": 199,
+                "y": 707,
+                "width": 170,
+                "height": 44,
+                "right": 369,
+                "bottom": 751
+              }
+            },
+            {
+              "index": 2,
+              "tag": "button",
+              "name": "Previous variant",
+              "rect": {
+                "x": 19,
+                "y": 785,
+                "width": 44,
+                "height": 44,
+                "right": 63,
+                "bottom": 829
+              }
+            },
+            {
+              "index": 3,
+              "tag": "button",
+              "name": "C · Context split Lab / state",
+              "rect": {
+                "x": 71,
+                "y": 785,
+                "width": 248,
+                "height": 44,
+                "right": 319,
+                "bottom": 829
+              }
+            },
+            {
+              "index": 4,
+              "tag": "button",
+              "name": "Next variant",
+              "rect": {
+                "x": 327,
+                "y": 785,
+                "width": 44,
+                "height": 44,
+                "right": 371,
+                "bottom": 829
+              }
+            }
+          ],
+          "primary": [
+            {
+              "name": "Keep draft",
+              "rect": {
+                "x": 21,
+                "y": 707,
+                "width": 170,
+                "height": 44,
+                "right": 191,
+                "bottom": 751
+              }
+            },
+            {
+              "name": "Discard",
+              "rect": {
+                "x": 199,
+                "y": 707,
+                "width": 170,
+                "height": 44,
+                "right": 369,
+                "bottom": 751
+              }
+            }
+          ],
+          "shell": {
+            "x": 0,
+            "y": 0,
+            "width": 390,
+            "height": 844,
+            "right": 390,
+            "bottom": 844
+          },
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "simulatedBottomGap": 0,
+          "horizontalOverflow": false,
+          "terminalVisible": false,
+          "stateJSON": "",
+          "failures": [],
+          "failuresAtLimit": false
+        },
+        {
+          "controls": [
+            {
+              "index": 0,
+              "tag": "button",
+              "name": "Thumb zone off",
+              "rect": {
+                "x": 21,
+                "y": 303,
+                "width": 170,
+                "height": 44,
+                "right": 191,
+                "bottom": 347
+              }
+            },
+            {
+              "index": 1,
+              "tag": "button",
+              "name": "Keyboard",
+              "rect": {
+                "x": 199,
+                "y": 303,
+                "width": 170,
+                "height": 44,
+                "right": 369,
+                "bottom": 347
+              }
+            },
+            {
+              "index": 2,
+              "tag": "button",
+              "name": "Agent reply",
+              "rect": {
+                "x": 21,
+                "y": 355,
+                "width": 170,
+                "height": 44,
+                "right": 191,
+                "bottom": 399
+              }
+            },
+            {
+              "index": 3,
+              "tag": "button",
+              "name": "Background",
+              "rect": {
+                "x": 199,
+                "y": 355,
+                "width": 170,
+                "height": 44,
+                "right": 369,
+                "bottom": 399
+              }
+            },
+            {
+              "index": 4,
+              "tag": "button",
+              "name": "Close lab",
+              "rect": {
+                "x": 21,
+                "y": 407,
+                "width": 348,
+                "height": 44,
+                "right": 369,
+                "bottom": 451
+              }
+            },
+            {
+              "index": 5,
+              "tag": "button",
+              "name": "Previous variant",
+              "rect": {
+                "x": 19,
+                "y": 485,
+                "width": 44,
+                "height": 44,
+                "right": 63,
+                "bottom": 529
+              }
+            },
+            {
+              "index": 6,
+              "tag": "button",
+              "name": "C · Context split Close lab",
+              "rect": {
+                "x": 71,
+                "y": 485,
+                "width": 248,
+                "height": 44,
+                "right": 319,
+                "bottom": 529
+              }
+            },
+            {
+              "index": 7,
+              "tag": "button",
+              "name": "Next variant",
+              "rect": {
+                "x": 327,
+                "y": 485,
+                "width": 44,
+                "height": 44,
+                "right": 371,
+                "bottom": 529
+              }
+            }
+          ],
+          "primary": [],
+          "shell": {
+            "x": 0,
+            "y": 0,
+            "width": 390,
+            "height": 544,
+            "right": 390,
+            "bottom": 544
+          },
+          "viewport": {
+            "width": 390,
+            "height": 844
+          },
+          "simulatedBottomGap": 300,
+          "horizontalOverflow": false,
+          "terminalVisible": false,
+          "stateJSON": "{\n  \"mode\": \"focused\",\n  \"focused\": true,\n  \"sending\": false,\n  \"dialog\": false,\n  \"lab\": true,\n  \"draft\": \"Fixture-only retained draft C\",\n  \"draftKept\": true,\n  \"background\": true,\n  \"keyboardSimulation\": true,\n  \"viewport\": {\n    \"height\": 844,\n    \"width\": 390,\n    \"top\": 0,\n    \"left\": 0\n  },\n  \"controlHeight\": 186,\n  \"formattedFrames\": 2,\n  \"source\": \"labelled fixtures; local memory only\",\n  \"event\": \"Background toggled · simulation; state kept\"\n}",
+          "failures": [],
+          "failuresAtLimit": false
+        },
+        {
+          "controls": [
+            {
+              "index": 0,
+              "tag": "textarea",
+              "name": "Pi prompt",
+              "rect": {
+                "x": 12,
+                "y": 220,
+                "width": 820,
+                "height": 44,
+                "right": 832,
+                "bottom": 264
+              }
+            },
+            {
+              "index": 1,
+              "tag": "button",
+              "name": "Terminal",
+              "rect": {
+                "x": 12,
+                "y": 272,
+                "width": 268,
+                "height": 44,
+                "right": 280,
+                "bottom": 316
+              }
+            },
+            {
+              "index": 2,
+              "tag": "button",
+              "name": "Cancel",
+              "rect": {
+                "x": 288,
+                "y": 272,
+                "width": 268,
+                "height": 44,
+                "right": 556,
+                "bottom": 316
+              }
+            },
+            {
+              "index": 3,
+              "tag": "button",
+              "name": "Send ↑",
+              "rect": {
+                "x": 564,
+                "y": 272,
+                "width": 268,
+                "height": 44,
+                "right": 832,
+                "bottom": 316
+              }
+            },
+            {
+              "index": 4,
+              "tag": "button",
+              "name": "Previous variant",
+              "rect": {
+                "x": 19,
+                "y": 331,
+                "width": 44,
+                "height": 44,
+                "right": 63,
+                "bottom": 375
+              }
+            },
+            {
+              "index": 5,
+              "tag": "button",
+              "name": "C · Context split Lab / state",
+              "rect": {
+                "x": 71,
+                "y": 331,
+                "width": 702,
+                "height": 44,
+                "right": 773,
+                "bottom": 375
+              }
+            },
+            {
+              "index": 6,
+              "tag": "button",
+              "name": "Next variant",
+              "rect": {
+                "x": 781,
+                "y": 331,
+                "width": 44,
+                "height": 44,
+                "right": 825,
+                "bottom": 375
+              }
+            }
+          ],
+          "primary": [
+            {
+              "name": "Terminal",
+              "rect": {
+                "x": 12,
+                "y": 272,
+                "width": 268,
+                "height": 44,
+                "right": 280,
+                "bottom": 316
+              }
+            },
+            {
+              "name": "Cancel",
+              "rect": {
+                "x": 288,
+                "y": 272,
+                "width": 268,
+                "height": 44,
+                "right": 556,
+                "bottom": 316
+              }
+            },
+            {
+              "name": "Send ↑",
+              "rect": {
+                "x": 564,
+                "y": 272,
+                "width": 268,
+                "height": 44,
+                "right": 832,
+                "bottom": 316
+              }
+            }
+          ],
+          "shell": {
+            "x": 0,
+            "y": 0,
+            "width": 844,
+            "height": 390,
+            "right": 844,
+            "bottom": 390
+          },
+          "viewport": {
+            "width": 844,
+            "height": 390
+          },
+          "simulatedBottomGap": 0,
+          "horizontalOverflow": false,
+          "terminalVisible": false,
+          "stateJSON": "",
+          "failures": [],
+          "failuresAtLimit": false
+        }
+      ]
+    }
+  ],
+  "failures": [],
+  "ok": true
+}
