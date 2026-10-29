@@ -4,7 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CommandDraftContext, createCommandDraftStore } from "./commandDrafts";
+import { insertPiComposerText } from "./pi/sidepanel/piComposerInsert";
 import { piComposerDraftKey } from "./pi-mode/piComposerDraft";
+import { clearPiComposerHistory, getPiComposerHistory } from "./pi-mode/piComposerHistory";
 import { TerminalView } from "./TerminalView";
 import type { PaneInfo } from "./types";
 
@@ -172,6 +174,7 @@ function promptField(container: HTMLElement) {
 
 async function typePrompt(field: HTMLTextAreaElement, value: string) {
   await act(async () => {
+    field.focus();
     const setter = Object.getOwnPropertyDescriptor(
       window.HTMLTextAreaElement.prototype,
       "value",
@@ -457,10 +460,19 @@ describe("TerminalView Pi Composer (Seam 3)", () => {
     ).toBeNull();
     expect(container.querySelectorAll("textarea, input.term-native-input").length).toBe(1);
 
+    // One compact meta row holds the model picker and the two prefix triggers.
+    const meta = container.querySelector(".pi-composer-meta");
+    expect(meta?.querySelectorAll("button")).toHaveLength(4);
+    expect(meta?.querySelector(".pi-model-picker-trigger")).not.toBeNull();
+    expect(meta?.querySelector('button[aria-label="Open slash suggestions"]')).not.toBeNull();
+    expect(meta?.querySelector('button[aria-label="Open file suggestions"]')).not.toBeNull();
+    expect(meta?.querySelector('button[aria-label="Open prompt history"]')).not.toBeNull();
+    // The Composer owns `/`, so the Key Bar no longer duplicates it there.
+    expect(container.querySelector('button[aria-label="Slash command"]')).toBeNull();
     // A Key Bar key still reaches the terminal socket.
-    await clickButton(container, "Slash command");
+    await clickButton(container, "Shell command");
     await act(async () => vi.advanceTimersByTime(40));
-    expect(sentTerminalInput(socket)).toEqual(["/"]);
+    expect(sentTerminalInput(socket)).toEqual(["!"]);
 
     // The Key Bar chord composer still opens for any chord.
     await clickButton(container, "Compose any key");
@@ -990,6 +1002,52 @@ async function selectRange(field: HTMLTextAreaElement, start: number, end = star
 }
 
 describe("TerminalView Pi Composer suggestions (Seam 3)", () => {
+  it("closes on blur, preserves pointer picks, and does not accept IME or modifier selection", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    await openSocket();
+    await openPiBridgeWithCatalog();
+    const field = promptField(container);
+    await typePrompt(field, "/");
+    await act(async () => field.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter", altKey:true,bubbles:true,cancelable:true})));
+    expect(field.value).toBe("/");
+    await act(async () => field.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",isComposing:true,bubbles:true,cancelable:true})));
+    expect(field.value).toBe("/");
+    await pressKey(field, "Tab");
+    expect(field.value).toBe("/compact ");
+    expect(document.activeElement).toBe(field);
+    await typePrompt(field, "/");
+    await act(async () => field.blur());
+    expect(suggestionPopup(container)).toBeNull();
+    await act(async () => field.focus());
+    expect(suggestionPopup(container)).not.toBeNull();
+    await pressKey(field, "Escape");
+    expect(suggestionPopup(container)).toBeNull();
+    expect(promptField(container)).toBe(field);
+  });
+
+  it("keeps field focus for a pointer pick and prevents its mousedown default", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    await openSocket();
+    await openPiBridgeWithCatalog();
+    const field = promptField(container);
+    await typePrompt(field, "/");
+
+    const row = suggestionRows(container).find(
+      (candidate) => candidate.dataset.suggestionLabel === "/compact",
+    )!;
+    // A real pointer press blurs the field unless the row prevents the default.
+    const mousedown = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    await act(async () => row.dispatchEvent(mousedown));
+    expect(mousedown.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(field);
+
+    await act(async () => row.click());
+    expect(field.value).toBe("/compact ");
+    expect(suggestionPopup(container)).toBeNull();
+    expect(document.activeElement).toBe(field);
+  });
   it("opens catalog commands and skills from /, filters as you type and never lists files", async () => {
     const { pane, paneId } = testPane(PANE_A);
     const { container } = await renderTerminalView({ paneId, pane, mobile: true });
@@ -1000,7 +1058,7 @@ describe("TerminalView Pi Composer suggestions (Seam 3)", () => {
     await typePrompt(field, "/");
 
     expect(suggestionPopup(container)).not.toBeNull();
-    expect(suggestionLabels(container)).toEqual(["/compact", "/review", "tdd"]);
+    expect(suggestionLabels(container)).toEqual(["/compact", "/review", "/skill:tdd"]);
     expect(container.textContent).toContain("Compact the session");
     expect(container.textContent).toContain("Write tests first");
 
@@ -1097,7 +1155,7 @@ describe("TerminalView Pi Composer suggestions (Seam 3)", () => {
     expect(suggestionPopup(container)).toBeNull();
   });
 
-  it("opens the popup from the dedicated / and @ buttons without focusing the field", async () => {
+  it("opens the popup from the dedicated / and @ buttons and focuses the field", async () => {
     const { pane, paneId } = testPane(PANE_A);
     const { container } = await renderTerminalView({ paneId, pane, mobile: true });
     await openSocket();
@@ -1106,8 +1164,8 @@ describe("TerminalView Pi Composer suggestions (Seam 3)", () => {
 
     await clickButton(container, "Open slash suggestions");
     expect(field.value).toBe("/");
-    expect(suggestionLabels(container)).toEqual(["/compact", "/review", "tdd"]);
-    expect(document.activeElement).not.toBe(field);
+    expect(suggestionLabels(container)).toEqual(["/compact", "/review", "/skill:tdd"]);
+    expect(document.activeElement).toBe(field);
 
     await typePrompt(field, "");
     await clickButton(container, "Open file suggestions");
@@ -1126,8 +1184,524 @@ describe("TerminalView Pi Composer suggestions (Seam 3)", () => {
     await pressKey(field, "ArrowDown");
     await pressKey(field, "Enter");
 
-    expect(field.value).toBe("/review");
+    expect(field.value).toBe("/review ");
     expect(suggestionPopup(container)).toBeNull();
+  });
+});
+
+describe("Pi Composer model picker (Seam 3)", () => {
+  function modelRows(container: HTMLElement) {
+    return Array.from(container.querySelectorAll<HTMLButtonElement>("[data-model-key]"));
+  }
+  function pickerTrigger(container: HTMLElement) {
+    const trigger = container.querySelector<HTMLButtonElement>(".pi-composer .pi-model-picker-trigger");
+    if (!trigger) throw new Error("Missing Composer model picker");
+    return trigger;
+  }
+  async function openPickerWithModels() {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    await openSocket();
+    const pi = piBridgeSocket();
+    await act(async () => pi.dispatchEvent(new Event("open")));
+    await sendPiRecord(pi, { type: "hello", protocol_version: 1, capabilities: {} });
+    const idleState = (model: { provider: string; id: string }) => ({
+      type: "state",
+      busy: "idle",
+      model,
+      models: [
+        { provider: "anthropic", id: "claude", label: "Claude Sonnet" },
+        { provider: "openai", id: "gpt", label: "GPT Fast" },
+      ],
+      thinking_level: "medium",
+      thinking_levels: ["medium"],
+      cwd: "/workspace",
+    });
+    await sendPiRecord(pi, idleState({ provider: "anthropic", id: "claude" }));
+    return { container, pi, idleState };
+  }
+
+  it("filters by label, requests the model and only displays the next Pi State", async () => {
+    const { container, pi, idleState } = await openPickerWithModels();
+    expect(pickerTrigger(container).textContent).toContain("claude");
+
+    await act(async () => pickerTrigger(container).click());
+    const search = container.querySelector<HTMLInputElement>('input[aria-label="Search models"]')!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+      setter?.call(search, "open gpt");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(modelRows(container).map((row) => row.dataset.modelKey)).toEqual([
+      JSON.stringify(["openai", "gpt"]),
+    ]);
+
+    await act(async () => modelRows(container)[0].click());
+    const request = sentPiRecords(pi).find((record) => record.type === "set_model");
+    expect(request).toMatchObject({ type: "set_model", provider: "openai", model: "gpt" });
+    await sendPiRecord(pi, { type: "response", id: request!.id, ok: true });
+    expect(pickerTrigger(container).textContent).toContain("claude");
+
+    await sendPiRecord(pi, idleState({ provider: "openai", id: "gpt" }));
+    expect(pickerTrigger(container).textContent).toContain("gpt");
+    expect(container.querySelector('input[aria-label="Search models"]')).toBeNull();
+  });
+
+  it("shows a failed change without changing the published model", async () => {
+    const { container, pi } = await openPickerWithModels();
+    await act(async () => pickerTrigger(container).click());
+    await act(async () => modelRows(container)[1].click());
+    const request = sentPiRecords(pi).find((record) => record.type === "set_model")!;
+    await sendPiRecord(pi, { type: "response", id: request.id, ok: false, error: "model rejected" });
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("model rejected");
+    expect(pickerTrigger(container).textContent).toContain("claude");
+  });
+
+  it("ignores a model change that settles after the panel was closed", async () => {
+    const { container, pi, idleState } = await openPickerWithModels();
+    await act(async () => pickerTrigger(container).click());
+    await act(async () => modelRows(container)[1].click());
+    const request = sentPiRecords(pi).find((record) => record.type === "set_model")!;
+
+    // The user moves on before Pi answers: close the panel and go elsewhere.
+    await act(async () => {
+      document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    });
+    expect(container.querySelector('[aria-label="Select Pi model"]')).toBeNull();
+    const field = promptField(container);
+    await act(async () => field.focus());
+
+    await sendPiRecord(pi, { type: "response", id: request.id, ok: true });
+    // A late answer must not steal focus back to the trigger or reopen anything.
+    expect(document.activeElement).toBe(field);
+    expect(container.querySelector('[aria-label="Select Pi model"]')).toBeNull();
+
+    await sendPiRecord(pi, idleState({ provider: "openai", id: "gpt" }));
+    expect(pickerTrigger(container).textContent).toContain("gpt");
+  });
+
+  it("drops a pending change and its panel when the pane disconnects", async () => {
+    const { container, pi } = await openPickerWithModels();
+    await act(async () => pickerTrigger(container).click());
+    await act(async () => modelRows(container)[1].click());
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("Changing model…");
+
+    await act(async () => {
+      const event = new Event("close") as CloseEvent;
+      Object.defineProperty(event, "code", { value: 4501 });
+      Object.defineProperty(event, "reason", { value: "unknown_pane" });
+      pi.dispatchEvent(event);
+    });
+
+    // The rejected request must not surface as an error against the new identity.
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Select Pi model"]')).toBeNull();
+    expect(pickerTrigger(container).textContent).toContain("claude");
+  });
+});
+
+describe("Pi Composer prompt recall (Seam 3)", () => {
+  it("recalls sent prompts oldest-last, restores the live draft and stays per pane", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    await openSocket();
+    await piBridgeSocket().dispatchEvent(new Event("open"));
+    const field = promptField(container);
+    await act(async () => clearPiComposerHistory(BRIDGE_ID, PANE_A));
+
+    await typePrompt(field, "first prompt");
+    await clickButton(container, "Send prompt");
+    await act(async () => vi.advanceTimersByTime(40));
+    expect(field.value).toBe("");
+    await typePrompt(field, "second prompt");
+    await clickButton(container, "Send prompt");
+    await act(async () => vi.advanceTimersByTime(40));
+    expect(field.value).toBe("");
+    await typePrompt(field, "live draft");
+    await selectRange(field, 0);
+
+    await pressKey(field, "ArrowUp");
+    expect(field.value).toBe("second prompt");
+    await pressKey(field, "ArrowUp");
+    expect(field.value).toBe("first prompt");
+    await pressKey(field, "ArrowUp");
+    expect(field.value).toBe("first prompt");
+    await pressKey(field, "ArrowDown");
+    expect(field.value).toBe("second prompt");
+    await pressKey(field, "ArrowDown");
+    expect(field.value).toBe("live draft");
+    await pressKey(field, "ArrowDown");
+    expect(field.value).toBe("live draft");
+    expect(window.localStorage.getItem(piComposerDraftKey(BRIDGE_ID, PANE_A))).toBe("live draft");
+  });
+
+  it("keeps edits made to a recalled prompt instead of restoring the old draft", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    await openSocket();
+    await piBridgeSocket().dispatchEvent(new Event("open"));
+    const field = promptField(container);
+    await act(async () => clearPiComposerHistory(BRIDGE_ID, PANE_A));
+
+    await typePrompt(field, "line one\nline two");
+    await clickButton(container, "Send prompt");
+    await act(async () => vi.advanceTimersByTime(40));
+    await typePrompt(field, "live draft");
+    await selectRange(field, 0);
+
+    await pressKey(field, "ArrowUp");
+    expect(field.value).toBe("line one\nline two");
+    await typePrompt(field, "line one\nline two edited");
+    // Editing ends browsing, so the recalled text cannot be swapped back in.
+    await pressKey(field, "ArrowDown");
+    expect(field.value).toBe("line one\nline two edited");
+    await pressKey(field, "ArrowUp");
+    expect(field.value).toBe("line one\nline two edited");
+    expect(window.localStorage.getItem(piComposerDraftKey(BRIDGE_ID, PANE_A))).toBe(
+      "line one\nline two edited",
+    );
+  });
+
+  it("ends browsing when a trigger or completion changes the recalled text", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    const socket = await openSocket();
+    await act(async () => clearPiComposerHistory(BRIDGE_ID, PANE_A));
+    const field = promptField(container);
+    await typePrompt(field, "remembered");
+    await clickButton(container, "Send prompt");
+    await act(async () => vi.advanceTimersByTime(40));
+    await typePrompt(field, "live draft");
+    const sentBefore = sentTerminalInput(socket).length;
+    await selectRange(field, 0);
+
+    await pressKey(field, "ArrowUp");
+    expect(field.value).toBe("remembered");
+    // A trigger button is an authored edit even though the field onChange never ran.
+    await clickButton(container, "Open slash suggestions");
+    expect(field.value).toBe("/remembered");
+    await pressKey(field, "ArrowDown");
+    expect(field.value).toBe("/remembered");
+    expect(sentTerminalInput(socket)).toHaveLength(sentBefore);
+    expect(window.localStorage.getItem(piComposerDraftKey(BRIDGE_ID, PANE_A))).toBe("/remembered");
+  });
+});
+
+describe("Pi controls stack height (Seam 3)", () => {
+  it("reports the Key Bar and the Composer together so overlays clear both", async () => {
+    const original = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function boundingRect(this: HTMLElement) {
+      const height = this.classList.contains("pi-key-bar")
+        ? 51
+        : this.classList.contains("pi-composer")
+          ? 105
+          : 0;
+      return {
+        x: 0,
+        y: 0,
+        width: 0,
+        height,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: height,
+        toJSON: () => ({}),
+      } as DOMRect;
+    };
+    try {
+      const { pane, paneId } = testPane(PANE_A);
+      const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+      await openSocket();
+      const stage = container.querySelector<HTMLElement>(".terminal-stage");
+      expect(container.querySelector(".pi-key-bar")).not.toBeNull();
+      expect(container.querySelector(".pi-composer")).not.toBeNull();
+      await act(async () => {});
+      expect(stage?.style.getPropertyValue("--terminal-command-controls-height")).toBe("156px");
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = original;
+    }
+  });
+});
+
+describe("Pi Composer prompt history panel (Seam 3)", () => {
+  function historyPanel(container: HTMLElement) {
+    return container.querySelector<HTMLElement>('[aria-label="Prompt history"]');
+  }
+  function historyEntries(container: HTMLElement) {
+    return Array.from(container.querySelectorAll<HTMLButtonElement>("[data-pi-history-entry]"));
+  }
+  async function openHistory(container: HTMLElement) {
+    await clickButton(container, "Open prompt history");
+  }
+
+  it("does not write a recalled prompt to the persisted draft", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    await openSocket();
+    await piBridgeSocket().dispatchEvent(new Event("open"));
+    const field = promptField(container);
+    await act(async () => clearPiComposerHistory(BRIDGE_ID, PANE_A));
+
+    await typePrompt(field, "secret-ish prompt");
+    await clickButton(container, "Send prompt");
+    await act(async () => vi.advanceTimersByTime(40));
+    expect(window.localStorage.getItem(piComposerDraftKey(BRIDGE_ID, PANE_A))).toBeNull();
+
+    // Browsing history shows the old prompt, but does not persist it again.
+    await pressKey(field, "ArrowUp");
+    expect(field.value).toBe("secret-ish prompt");
+    expect(window.localStorage.getItem(piComposerDraftKey(BRIDGE_ID, PANE_A))).toBeNull();
+    await openHistory(container);
+    await act(async () => historyEntries(container)[0].click());    expect(field.value).toBe("secret-ish prompt");
+    expect(window.localStorage.getItem(piComposerDraftKey(BRIDGE_ID, PANE_A))).toBeNull();
+
+    // Authoring the text persists it again.
+    await typePrompt(field, "secret-ish prompt edited");
+    expect(window.localStorage.getItem(piComposerDraftKey(BRIDGE_ID, PANE_A))).toBe(
+      "secret-ish prompt edited",
+    );
+  });
+
+  it("clears the delivered draft when a recall replaced it mid-send", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    await openSocket();
+    await piBridgeSocket().dispatchEvent(new Event("open"));
+    const field = promptField(container);
+    await act(async () => clearPiComposerHistory(BRIDGE_ID, PANE_A));
+
+    await typePrompt(field, "older prompt");
+    await clickButton(container, "Send prompt");
+    await act(async () => vi.advanceTimersByTime(40));
+
+    // The second send is still in flight, so recall happens before it settles.
+    await typePrompt(field, "in flight");
+    await clickButton(container, "Send prompt");
+    await selectRange(field, 0);
+    await pressKey(field, "ArrowUp");
+    expect(field.value).toBe("older prompt");
+    expect(window.localStorage.getItem(piComposerDraftKey(BRIDGE_ID, PANE_A))).toBe("in flight");
+
+    await act(async () => vi.advanceTimersByTime(40));
+    // The recalled text stays, but the delivered prompt cannot return on reload.
+    expect(field.value).toBe("older prompt");
+    expect(window.localStorage.getItem(piComposerDraftKey(BRIDGE_ID, PANE_A))).toBeNull();
+    expect(getPiComposerHistory(BRIDGE_ID, PANE_A)).toEqual(["in flight", "older prompt"]);
+  });
+
+  it("appends a side-panel command to the prompt the Composer is showing", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    const socket = await openSocket();
+    await act(async () => clearPiComposerHistory(BRIDGE_ID, PANE_A));
+    const field = promptField(container);
+    await typePrompt(field, "remembered prompt");
+    await clickButton(container, "Send prompt");
+    await act(async () => vi.advanceTimersByTime(40));
+    const sentBefore = sentTerminalInput(socket).length;
+
+    await openHistory(container);
+    await act(async () => historyEntries(container)[0].click());
+    expect(field.value).toBe("remembered prompt");
+    await typePrompt(field, "");
+    await pressKey(field, "ArrowUp");
+    expect(field.value).toBe("remembered prompt");
+
+    // The side panel appends to the live draft, not to the stale stored one.
+    await act(async () => insertPiComposerText(BRIDGE_ID, PANE_A, "/skill:tdd"));
+    expect(field.value).toBe("remembered prompt\n/skill:tdd");
+    expect(sentTerminalInput(socket)).toHaveLength(sentBefore);
+  });
+
+  it("searches newest-first, replaces the draft without sending and clears", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    const socket = await openSocket();
+    await act(async () => clearPiComposerHistory(BRIDGE_ID, PANE_A));
+    const field = promptField(container);
+    for (const prompt of ["first prompt", "second prompt"]) {
+      await typePrompt(field, prompt);
+      await clickButton(container, "Send prompt");
+      await act(async () => vi.advanceTimersByTime(40));
+    }
+    await typePrompt(field, "live draft");
+    const sentBefore = sentTerminalInput(socket).length;
+
+    await openHistory(container);
+    expect(historyPanel(container)).not.toBeNull();
+    expect(historyEntries(container).map((row) => row.textContent)).toEqual([
+      "second prompt",
+      "first prompt",
+    ]);
+    const search = container.querySelector<HTMLInputElement>('[aria-label="Search prompt history"]')!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+      setter?.call(search, "FIRST");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(historyEntries(container)).toHaveLength(1);
+
+    await act(async () => historyEntries(container)[0].click());
+    expect(field.value).toBe("first prompt");
+    expect(field.selectionStart).toBe("first prompt".length);
+    expect(sentTerminalInput(socket).length).toBe(sentBefore);
+    expect(historyPanel(container)).toBeNull();
+
+    await openHistory(container);
+    await clickButton(container, "Clear history");
+    expect(container.textContent).toContain("No prompts yet");
+    expect(historyEntries(container)).toHaveLength(0);
+    await clickButton(container, "Close prompt history");
+    expect(historyPanel(container)).toBeNull();
+    expect(field.value).toBe("first prompt");
+  });
+
+  it("records a partially delivered prompt once, after the recovery send", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container, reconnect } = await renderTerminalView({ paneId, pane, mobile: true });
+    const socket = await openSocket();
+    await act(async () => clearPiComposerHistory(BRIDGE_ID, PANE_A));
+    const field = promptField(container);
+
+    await typePrompt(field, "recover me");
+    await clickButton(container, "Send prompt");
+    // Only the paste reached Pi; the queued Enter is dropped with the attach.
+    expect(sentTerminalInput(socket)).toEqual(["\x1b[200~recover me\x1b[201~"]);
+    await act(async () => {
+      socket.dispatchEvent(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "closed", reason: "terminal attach taken over" }),
+        }),
+      );
+      socket.dispatchEvent(new Event("close"));
+    });
+    await act(async () => vi.advanceTimersByTime(40));
+    expect(container.querySelector(".pi-composer-recovery")).not.toBeNull();
+    // The paste alone is not a delivered prompt, so nothing is remembered yet.
+    expect(getPiComposerHistory(BRIDGE_ID, PANE_A)).toEqual([]);
+
+    await reconnect();
+    const nextSocket = await openSocket();
+    await clickButton(container, "Submit prompt");
+    await act(async () => vi.advanceTimersByTime(40));
+    expect(sentTerminalInput(nextSocket)).toEqual(["\r"]);
+
+    expect(getPiComposerHistory(BRIDGE_ID, PANE_A)).toEqual(["recover me"]);
+    await openHistory(container);
+    expect(historyEntries(container).map((row) => row.textContent)).toEqual(["recover me"]);
+  });
+
+  it("keeps only one popup open at a time", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    await openSocket();
+    const pi = await openPiBridgeWithCatalog();
+    await sendPiRecord(pi, {
+      type: "state",
+      busy: "idle",
+      model: { provider: "anthropic", id: "claude" },
+      models: [{ provider: "anthropic", id: "claude", label: "Claude" }],
+      thinking_level: "medium",
+      thinking_levels: ["medium"],
+      cwd: "/workspace",
+    });
+    const field = promptField(container);
+
+    await typePrompt(field, "/");
+    expect(suggestionPopup(container)).not.toBeNull();
+    await openHistory(container);
+    expect(suggestionPopup(container)).toBeNull();
+    await clickButton(container, "Close prompt history");
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".pi-model-picker-trigger")?.click();
+    });
+    expect(container.querySelector('[aria-label="Select Pi model"]')).not.toBeNull();
+    await openHistory(container);
+    expect(container.querySelector('[aria-label="Select Pi model"]')).toBeNull();
+    expect(suggestionPopup(container)).toBeNull();
+  });
+
+  it("keeps focus on a model row while the panel position updates", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: false });
+    await openSocket();
+    await act(async () => piBridgeSocket().dispatchEvent(new Event("open")));
+    await sendPiRecord(piBridgeSocket(), { type: "hello", protocol_version: 1, capabilities: {} });
+    await sendPiRecord(piBridgeSocket(), {
+      type: "state",
+      busy: "idle",
+      model: { provider: "anthropic", id: "claude" },
+      models: [
+        { provider: "anthropic", id: "claude", label: "Claude" },
+        { provider: "openai", id: "gpt", label: "GPT" },
+      ],
+      thinking_level: "medium",
+      thinking_levels: ["medium"],
+      cwd: "/workspace",
+    });
+    await act(async () => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: " ", ctrlKey: true, bubbles: true, cancelable: true }),
+      );
+    });
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".pi-model-picker-trigger")?.click();
+    });
+    const panel = container.querySelector<HTMLElement>('[aria-label="Select Pi model"]')!;
+    const search = panel.querySelector<HTMLInputElement>('[aria-label="Search models"]')!;
+    expect(document.activeElement).toBe(search);
+    const row = panel.querySelector<HTMLButtonElement>('[role="option"] button')!;
+    row.focus();
+    // Scrolling and resizing reposition the panel, which must not yank focus
+    // back to the search field while the user is tabbing through models.
+    await act(async () => {
+      window.dispatchEvent(new Event("scroll"));
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(document.activeElement).toBe(row);
+  });
+
+  it("reopens the desktop Composer without the model panel it was closed with", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: false });
+    await openSocket();
+    const pi = piBridgeSocket();
+    await act(async () => pi.dispatchEvent(new Event("open")));
+    await sendPiRecord(pi, { type: "hello", protocol_version: 1, capabilities: {} });
+    await sendPiRecord(pi, {
+      type: "state",
+      busy: "idle",
+      model: { provider: "anthropic", id: "claude" },
+      models: [{ provider: "anthropic", id: "claude", label: "Claude" }],
+      thinking_level: "medium",
+      thinking_levels: ["medium"],
+      cwd: "/workspace",
+    });
+    const openComposer = async () => {
+      await act(async () => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: " ", ctrlKey: true, bubbles: true, cancelable: true }),
+        );
+      });
+    };
+
+    await openComposer();
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".pi-model-picker-trigger")?.click();
+    });
+    expect(container.querySelector('[aria-label="Select Pi model"]')).not.toBeNull();
+
+    await act(async () => {
+      promptField(container).dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      );
+    });
+    expect(container.querySelector('[aria-label="Pi prompt"]')).toBeNull();
+
+    await openComposer();
+    expect(container.querySelector('[aria-label="Pi prompt"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Select Pi model"]')).toBeNull();
   });
 });
 

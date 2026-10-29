@@ -51,6 +51,27 @@ export function writePiComposerDraft(
 }
 
 /**
+ * Clears the stored draft only while it still holds `expected`. A prompt that is
+ * already in flight can be superseded by recall or a new draft, and that newer
+ * text must survive the delivery while the delivered prompt must not come back
+ * on reload.
+ */
+export function clearPiComposerDraftIf(
+  bridgeId: string,
+  paneId: string,
+  expected: string,
+  storage: Storage | null = storageOrNull(),
+) {
+  if (!storage) {
+    return;
+  }
+  if (readPiComposerDraft(bridgeId, paneId, storage) !== expected) {
+    return;
+  }
+  writePiComposerDraft(bridgeId, paneId, "", storage);
+}
+
+/**
  * Drops stored drafts for panes that are gone from a successful, complete
  * bridge snapshot, so closed panes cannot grow browser storage forever.
  * Call only with a current, complete snapshot, like the command draft store.
@@ -85,6 +106,10 @@ export function retainPiComposerDrafts(
  * Pi Composer draft that outlives the component: unlike the in-memory command
  * draft store, this survives a reload. Mount the Composer with a
  * `key` of `bridgeId + paneId` so switching panes re-reads the right draft.
+ *
+ * The third setter changes the draft without touching storage, for text the user
+ * has not authored in this visit — recalling a sent prompt must not write an old
+ * prompt back to disk.
  */
 export function usePiComposerDraft(bridgeId: string, paneId: string) {
   const [value, setValue] = useState(() => readPiComposerDraft(bridgeId, paneId));
@@ -95,5 +120,5 @@ export function usePiComposerDraft(bridgeId: string, paneId: string) {
     },
     [bridgeId, paneId],
   );
-  return [value, update] as const;
+  return [value, update, setValue] as const;
 }

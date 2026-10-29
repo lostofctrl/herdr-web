@@ -138,7 +138,7 @@ describe("PiComposer under StrictMode", () => {
   it("keeps every visible action label inside its accessible name", async () => {
     const { container } = await renderUnderStrictMode();
     const labels = [...container.querySelectorAll<HTMLElement>(".pi-composer-action-label")];
-    expect(labels.map((label) => label.textContent)).toEqual(["Slash", "File"]);
+    expect(labels.map((label) => label.textContent)).toEqual(["History", "Slash", "File"]);
     for (const label of labels) {
       const name = label.closest("button")?.getAttribute("aria-label") ?? "";
       expect(name.toLowerCase(), label.textContent ?? "").toContain((label.textContent ?? "").toLowerCase());

@@ -163,6 +163,26 @@ async function insertInAct(bridgeId: string, paneId: string, text: string) {
   await act(async () => insertPiComposerText(bridgeId, paneId, text));
 }
 
+function triggerPicker(container: HTMLElement) {
+  const trigger = container.querySelector<HTMLButtonElement>(".pi-model-picker-trigger");
+  if (!trigger) throw new Error("Missing model picker trigger");
+  return trigger;
+}
+
+function pickerRows(container: HTMLElement) {
+  return Array.from(container.querySelectorAll<HTMLButtonElement>("[data-model-key]"));
+}
+
+async function typeSearch(container: HTMLElement, value: string) {
+  const search = container.querySelector<HTMLInputElement>('input[aria-label="Search models"]');
+  if (!search) throw new Error("Missing model search field");
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+    setter?.call(search, value);
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
 function control<T extends HTMLElement>(container: HTMLElement, label: string): T {
   const element = container.querySelector<T>(`[aria-label="${label}"]`);
   if (!element) throw new Error(`Missing control: ${label}`);
@@ -201,14 +221,19 @@ describe("TerminalView Pi Side Panel (Seam 3)", () => {
     // Healthy bridge: no offline dot and no offline status.
     expect(container.querySelector(".pi-side-panel-dot")).toBeNull();
     expect(container.querySelector(".pi-side-panel-status")).toBeNull();
-    const model = control<HTMLSelectElement>(container, "Pi model");
     const thinking = control<HTMLSelectElement>(container, "Pi thinking level");
-    const gpt = [...model.options].find((option) => option.textContent?.includes("GPT"))!;
-    await changeSelect(container, "Pi model", gpt.value);
+    const publishedModel = () => container.querySelector(".pi-side-panel-model .pi-model-picker-trigger")?.textContent ?? "";
+    expect(publishedModel()).toContain("claude");
+    await act(async () => triggerPicker(container).click());
+    await typeSearch(container, "gpt");
+    expect(pickerRows(container).map((row) => row.dataset.modelKey)).toEqual([
+      JSON.stringify(["openai", "gpt"]),
+    ]);
+    await act(async () => pickerRows(container)[0].click());
     const modelRequest = piRequests(pi).at(-1)!;
     expect(modelRequest).toMatchObject({ type: "set_model", provider: "openai", model: "gpt" });
     await sendPiRecord({ type: "response", id: modelRequest.id, ok: true });
-    expect(model.selectedOptions[0].textContent).toContain("Claude");
+    expect(publishedModel()).toContain("claude");
 
     await changeSelect(container, "Pi thinking level", "high");
     const thinkingRequest = piRequests(pi).at(-1)!;
@@ -218,7 +243,7 @@ describe("TerminalView Pi Side Panel (Seam 3)", () => {
     await sendPiRecord({ type: "state", busy: "idle", model: { provider: "openai", id: "gpt" },
       models: [{ provider: "openai", id: "gpt", label: "GPT" }],
       thinking_level: "high", thinking_levels: ["high"], cwd: "/workspace" });
-    expect(model.selectedOptions[0].textContent).toContain("GPT");
+    expect(publishedModel()).toContain("gpt");
     expect(thinking.value).toBe("high");
   });
   it("searches catalog metadata and inserts command/skill triggers into the live persistent Composer", async () => {
@@ -276,8 +301,14 @@ describe("TerminalView Pi Side Panel (Seam 3)", () => {
       models: [{ provider: "other", id: "available", label: "Available" }],
       thinking_level: "medium", thinking_levels: [], cwd: "/workspace" });
     await click(container, "Toggle Pi Side Panel");
-    expect(control<HTMLSelectElement>(container, "Pi model").selectedOptions[0].textContent).toContain("current");
+    const trigger = container.querySelector<HTMLElement>(".pi-side-panel-model .pi-model-picker-trigger");
+    expect(trigger?.textContent).toContain("current");
     expect(control<HTMLSelectElement>(container, "Pi thinking level").value).toBe("medium");
+    await act(async () => trigger?.click());
+    const panelRows = pickerRows(container);
+    expect(panelRows).toHaveLength(1);
+    expect(container.textContent).toContain("current · custom (unavailable)");
+    expect(panelRows[0].dataset.modelKey).toBe(JSON.stringify(["other", "available"]));
   });
 
   it("shows Bridge Offline and hides bridge-only controls while Composer and Key Bar stay usable", async () => {
@@ -297,7 +328,10 @@ describe("TerminalView Pi Side Panel (Seam 3)", () => {
     expect(panel.querySelector('[role="status"]')?.textContent).toBe("Bridge Offline");
     const dot = panel.querySelector(".pi-side-panel-dot");
     expect(dot?.getAttribute("aria-hidden")).toBe("true");
-    for (const label of ["Pi model", "Pi thinking level", "Search commands and skills", "Insert /review"]) {
+    // The picker stays visible as published State but cannot change anything offline.
+    expect(triggerPicker(container).disabled).toBe(true);
+    expect(container.querySelector('input[aria-label="Search models"]')).toBeNull();
+    for (const label of ["Pi thinking level", "Search commands and skills", "Insert /review"]) {
       expect(container.querySelector(`[aria-label="${label}"]`)).toBeNull();
     }
     expect(control<HTMLTextAreaElement>(container, "Pi prompt").disabled).toBe(false);

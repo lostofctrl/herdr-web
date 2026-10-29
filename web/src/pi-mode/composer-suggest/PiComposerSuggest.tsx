@@ -7,6 +7,7 @@ export type PiComposerSuggestProps = {
   items: PiComposerSuggestion[];
   activeIndex: number;
   loading: boolean;
+  error?: string | null;
   onActiveChange: (index: number) => void;
   onPick: (item: PiComposerSuggestion) => void;
 };
@@ -20,6 +21,7 @@ export function PiComposerSuggest({
   items,
   activeIndex,
   loading,
+  error,
   onActiveChange,
   onPick,
 }: PiComposerSuggestProps) {
@@ -43,12 +45,13 @@ export function PiComposerSuggest({
     >
       {items.length === 0 ? (
         <div className="pi-composer-suggest-empty" role="status">
-          {loading ? "Searching files…" : "No matches"}
+          {loading ? "Searching files…" : error ?? "No matches"}
         </div>
       ) : (
         items.map((item, index) => (
           <button
             key={item.id}
+            id={`${id}-${index}`}
             type="button"
             role="option"
             aria-selected={index === activeIndex}

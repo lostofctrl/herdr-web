@@ -1,6 +1,7 @@
 import { CommandDraftContext, createCommandDraftStore } from "./commandDrafts";
 import { hasOpenModal, isShortcutTextEntryTarget } from "./keyboardShortcutTargets";
 import { retainPiComposerDrafts } from "./pi-mode/piComposerDraft";
+import { retainPiComposerHistory } from "./pi-mode/piComposerHistory";
 import { linkedWorkspaceLabels } from "./workspaceClose";
 import {
   Activity,
@@ -1364,6 +1365,7 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
         const paneIds = snapshot.panes.map((pane) => pane.pane_id);
         commandDrafts.retainPanes(runtime.id, paneIds);
         retainPiComposerDrafts(runtime.id, paneIds);
+        retainPiComposerHistory(runtime.id, paneIds);
       }
     }
   }, [bridgeViews, commandDrafts]);

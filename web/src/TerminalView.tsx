@@ -28,6 +28,7 @@ import type { MobileTerminalChordKey } from "./mobileTerminalControls";
 import { MobileTerminalKeyButton } from "./MobileTerminalKeyButton";
 import { ConfirmDialog } from "./overlays";
 import { PiComposer } from "./pi-mode/PiComposer";
+import { piControlsStackHeight } from "./pi-mode/piControlsHeight";
 import { PiDialogCards } from "./pi/cards/PiDialogCard";
 import { PiSidePanel } from "./pi/sidepanel/PiSidePanel";
 import { isPiPane } from "./pi-mode/piPane";
@@ -310,6 +311,28 @@ export function TerminalView({
       `${Math.ceil(heightPx)}px`,
     );
   }, []);
+
+  // A Pi Pane stacks the Key Bar on the Composer, and the overlays above them
+  // position from one height, so the reported value covers both parts. The
+  // heights live in state because the stage ref is only attached after the
+  // children mount: a layout effect here runs with the ref in place.
+  const [piStackHeights, setPiStackHeights] = useState<{
+    keyBar: number | null;
+    composer: number | null;
+  }>({ keyBar: null, composer: null });
+  const setPiKeyBarHeight = useCallback((heightPx: number | null) => {
+    setPiStackHeights((current) =>
+      current.keyBar === heightPx ? current : { ...current, keyBar: heightPx },
+    );
+  }, []);
+  const setPiComposerHeight = useCallback((heightPx: number | null) => {
+    setPiStackHeights((current) =>
+      current.composer === heightPx ? current : { ...current, composer: heightPx },
+    );
+  }, []);
+  useLayoutEffect(() => {
+    setCommandControlsHeight(piControlsStackHeight(piStackHeights.keyBar, piStackHeights.composer));
+  }, [piStackHeights, setCommandControlsHeight]);
 
   const focusTerminalKeyboardInput = useCallback(() => {
     rendererRef.current?.focusTextInput();
@@ -1573,6 +1596,7 @@ export function TerminalView({
           paneId={pane.pane_id}
           disabled={connectionState !== "attached"}
           onInput={(data) => enqueueTerminalInput([data])}
+          onControlsHeightChange={setPiKeyBarHeight}
         />
       ) : null}
       {showCommandControls && pane && piPane ? (
@@ -1588,7 +1612,7 @@ export function TerminalView({
           onSend={sendPiComposerPrompt}
           onUploadImages={uploadPiComposerImages}
           onTerminalFocus={() => rendererRef.current?.focusTextInput()}
-          onControlsHeightChange={setCommandControlsHeight}
+          onControlsHeightChange={setPiComposerHeight}
         />
       ) : null}
       {showCommandControls && pane && !piPane ? (

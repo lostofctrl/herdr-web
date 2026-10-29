@@ -1,4 +1,4 @@
-import { ImagePlus, Send, TextCursorInput, X } from "lucide-react";
+import { History, ImagePlus, Send, TextCursorInput, X } from "lucide-react";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, KeyboardEvent, ClipboardEvent, RefObject } from "react";
 
@@ -10,6 +10,8 @@ import { ScreenshotEditor } from "../pi/screenshot";
 import type { ScreenshotSaveResult } from "../pi/screenshot";
 import type { UploadCandidate, UploadedFile } from "../terminalUploads";
 import { PiComposerSuggest, usePiComposerSuggest } from "./composer-suggest";
+import { PiModelPicker } from "./PiModelPicker";
+import { PiComposerHistory } from "./PiComposerHistory";
 import type { PiComposerSuggestion } from "./composer-suggest";
 import {
   PI_COMPOSER_MAX_ATTACHMENTS,
@@ -22,7 +24,16 @@ import {
 } from "./piComposerAttachments";
 import type { PiComposerAttachment } from "./piComposerAttachments";
 import { piComposerDeliveryParts } from "./piComposerDelivery";
-import { piComposerDraftKey, usePiComposerDraft } from "./piComposerDraft";
+import {
+  clearPiComposerHistory,
+  getPiComposerHistory,
+  recordPiComposerHistory,
+} from "./piComposerHistory";
+import {
+  clearPiComposerDraftIf,
+  piComposerDraftKey,
+  usePiComposerDraft,
+} from "./piComposerDraft";
 import { PI_COMPOSER_INSERT_EVENT, type PiComposerInsertDetail } from "../pi/sidepanel/piComposerInsert";
 import "./pi-mode.css";
 
@@ -87,14 +98,38 @@ export function PiComposer({
   const compositionGuardUntilRef = useRef(0);
   const acceptedValueRef = useRef("");
   const pendingSendRef = useRef(false);
-  const [value, setValue] = usePiComposerDraft(bridgeId, paneId);
+  const [value, setValue, setTransientValue] = usePiComposerDraft(bridgeId, paneId);
   acceptedValueRef.current = value;
   const piBridge = usePiBridge(paneId);
   const [cursor, setCursor] = useState(() => value.length);
-  const suggestion = usePiComposerSuggest({ api: piBridge, draft: value, cursor });
+  const [fieldFocused, setFieldFocused] = useState(false);
   const suggestionId = useId();
   const pendingCaretRef = useRef<number | null>(null);
+  /** -1 means "editing the live draft"; otherwise index into pane history. */
+  const historyRef = useRef({ index: -1, draft: "" });
+  /** Any edit the user authored ends browsing, so recall cannot overwrite it. */
+  const endHistoryBrowsing = useCallback(() => {
+    historyRef.current = { index: -1, draft: "" };
+  }, []);
+  /**
+   * Text the user authored or accepted: it ends history browsing and persists.
+   * Recalling a prompt uses the transient setter instead.
+   */
+  const setAuthoredValue = useCallback(
+    (next: string) => {
+      endHistoryBrowsing();
+      setValue(next);
+    },
+    [endHistoryBrowsing, setValue],
+  );
+  // Only one Composer popup may be open: completion, model picker or history.
+  const [modelOpen, setModelOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyEntries, setHistoryEntries] = useState<string[]>([]);
+  /** The user text behind a partial delivery, so recovery records it exactly once. */
+  const recoveryTextRef = useRef<string | null>(null);
   const [open, setOpen] = useState(mobile);
+  const suggestion = usePiComposerSuggest({ api: piBridge, draft: value, cursor, enabled: open && active && fieldFocused && !disabled });
   const [attachments, setAttachments] = useState<PiComposerAttachment[]>([]);
   const attachmentsRef = useRef<PiComposerAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -126,6 +161,7 @@ export function PiComposer({
       setOpen(true);
     }
   }, [mobile]);
+
 
   const setFieldNode = useCallback(
     (node: HTMLTextAreaElement | null) => {
@@ -246,14 +282,21 @@ export function PiComposer({
 
   useEffect(() => {
     const onInsert = (event: Event) => {
-      const { key, value: next } = (event as CustomEvent<PiComposerInsertDetail>).detail;
+      const { key, text } = (event as CustomEvent<PiComposerInsertDetail>).detail;
       if (key !== piComposerDraftKey(bridgeId, paneId)) return;
-      setValue(next);
+      // A mounted Composer merges into its live draft, so text it is showing
+      // without having persisted it (a recalled prompt) is not overwritten by
+      // the stored draft.
+      event.preventDefault();
+      const next = `${value}${value && !/\s$/.test(value) ? "\n" : ""}${text}`;
+      pendingCaretRef.current = next.length;
+      setAuthoredValue(next);
+      setCursor(next.length);
       openComposer();
     };
     window.addEventListener(PI_COMPOSER_INSERT_EVENT, onInsert);
     return () => window.removeEventListener(PI_COMPOSER_INSERT_EVENT, onInsert);
-  }, [bridgeId, paneId, openComposer, setValue]);
+  }, [bridgeId, paneId, openComposer, setAuthoredValue, value]);
 
   const closeComposer = useCallback(() => {
     setOpen(false);
@@ -324,7 +367,7 @@ export function PiComposer({
       return;
     }
     pendingCaretRef.current = next.cursor;
-    setValue(next.value);
+    setAuthoredValue(next.value);
     setCursor(next.cursor);
   };
 
@@ -339,11 +382,13 @@ export function PiComposer({
       start = 0;
       end = 0;
     }
-    const nextValue = value.slice(0, start) + trigger + value.slice(end);
-    const nextCursor = start + trigger.length;
+    field?.focus();
+    const prefix = kind === "file" && start > 0 && !/\s/.test(value[start - 1]) ? " " : "";
+    const nextValue = value.slice(0, start) + prefix + trigger + value.slice(end);
+    const nextCursor = start + prefix.length + trigger.length;
     pendingCaretRef.current = nextCursor;
     setCursor(nextCursor);
-    setValue(nextValue);
+    setAuthoredValue(nextValue);
   };
 
   useLayoutEffect(() => {
@@ -381,8 +426,8 @@ export function PiComposer({
     // text into the field and the stored draft, mirroring the command composer.
     compositionGuardUntilRef.current = compositionGuardDeadline();
     acceptedValueRef.current = "";
-    setValue("");
-  }, [setValue]);
+    setAuthoredValue("");
+  }, [setAuthoredValue]);
 
   /**
    * Queues a prompt and clears the Composer only once every frame reached the
@@ -403,6 +448,10 @@ export function PiComposer({
         setAwaitingSubmit(false);
         if (acceptedValueRef.current === sentValue) {
           clearAcceptedValue();
+        } else {
+          // The user recalled or retyped while this send was in flight; the live
+          // text stays, but the delivered prompt must not return on reload.
+          clearPiComposerDraftIf(bridgeId, paneId, sentValue);
         }
         onDelivered();
         return;
@@ -431,7 +480,16 @@ export function PiComposer({
       if (parts.length === 0 || (!awaitingSubmit && value.trim().length === 0)) {
         return;
       }
-      deliver(parts, sentValue, () => {});
+      // Recovery sends only Enter, so it must record the text behind the partial
+      // delivery instead of the empty draft left after the first attempt.
+      const recoverText = awaitingSubmit ? recoveryTextRef.current : sentValue;
+      const accepted = deliver(parts, sentValue, () => {
+        recordDeliveredPrompt(recoverText);
+        recoveryTextRef.current = null;
+      });
+      if (accepted && !awaitingSubmit) {
+        recoveryTextRef.current = sentValue;
+      }
       return;
     }
     if (!onUploadImages) {
@@ -452,7 +510,14 @@ export function PiComposer({
         value,
         uploaded.map((file) => file.path),
       );
-      const accepted = deliver(parts, sentValue, () => clearAttachments());
+      const accepted = deliver(parts, sentValue, () => {
+        clearAttachments();
+        // Only the user's text is recalled, never the uploaded paths.
+        recordDeliveredPrompt(sentValue);
+      });
+      if (accepted) {
+        recoveryTextRef.current = sentValue;
+      }
       if (!accepted) {
         setAttachmentError("Terminal is not attached; draft kept.");
       }
@@ -468,15 +533,47 @@ export function PiComposer({
     }
   };
 
+  const recordDeliveredPrompt = (text: string | null) => {
+    if (!text) return;
+    recordPiComposerHistory(bridgeId, paneId, text);
+    historyRef.current = { index: -1, draft: "" };
+    // An open panel is a live view of the list, not a snapshot.
+    if (historyOpen) setHistoryEntries(getPiComposerHistory(bridgeId, paneId));
+  };
+
+  useEffect(() => {
+    // Typing a new prefix owns the popup; the model and history panels step aside.
+    if (suggestion.isOpen && (modelOpen || historyOpen)) {
+      setModelOpen(false);
+      setHistoryOpen(false);
+    }
+  }, [historyOpen, modelOpen, suggestion.isOpen]);
+
+  useEffect(() => {
+    if (!open) {
+      setModelOpen(false);
+      setHistoryOpen(false);
+    }
+  }, [open]);
+
+  const toggleHistory = () => {
+    const next = !historyOpen;
+    suggestion.close();
+    setModelOpen(false);
+    setHistoryOpen(next);
+    if (next) setHistoryEntries(getPiComposerHistory(bridgeId, paneId));
+  };
+
   const submit = () => {
     void send();
   };
 
   const onFieldKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
+    event.stopPropagation();
+    if (composingRef.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
       return;
     }
-    if (suggestion.isOpen) {
+    if (suggestion.isOpen && !event.ctrlKey && !event.metaKey && !event.altKey) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         suggestion.moveActive(event.key === "ArrowDown" ? 1 : -1);
@@ -491,7 +588,7 @@ export function PiComposer({
         const picked = suggestion.pickActive();
         if (picked) {
           pendingCaretRef.current = picked.cursor;
-          setValue(picked.value);
+          setAuthoredValue(picked.value);
           setCursor(picked.cursor);
         }
         return;
@@ -511,6 +608,48 @@ export function PiComposer({
       event.preventDefault();
       submit();
     }
+    if (
+      (event.key === "ArrowUp" || event.key === "ArrowDown") &&
+      !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey
+    ) {
+      recall(event);
+    }
+  };
+
+  /** Arrow keys recall this pane's prompts only from the draft's outer edges. */
+  const recall = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    const field = event.currentTarget;
+    const start = field.selectionStart ?? 0;
+    const end = field.selectionEnd ?? start;
+    if (start !== end) return;
+    const entries = getPiComposerHistory(bridgeId, paneId);
+    const history = historyRef.current;
+    const atTop = value.lastIndexOf("\n", start - 1) === -1 && start === 0;
+    const atBottom = value.indexOf("\n", end) === -1 && end === value.length;
+    const backward = event.key === "ArrowUp";
+    // Only the first step needs a caret at the edge; browsing is free after that.
+    if (history.index === -1 && (backward ? !atTop : !atBottom)) return;
+    if (backward && history.index === -1 && entries.length === 0) return;
+    if (!backward && history.index === -1) return;
+    event.preventDefault();
+    const next = backward
+      ? Math.min(history.index + 1, entries.length - 1)
+      : history.index - 1;
+    if (next === -1) {
+      historyRef.current = { index: -1, draft: "" };
+      setTransientValue(history.draft);
+      setCursor(history.draft.length);
+      pendingCaretRef.current = history.draft.length;
+      return;
+    }
+    historyRef.current = {
+      index: next,
+      draft: history.index === -1 ? value : history.draft,
+    };
+    // Recalling is transient: an old sent prompt must not be rewritten to disk.
+    setTransientValue(entries[next]);
+    setCursor(entries[next].length);
+    pendingCaretRef.current = entries[next].length;
   };
 
   const onPasteImages = (event: ClipboardEvent<HTMLElement>) => {
@@ -634,12 +773,36 @@ export function PiComposer({
           ) : null}
         </div>
       ) : null}
-      {suggestion.isOpen ? (
+      {historyOpen ? (
+        <PiComposerHistory
+          entries={historyEntries}
+          onPick={(text) => {
+            setHistoryOpen(false);
+            // Picking is recall too, so it does not write the old prompt to disk.
+            setTransientValue(text);
+            setCursor(text.length);
+            pendingCaretRef.current = text.length;
+            historyRef.current = { index: -1, draft: "" };
+            fieldRef.current?.focus();
+          }}
+          onClear={() => {
+            clearPiComposerHistory(bridgeId, paneId);
+            historyRef.current = { index: -1, draft: "" };
+            setHistoryEntries([]);
+          }}
+          onClose={() => {
+            setHistoryOpen(false);
+            fieldRef.current?.focus();
+          }}
+        />
+      ) : null}
+      {suggestion.isOpen && !modelOpen && !historyOpen ? (
         <PiComposerSuggest
           id={suggestionId}
           items={suggestion.items}
           activeIndex={suggestion.activeIndex}
           loading={suggestion.loadingFiles}
+          error={suggestion.error}
           onActiveChange={suggestion.setActiveIndex}
           onPick={pickSuggestion}
         />
@@ -649,61 +812,33 @@ export function PiComposer({
           Prompt text reached Pi without Enter. Send submits it without pasting again.
         </p>
       ) : null}
-      <form
-        className="term-input-row pi-composer-row"
-        data-expanding="true"
-        onSubmit={(event) => {
-          event.preventDefault();
-          submit();
-        }}
-      >
-        <textarea
-          ref={setFieldNode}
-          className="term-native-input mono pi-composer-input"
-          rows={1}
-          data-expanding="true"
-          aria-label="Pi prompt"
-          placeholder="Write a prompt for Pi"
-          autoCapitalize="sentences"
-          autoComplete="off"
-          autoCorrect="on"
-          enterKeyHint={mobile ? "enter" : "send"}
-          spellCheck
+      <div className="pi-composer-meta">
+        <PiModelPicker
+          api={piBridge}
           disabled={disabled}
-          value={value}
-          aria-expanded={suggestion.isOpen}
-          aria-controls={suggestion.isOpen ? suggestionId : undefined}
-          onChange={(event) => {
-            if (isLateCompositionEdit(event.nativeEvent, compositionGuardUntilRef.current)) {
-              // Native composition edits may not be cancelable, so restore the
-              // accepted value instead of re-saving text that was just sent.
-              event.currentTarget.value = acceptedValueRef.current;
-              return;
+          compact
+          open={modelOpen}
+          onOpenChange={(next) => {
+            if (next) {
+              suggestion.close();
+              setHistoryOpen(false);
             }
-            acceptedValueRef.current = event.target.value;
-            setValue(event.target.value);
-            setCursor(event.target.selectionStart ?? event.target.value.length);
+            setModelOpen(next);
           }}
-          onSelect={(event) =>
-            setCursor(event.currentTarget.selectionStart ?? event.currentTarget.value.length)
-          }
-          onClick={(event) =>
-            setCursor(event.currentTarget.selectionStart ?? event.currentTarget.value.length)
-          }
-          onKeyUp={(event) =>
-            setCursor(event.currentTarget.selectionStart ?? event.currentTarget.value.length)
-          }
-          onCompositionStart={() => {
-            composingRef.current = true;
-            // A new composition belongs to the next prompt, so it must not be
-            // treated as a late edit of the one that was just sent.
-            compositionGuardUntilRef.current = 0;
-          }}
-          onCompositionEnd={() => {
-            composingRef.current = false;
-          }}
-          onKeyDown={onFieldKeyDown}
         />
+        <button
+          className="term-key pi-composer-history-trigger"
+          type="button"
+          aria-label="Open prompt history"
+          title="Recent prompts"
+          aria-expanded={historyOpen}
+          disabled={disabled}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={toggleHistory}
+        >
+          <History size={16} aria-hidden="true" />
+          <span className="pi-composer-action-label">History</span>
+        </button>
         <button
           className="term-key pi-composer-suggest-trigger"
           type="button"
@@ -728,6 +863,70 @@ export function PiComposer({
           <span aria-hidden="true">@</span>
           <span className="pi-composer-action-label">File</span>
         </button>
+      </div>
+      <form
+        className="term-input-row pi-composer-row"
+        data-expanding="true"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+      >
+        <textarea
+          ref={setFieldNode}
+          className="term-native-input mono pi-composer-input"
+          rows={1}
+          data-expanding="true"
+          aria-label="Pi prompt"
+          placeholder="Write a prompt for Pi"
+          autoCapitalize="sentences"
+          autoComplete="off"
+          autoCorrect="on"
+          enterKeyHint={mobile ? "enter" : "send"}
+          spellCheck
+          disabled={disabled}
+          value={value}
+          aria-expanded={suggestion.isOpen}
+          aria-controls={suggestion.isOpen ? suggestionId : undefined}
+          onFocus={() => setFieldFocused(true)}
+          onBlur={() => setFieldFocused(false)}
+          aria-activedescendant={suggestion.isOpen && suggestion.items.length ? `${suggestionId}-${suggestion.activeIndex}` : undefined}
+          onChange={(event) => {
+            if (isLateCompositionEdit(event.nativeEvent, compositionGuardUntilRef.current)) {
+              // Native composition edits may not be cancelable, so restore the
+              // accepted value instead of re-saving text that was just sent.
+              event.currentTarget.value = acceptedValueRef.current;
+              return;
+            }
+            acceptedValueRef.current = event.target.value;
+            if (historyRef.current.index !== -1) {
+              // Editing a recalled prompt ends browsing: the edited text becomes the
+              // live draft, so ArrowUp/Down cannot overwrite the user's edits.
+              historyRef.current = { index: -1, draft: "" };
+            }
+            setValue(event.target.value);
+            setCursor(event.target.selectionStart ?? event.target.value.length);
+          }}
+          onSelect={(event) =>
+            setCursor(event.currentTarget.selectionStart ?? event.currentTarget.value.length)
+          }
+          onClick={(event) =>
+            setCursor(event.currentTarget.selectionStart ?? event.currentTarget.value.length)
+          }
+          onKeyUp={(event) =>
+            setCursor(event.currentTarget.selectionStart ?? event.currentTarget.value.length)
+          }
+          onCompositionStart={() => {
+            composingRef.current = true;
+            // A new composition belongs to the next prompt, so it must not be
+            // treated as a late edit of the one that was just sent.
+            compositionGuardUntilRef.current = 0;
+          }}
+          onCompositionEnd={() => {
+            composingRef.current = false;
+          }}
+          onKeyDown={onFieldKeyDown}
+        />
         {onUploadImages ? (
           <>
             <input

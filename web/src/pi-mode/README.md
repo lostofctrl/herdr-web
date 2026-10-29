@@ -65,3 +65,70 @@ before upload.
 Known limit: upload names may contain spaces (the bridge sanitizer keeps them), and
 paths are pasted space-separated, so such a path is ambiguous to the `read` tool. Pi's own clipboard paste uses newlines for this reason; if this bites,
 switch `piComposerPromptText` to newline separation.
+
+## Composer completion contract
+
+- `composer-suggest/` owns triggering, ranking and insertion. A typed `/`, `@` or the
+  dedicated buttons all funnel into `insertSuggestionTrigger`/`pickSuggestion`, so one
+  formatter decides the inserted text: `/name` for commands, `/skill:name` when the
+  bridge advertised `skills_catalog`, and `@path` with quoting for paths that contain
+  spaces or shell characters.
+- File search debounces 200 ms, caps the request at 50 paths and the list at 20 rows,
+  and tags each request with its query and pane so a late reply from an older query or
+  a closed pane is dropped. Loading and failure states are visible instead of silent.
+- Keyboard acceptance requires Enter/Tab without Ctrl, Meta or Alt and never fires
+  during an IME composition; Escape closes the popup without closing the Composer, and
+  blur closes it so a stale list cannot be picked later.
+
+## Model picker
+
+`piModelPicker.ts` holds the pure identity (`piModelKey`) and AND-search
+(`filterPiModels`) helpers; `PiModelPicker.tsx` is the only model control, used by
+`PiComposer` (compact) and `PiSidePanel`. Requests are keyed by provider+id plus pane
+identity, the panel stays open on failure to show the error, and the displayed model
+always comes from Pi State, never from the requested value.
+
+## Prompt recall
+
+`piComposerHistory.ts` keeps prompts in a module-level map keyed by bridge and pane,
+bounded to 50 entries and 16 KiB UTF-8 per entry, suppressing adjacent duplicates and
+skipping blank or oversized text. The history itself never touches `localStorage`, and
+recalling is transient: `usePiComposerDraft` returns a second setter that changes the
+draft without writing it, so browsing an old prompt never puts that text back on disk.
+Only text the user types or edits is persisted, exactly like before. A delivery clears the
+stored draft only while it still holds the delivered text (`clearPiComposerDraftIf`), so a
+prompt recalled or retyped while the send was in flight stays, and the delivered one cannot
+come back on reload. `PiComposer` records
+from the delivery callback, so only a fully delivered paste plus Enter is remembered;
+a partial delivery remembers the original text once its recovery send lands, and
+`App` prunes the map with the same pane retention as drafts. Up and Down step through
+the list from the draft edges and restore the live draft at the bottom.
+
+`PiComposerHistory.tsx` renders the same list as a searchable panel (AND search over
+lower-cased terms, newest first, Clear history with an empty state). It only reports a
+pick; the Composer replaces the draft, puts the caret at the end and restores focus, so
+no row can send.
+
+## One popup at a time
+
+Completion, the model picker and history never overlap. Typing a `/` or `@` prefix
+closes the model and history panels; opening either closes completion. `PiModelPicker`
+takes an optional controlled `open`/`onOpenChange` pair for that arbitration and stays
+uncontrolled in the Side Panel.
+
+## Key Bar and Composer ownership
+
+`piKeyBarKeys.ts` deliberately has no `slash` or `at` keys: those triggers live in the
+Composer's meta row, so the Key Bar has no open/closed visibility state to keep in sync.
+The idle `history` key (`↑ Previous prompt`) stays, because it is Pi's own terminal
+input and still works while the Composer is closed.
+
+## Side panel insertion
+
+`pi/sidepanel/piComposerInsert.ts` dispatches a cancelable insert event carrying the
+text and the merged fallback value. A mounted Composer cancels it and appends the text
+to the draft it is actually showing, because recall is transient and the stored draft
+can be older than the field; only when no Composer handles the event does the helper
+write the merged value itself. Any authored change — typing, a `/` or `@` trigger, a
+completion pick, a side-panel insert — ends prompt browsing first, so recall can never
+overwrite text the user just produced.

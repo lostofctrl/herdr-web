@@ -1,0 +1,76 @@
+.pi-composer-history {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  margin-bottom: 0.35rem;
+  border: 1px solid var(--line, #2b3441);
+  border-radius: 0.6rem;
+  background: var(--surface-raised, #171d27);
+}
+
+.pi-composer-history input {
+  width: 100%;
+  font: inherit;
+  padding: 0.3rem 0.4rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--line, #2b3441);
+  background: var(--surface, #131820);
+  color: inherit;
+}
+
+.pi-composer-history ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 11rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.pi-composer-history li button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0.3rem 0.4rem;
+  cursor: pointer;
+}
+
+.pi-composer-history li button:hover,
+.pi-composer-history li button:focus-visible {
+  background: rgb(76 141 255 / 18%);
+}
+
+.pi-composer-history p {
+  margin: 0;
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+
+.pi-composer-history-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.pi-composer-history-actions button {
+  border: 1px solid var(--line, #2b3441);
+  border-radius: 0.4rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+}
+
+.pi-composer-history-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

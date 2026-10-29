@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  clearPiComposerDraftIf,
   piComposerDraftKey,
   readPiComposerDraft,
   retainPiComposerDrafts,
@@ -43,6 +44,19 @@ describe("Pi Composer drafts", () => {
     expect(readPiComposerDraft(BRIDGE, "pane-closed")).toBe("");
     // Another bridge's drafts are not touched by this bridge's snapshot.
     expect(readPiComposerDraft(OTHER_BRIDGE, "pane-b")).toBe("other bridge");
+  });
+
+  it("drops a delivered draft without discarding newer text", () => {
+    writePiComposerDraft(BRIDGE, "pane-a", "delivered prompt");
+    clearPiComposerDraftIf(BRIDGE, "pane-a", "delivered prompt");
+    expect(readPiComposerDraft(BRIDGE, "pane-a")).toBe("");
+
+    // A recall or a retype after the send started is not the delivered text.
+    writePiComposerDraft(BRIDGE, "pane-a", "recalled older prompt");
+    clearPiComposerDraftIf(BRIDGE, "pane-a", "delivered prompt");
+    expect(readPiComposerDraft(BRIDGE, "pane-a")).toBe("recalled older prompt");
+
+    expect(() => clearPiComposerDraftIf(BRIDGE, "pane-a", "x", null)).not.toThrow();
   });
 
   it("survives storage that throws", () => {

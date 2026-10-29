@@ -21,10 +21,8 @@ describe("piKeyBarState", () => {
 });
 
 describe("piKeyBarKeys", () => {
-  it("offers the idle shortcuts Pi itself documents", () => {
+  it("offers the idle shortcuts the Composer does not already own", () => {
     expect(piKeyBarKeys("idle").map((key) => [key.id, key.data])).toEqual([
-      ["slash", "/"],
-      ["at", "@"],
       ["bang", "!"],
       ["thinking", "\x1b[Z"],
       ["tools", "\x0f"],

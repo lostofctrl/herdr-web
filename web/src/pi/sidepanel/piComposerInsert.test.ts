@@ -17,7 +17,26 @@ describe("insertPiComposerText", () => {
       insertPiComposerText("host", "pane", "/skill:tdd");
       expect(readPiComposerDraft("host", "pane")).toBe("Existing draft\n/skill:tdd");
       expect(readPiComposerDraft("other", "pane")).toBe("Other host");
-      expect(events).toEqual([{ key: "herdr.pi-mode.composer-draft:host:pane", value: "Existing draft\n/skill:tdd" }]);
+      expect(events).toEqual([
+        {
+          key: "herdr.pi-mode.composer-draft:host:pane",
+          value: "Existing draft\n/skill:tdd",
+          text: "/skill:tdd",
+        },
+      ]);
+    } finally {
+      window.removeEventListener(PI_COMPOSER_INSERT_EVENT, listener);
+    }
+  });
+
+  it("leaves storage to a mounted Composer that cancels the event", () => {
+    writePiComposerDraft("host", "pane", "stored draft");
+    const listener = (event: Event) => event.preventDefault();
+    window.addEventListener(PI_COMPOSER_INSERT_EVENT, listener);
+    try {
+      insertPiComposerText("host", "pane", "/review");
+      // The Composer owns the live draft, so the stale stored one is untouched.
+      expect(readPiComposerDraft("host", "pane")).toBe("stored draft");
     } finally {
       window.removeEventListener(PI_COMPOSER_INSERT_EVENT, listener);
     }

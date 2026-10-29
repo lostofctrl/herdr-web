@@ -26,6 +26,27 @@
   with descriptions, `@` searches tracked files after a 200 ms debounce, and dedicated `/` and
   `@` buttons open the same popup. Picking a row inserts it at the cursor, keeps the rest of the
   draft, and the popup hides when the Pi Bridge is offline. [PR #13](https://github.com/lostofctrl/herdr-web/pull/13)
+- Pi mode: Composer auto-completion now ranks by match quality, gates skills on the bridge
+  capability, uses `/skill:name`, inserts quoted tracked paths and separator-aware triggers, and
+  survives stale or failed `list_files` replies. `/` and `@` buttons and typed prefixes share one
+  insertion path, and the popup adds loading/error states plus Enter, Tab, Escape, pointer, IME and
+  modifier guards.
+- Pi mode: one searchable model picker is shared by the Composer and the Side Panel. It searches
+  label, id and provider, keeps provider/id pairs distinct, keeps the current model visible when it
+  is missing from the offered list, and only shows a model after Pi State confirms it.
+- Pi mode: the Composer recalls the last 50 prompts per pane from memory only (adjacent duplicates
+  suppressed, 16 KiB UTF-8 cap, nothing written to browser storage), walking the list with Up/Down
+  from the draft edges and restoring the live draft as you come back down. A History button opens a
+  searchable list with Clear history; picking a row replaces the draft without sending.
+- Pi mode: a prompt is remembered only once the whole paste plus Enter reached the terminal, so a
+  partial delivery is recorded when its recovery send completes, not twice. Delivery drops the
+  stored draft only while it still holds the delivered text, so a prompt recalled or retyped while
+  the send was in flight survives.
+- Pi mode: the Composer keeps one compact meta row for the model picker, History and the `/` and `@`
+  triggers, starts at a single prompt line with a bounded growth limit, and never stretches its
+  action buttons. Only one popup (completion, model list, history) is open at a time.
+- Pi mode: the Key Bar no longer defines the Composer's `/` and `@` triggers, because the meta row
+  owns them; its idle row stays shell mode, thinking level, tool output and the previous prompt.
 - Pi mode: Native Cards for `ask_user_question` and for Pi's shared `ctx.ui.select`, `confirm`
   and `input` dialogs. A questionnaire appears as a touch card with single or multi-select
   options, option previews and free text, and an answer from the phone settles the same dialog
@@ -86,6 +107,22 @@
   Send submits it without pasting the text a second time.
 - Pi mode: pasted text that contains bracketed paste markers can no longer end the Composer's own
   paste early, and Ctrl+Space no longer takes the key from a text field, menu or dialog.
+- Pi mode: overlays above the Pi controls (Reader launcher, selection sheet, upload status) now
+  clear the whole stack. The reported control height covers the Key Bar plus the Composer instead of
+  whichever part measured last, so the Reader pill no longer covers the last Key Bar key on phones or
+  desktop panes.
+- Pi mode: on touch layouts the Composer's model button is a 44px target like the other composer
+  actions, instead of the compact desktop pill.
+- Pi mode: the model panel is placed against the viewport instead of the trigger, so it no longer
+  opens off the edge of a narrow pane or gets clipped by a hidden-overflow ancestor, and its list
+  scrolls inside the available height.
+- Pi mode: editing a recalled prompt ends prompt browsing, so ArrowUp/ArrowDown can no longer
+  replace those edits with the previous draft. The same applies to a `/` or `@` trigger, a
+  completion pick and a side-panel command, which now appends to the prompt the Composer shows
+  instead of replacing it with the older stored draft.
+- Pi mode: opening the model panel focuses its search once, so repositioning or a Pi State update
+  no longer pulls focus back while you tab through the model list. A change that settles after the
+  panel was closed cannot close it again or take focus back to its trigger.
 
 ### Removed
 

@@ -1,5 +1,5 @@
 import { Keyboard, Plus, Send } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
 import {
@@ -23,6 +23,8 @@ export type PiKeyBarProps = {
   disabled: boolean;
   /** Writes raw terminal bytes through the pane's existing input path. */
   onInput: (data: string) => void;
+  /** Reports this bar's height so the stack above it clears the Key Bar too. */
+  onControlsHeightChange?: (heightPx: number | null) => void;
 };
 
 // Keys act on the focused terminal/input without moving focus, so a thumb never
@@ -40,8 +42,14 @@ function preserveInputFocus(event: ReactPointerEvent<HTMLButtonElement>) {
  * Pi Bridge is not online it keeps the idle set, so the bar never disappears
  * and `⋯` can always reach the Chord Composer.
  */
-export function PiKeyBar({ paneId, disabled, onInput }: PiKeyBarProps) {
+export function PiKeyBar({
+  paneId,
+  disabled,
+  onInput,
+  onControlsHeightChange,
+}: PiKeyBarProps) {
   const bridge = usePiBridge(paneId);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const state = piKeyBarState(bridge?.status ?? "offline", bridge?.state?.busy ?? null);
   const keys = piKeyBarKeys(state);
   const [chordOpen, setChordOpen] = useState(false);
@@ -71,6 +79,29 @@ export function PiKeyBar({ paneId, disabled, onInput }: PiKeyBarProps) {
 
   const chordLabel = chordKey ? formatMobileTerminalChord(chordKey, modifiers) : null;
 
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root || !onControlsHeightChange) {
+      onControlsHeightChange?.(null);
+      return;
+    }
+    const report = () => onControlsHeightChange(root.getBoundingClientRect().height);
+    report();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", report);
+      return () => {
+        window.removeEventListener("resize", report);
+        onControlsHeightChange(null);
+      };
+    }
+    const observer = new ResizeObserver(report);
+    observer.observe(root);
+    return () => {
+      observer.disconnect();
+      onControlsHeightChange(null);
+    };
+  }, [onControlsHeightChange, chordOpen]);
+
   const sendChord = () => {
     if (disabled || !chordKey) {
       return;
@@ -80,7 +111,7 @@ export function PiKeyBar({ paneId, disabled, onInput }: PiKeyBarProps) {
   };
 
   return (
-    <div className="pi-key-bar" data-state={state} data-chord-open={chordOpen}>
+    <div className="pi-key-bar" data-state={state} data-chord-open={chordOpen} ref={rootRef}>
       <div className="pi-key-bar-row" role="group" aria-label="Pi keys">
         {keys.map((key) => (
           <button

@@ -24,9 +24,10 @@ navigation, multi-client viewing, mobile input controls, and synchronized pane s
 - Mobile-friendly text input with stage/send actions, configurable tap focus, and extended
   terminal key controls.
 - Agent-focused sidebar with styled icons for detected Codex/OpenAI, Claude, Pi, Grok, and OpenCode panes.
-- Pi mode for panes running Pi: live Pi State, a native Composer, a Key Bar that follows Pi's
-  state, command and file suggestions, Attachment Chips with a Screenshot Editor, Native Cards
-  for Pi dialogs and `ask_user_question`, and a Reader Sheet for the last answer.
+- Pi mode for panes running Pi: live Pi State, a native Composer with a shared searchable model
+  picker and per-pane prompt recall, a Key Bar that follows Pi's state, ranked command and file
+  suggestions, Attachment Chips with a Screenshot Editor, Native Cards for Pi dialogs and
+  `ask_user_question`, and a Reader Sheet for the last answer.
 - Image and file uploads from the terminal toolbar, paste, or drag/drop, with uploaded paths inserted
   into the active terminal input.
 - Context menus for renaming, closing, splitting, and moving panes between tabs or spaces.
@@ -232,7 +233,10 @@ Send button sends. Delivery is one bracketed paste plus Enter, so Pi itself deci
 is a prompt, steer, follow-up, `/command`, or `!bash`. Pi Composer drafts are kept per bridge and pane
 in browser storage, survive reloads, and are cleared only after the terminal socket accepted the
 prompt. If the text reached Pi but its Enter did not, the Composer says so and Send submits the
-prompt without pasting the text again.
+prompt without pasting the text again. Up and Down at the draft edges walk the last 50 prompts sent
+from that pane, newest first; recall lives in memory only, so nothing is written to browser storage
+and a reload starts empty. While the Composer is open it owns `/`, `@` and prompt history, so the Key
+Bar omits those duplicates. The Side Panel shares the Composer's searchable model picker.
 
 Terminal input payloads can be sent as JSON or binary WebSocket frames. JSON remains the default;
 binary is available for comparing terminal input performance. Terminal input batching is off by

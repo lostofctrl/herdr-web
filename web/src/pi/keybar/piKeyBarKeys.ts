@@ -38,12 +38,11 @@ const DOWN = PI_DOWN_KEY;
 const SPACE = " ";
 
 /**
- * Idle keys match Pi's own hints: command and file prefixes, shell mode,
- * thinking level, tool output and history.
+ * Idle keys match Pi's own hints for what the Composer does not already own:
+ * shell mode, thinking level, tool output and history. `/` and `@` stay in the
+ * Composer's own trigger row instead of appearing twice.
  */
 const IDLE_KEYS: readonly PiKeyBarKey[] = [
-  { id: "slash", label: "/", hint: "Slash", ariaLabel: "Slash command", data: "/" },
-  { id: "at", label: "@", hint: "File", ariaLabel: "File", data: "@" },
   { id: "bang", label: "!", hint: "Shell", ariaLabel: "Shell command", data: "!" },
   { id: "thinking", label: "⇥", hint: "Think", ariaLabel: "Cycle thinking level", data: SHIFT_TAB },
   { id: "tools", label: "⌃O", hint: "Output", ariaLabel: "Toggle tool output", data: CTRL_O },

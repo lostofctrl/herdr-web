@@ -1,3 +1,11 @@
+.pi-composer-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0 0.15rem;
+}
+
 .pi-composer-row {
   flex-wrap: wrap;
   align-items: flex-end;
@@ -13,10 +21,14 @@
 
 /* Wide panes keep one row; a narrow split pane drops the actions below the prompt
    instead of clipping them. */
+/* One line when idle, then bounded growth with internal scrolling. */
 .pi-composer .pi-composer-row .pi-composer-input {
   flex: 1 1 200px;
-  min-height: 40px;
-  max-height: 40vh;
+  min-height: 36px;
+  max-height: min(30vh, 180px);
+  overflow-y: auto;
+  padding-block: 0.3rem;
+  line-height: 1.35;
   resize: none;
 }
 
@@ -70,6 +82,18 @@
    with words next to the symbols, and Send stays at the thumb's end of the row. */
 .pi-composer[data-mobile-controls="true"] .pi-composer-input {
   flex: 1 1 100%;
+  min-height: 40px;
+}
+
+.pi-composer[data-mobile-controls="true"] .pi-composer-history-trigger {
+  min-width: 44px;
+  min-height: 44px;
+  justify-content: center;
+}
+
+.pi-composer[data-mobile-controls="true"] .pi-model-picker-trigger {
+  min-height: 44px;
+  padding-inline: 0.6rem;
 }
 
 .pi-composer[data-mobile-controls="true"] .pi-composer-suggest-trigger,
