@@ -10,6 +10,11 @@
   branch, including pending/running and interrupted replies, explicit truncation and unavailable
   states. A capability-gated conversation schema keeps legacy peers and terminal delivery working;
   context is bounded, cleared on authority changes, and never persisted by the browser.
+- Mobile Pi Composer: one accessible Composer helpers (⋯) menu for command/skill (`/`),
+  file/path (`@`) and shell-prefix (`!`) authoring. Helpers preserve selection, caret and draft
+  without submitting; menu targets are touch-sized, keyboard navigable and viewport-scrollable.
+  Desktop helper buttons and Pi Side Panel access remain available.
+
 - Pi mode: panes running Pi get native surfaces instead of an opaque terminal. A new in-repo
   `pi-bridge` package publishes Pi State, the command and skill catalog, dialogs and the last
   assistant answer on a per-pane Unix socket, and the Rust bridge relays it to the browser over

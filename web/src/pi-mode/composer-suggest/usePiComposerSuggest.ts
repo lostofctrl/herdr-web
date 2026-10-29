@@ -45,6 +45,7 @@ export function usePiComposerSuggest({api, draft, cursor, enabled = true}: PiCom
     if (items.length) setActiveIndex(current => (current + delta + items.length) % items.length);
   }, [items.length]);
   const close = useCallback(() => { setDismissedKey(triggerKey); }, [triggerKey]);
+  const reopen = useCallback(() => { setDismissedKey(null); }, []);
   const pick = useCallback((item: PiComposerSuggestion): PiComposerSuggestionPick | null => {
     if (!trigger) return null;
     const next = applyPiComposerSuggestion(draft, trigger, cursor, item.insert);
@@ -53,7 +54,7 @@ export function usePiComposerSuggest({api, draft, cursor, enabled = true}: PiCom
     return next;
   }, [cursor, draft, trigger]);
   const pickActive = useCallback(() => items[activeIndex] ? pick(items[activeIndex]) : null, [activeIndex, items, pick]);
-  return { trigger, isOpen, items, activeIndex, setActiveIndex, moveActive, pick, pickActive, close,
+  return { trigger, isOpen, items, activeIndex, setActiveIndex, moveActive, pick, pickActive, close, reopen,
     loadingFiles: isOpen && fileQuery !== null && result?.key !== requestKey,
     error: result?.key === requestKey ? result.error : null,
     query: trigger?.query ?? "" };
