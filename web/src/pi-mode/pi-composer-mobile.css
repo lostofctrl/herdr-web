@@ -1,4 +1,8 @@
 /* B Thumbrail extends the existing terminal palette and production Composer. */
+/* The viewport Composer cannot outrank the sidebar from inside stage's layer 1. */
+.stage:has(.pi-composer[data-mobile-controls="true"][data-expanded="true"]) {
+  z-index: 3;
+}
 .pi-terminal-workspace[data-composer-hidden="true"] {
   visibility: hidden;
   pointer-events: none;

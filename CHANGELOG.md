@@ -104,6 +104,10 @@
 
 ### Fixed
 
+- Mobile Pi Composer: keep the full-viewport working surface above the sidebar on landscape/tablet
+  widths, so the left side of context and draft text remains visible and reachable. Collapsed and
+  desktop terminal layering stays unchanged.
+
 - Pi Composer: shared terminal-input ownership prevents Key Bar, typing/paste and delayed callbacks
   from bypassing partial delivery recovery. Return hands pending input to explicit manual control
   without sending keys or losing drafts/images. Unresolved input stays pane/bridge-owned across
