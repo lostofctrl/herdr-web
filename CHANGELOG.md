@@ -104,6 +104,13 @@
 
 ### Fixed
 
+- Pi Composer: shared terminal-input ownership prevents Key Bar, typing/paste and delayed callbacks
+  from bypassing partial delivery recovery. Return hands pending input to explicit manual control
+  without sending keys or losing drafts/images. Image-prompt recovery sends Enter without repasting.
+- Pi conversation: resync after cancelled tree/compaction now restores subsequent publication once
+  the public idle boundary proves unwind. Switch/fork cancellations stay explicitly unavailable
+  until a real lifecycle restores authority because Pi 1.4.0 exposes no public cancellation verdict.
+
 - Pi mode: Key Bar keys rendered 4–19px wide with overlapping symbols because the shared key
   sizing variables were only defined inside the Composer's container, and the Stop key's danger
   colour referenced an undefined `--danger` variable. The Key Bar now defines its own sizing and

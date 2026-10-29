@@ -102,11 +102,13 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
   let selectionGeneration = 0;
   let conversationRevision = 0;
   let conversationSuspended = false;
+  let revalidation: { generation: number; manager: ContextLike["sessionManager"] } | null = null;
   const conversationTimers = new Set<ReturnType<typeof setTimeout>>();
 
-  function invalidateConversation(reason: string): void {
+  function invalidateConversation(reason: string, controllerBacked = false): void {
     selectionGeneration += 1;
     conversationSuspended = true;
+    revalidation = controllerBacked ? { generation: selectionGeneration, manager: context?.sessionManager } : null;
     const record = conversationRecord();
     record.availability = "unavailable";
     record.reason = reason;
@@ -147,12 +149,25 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
         result.reason = "authority_lost";
         return capConversation(result);
       }
-      // An explicit resync can revalidate a cancelled before-hook operation.
-      if (conversationSuspended && !requestId) {
+      const candidate = revalidation;
+      // Pi 1.4.0 holds tree/compact controllers through every before hook and
+      // unwind; isIdle covers those controllers, but NOT switch/fork hooks.
+      const canRevalidate = requestId && candidate?.generation === selectionGeneration &&
+        candidate.manager === manager && context?.isIdle?.() === true;
+      if (conversationSuspended && !canRevalidate) {
         result.reason = "selection_changing";
         return capConversation(result);
       }
       result.exchanges = conversationExchanges(manager.getBranch!(), busy !== "idle");
+      if (result.selection_generation !== selectionGeneration || manager !== context?.sessionManager) {
+        result.exchanges = [];
+        result.reason = "selection_changing";
+        return capConversation(result);
+      }
+      if (conversationSuspended && canRevalidate && candidate === revalidation) {
+        conversationSuspended = false;
+        revalidation = null;
+      }
       result.availability = "ready";
       result.reason = null;
     } catch {
@@ -561,6 +576,7 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
   bind("session_start", async (_event, ctx) => {
     selectionGeneration += 1;
     conversationSuspended = false;
+    revalidation = null;
     genericDialogs.stop();
     genericDialogsAvailable = ctx.mode === "tui" && ctx.hasUI === true && genericDialogs.install(ctx.ui);
     if (!genericDialogsAvailable && !wrapWarningShown) {
@@ -595,11 +611,12 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
   });
 
   for (const event of ["session_before_switch", "session_before_fork", "session_before_tree", "session_before_compact"]) {
-    bind(event, () => invalidateConversation("selection_changing"));
+    bind(event, () => invalidateConversation("selection_changing", event === "session_before_tree" || event === "session_before_compact"));
   }
   for (const event of ["session_tree", "session_compact", "session_compact_failed"]) {
     bind(event, () => {
       conversationSuspended = false;
+      revalidation = null;
       refreshConversation();
     });
   }

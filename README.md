@@ -256,7 +256,13 @@ send API. Model, thinking and session actions require an online, idle Pi Bridge;
 through the attached terminal while Bridge Offline. Failed requests show errors without discarding
 the draft. If a quick action reaches Pi without Enter, reopen ⋯ and choose Submit pending action;
 ordinary prompt delivery and helper/catalog insertion are blocked until that Enter-only recovery
-finishes. Back returns to the initiating menu entry; dismissal returns to the helper trigger.
+finishes. Key Bar/Chord keys and direct typing/paste cannot interleave with automatic delivery or
+bypass pending-input recovery; Reader remains available. Return to terminal sends no bytes and
+hands pending input to manual control, invalidating delayed uploads/queued Enter callbacks while
+keeping the draft and images. Reopening Composer does not infer completion from Enter or Esc:
+finish or clear the input in the terminal, then explicitly choose “Terminal input is empty; keep
+draft” before sending again. This keeps the draft for deliberate reuse, not an automatic resend.
+Back returns to the initiating menu entry; dismissal returns to the helper trigger.
 Desktop retains its `/` and `@` buttons, and the Pi Side Panel remains available.
 
 Pi 1.4.0 has no verified supported API to hide only its built-in CLI editor chrome while preserving

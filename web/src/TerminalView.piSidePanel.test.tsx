@@ -427,6 +427,93 @@ describe("TerminalView Pi Side Panel (Seam 3)", () => {
     expect(readPiComposerDraft(BRIDGE_ID, PANE_ID)).toBe("/rev");
   });
 
+  it("blocks Chord Enter during partial-action recovery and transfers Return to explicit manual reconciliation", async () => {
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Keep manual draft");
+    const { container, reconnect } = await renderTerminalView();
+    const { terminal } = await openSockets();
+    await showState("idle");
+    terminal.send.mockImplementation((data: string) => {
+      if (JSON.parse(data).data === "\x1b[200~/compact\x1b[201~") terminal.readyState = 3;
+    });
+    await click(container, "Composer helpers");
+    await click(container, "Compact Pi session");
+    await reconnect();
+    const next = terminalSocket();
+    await act(async () => { next.dispatchEvent(new Event("open")); piSocket().dispatchEvent(new Event("open")); });
+    await sendPiRecord({ type: "hello", protocol_version: 1, capabilities: { assistant_message: true } });
+    await sendPiRecord({ type: "assistant_message", text: "Readable during recovery" });
+    await click(container, "Composer helpers");
+    await click(container, "Terminal keys and Reader");
+    await click(container, "Compose any key");
+    await click(container, "Use Enter key");
+    await click(container, "Send Enter");
+    expect(sentTerminalInput(next)).toEqual([]);
+    await click(container, "Open Reader Sheet");
+    expect(container.textContent).toContain("Readable during recovery");
+    await click(container, "Close Reader Sheet");
+    await click(container, "Return to terminal");
+    // Return is a zero-byte handoff, never an implicit cancellation/submission.
+    expect(sentTerminalInput(next)).toEqual([]);
+    const onInput = renderer.onInput.mock.calls.at(-1)![0] as (data: string) => void;
+    await act(async () => onInput("\r"));
+    await click(container, "Open Composer");
+    expect(control<HTMLButtonElement>(container, "Send prompt").disabled).toBe(true);
+    expect(container.querySelector('[aria-label="Submit pending Pi action"]')).toBeNull();
+    expect(container.textContent).toContain("Finish or clear the pending input in the terminal");
+    expect(control<HTMLTextAreaElement>(container, "Pi prompt").value).toBe("Keep manual draft");
+    await click(container, "Terminal input is empty; keep draft");
+    expect(control<HTMLButtonElement>(container, "Send prompt").disabled).toBe(false);
+    expect([...sentTerminalInput(terminal), ...sentTerminalInput(next)]).toEqual(["\x1b[200~/compact\x1b[201~", "\r"]);
+  });
+
+  it("blocks typing and key attempts during delivery, and Return invalidates queued Enter before manual input", async () => {
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Keep pending draft");
+    const { container } = await renderTerminalView({ mobile: false });
+    const { terminal } = await openSockets();
+    await showState("idle");
+    await click(container, "Open Composer");
+    await click(container, "Compose any key");
+    await click(container, "Use Enter key");
+    await click(container, "Send prompt");
+    await click(container, "Send Enter");
+    const onInput = renderer.onInput.mock.calls.at(-1)![0] as (data: string) => void;
+    await act(async () => onInput("typing\r"));
+    expect(sentTerminalInput(terminal)).toEqual(["\x1b[200~Keep pending draft\x1b[201~"]);
+    await click(container, "Close Composer (Esc)");
+    await act(async () => onInput("manual"));
+    await act(async () => vi.advanceTimersByTime(100));
+    await click(container, "Open Composer");
+    expect(sentTerminalInput(terminal)).toEqual(["\x1b[200~Keep pending draft\x1b[201~", "manual"]);
+    expect(control<HTMLButtonElement>(container, "Send prompt").disabled).toBe(true);
+    expect(control<HTMLTextAreaElement>(container, "Pi prompt").value).toBe("Keep pending draft");
+    expect(container.querySelector('[aria-label="Submit pending Pi action"]')).toBeNull();
+  });
+
+  it("does not repaste or submit an ordinary partial prompt after Return and arbitrary manual Enter/Esc", async () => {
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Ordinary partial");
+    const { container, reconnect } = await renderTerminalView();
+    const { terminal } = await openSockets();
+    terminal.send.mockImplementation((data: string) => {
+      if (JSON.parse(data).data === "\x1b[200~Ordinary partial\x1b[201~") terminal.readyState = 3;
+    });
+    await click(container, "Send prompt");
+    await reconnect();
+    const next = terminalSocket();
+    await act(async () => next.dispatchEvent(new Event("open")));
+    await click(container, "Return to terminal");
+    const onInput = renderer.onInput.mock.calls.at(-1)![0] as (data: string) => void;
+    await act(async () => { onInput("\r"); onInput("\x1b"); });
+    await click(container, "Open Composer");
+    expect(control<HTMLButtonElement>(container, "Send prompt").disabled).toBe(true);
+    expect(control<HTMLTextAreaElement>(container, "Pi prompt").value).toBe("Ordinary partial");
+    expect(container.querySelector('[aria-label="Submit prompt"]')).toBeNull();
+    await act(async () => vi.advanceTimersByTime(100));
+    expect([...sentTerminalInput(terminal), ...sentTerminalInput(next)]).toEqual(["\x1b[200~Ordinary partial\x1b[201~", "\r", "\x1b"]);
+    await click(container, "Terminal input is empty; keep draft");
+    expect(control<HTMLTextAreaElement>(container, "Pi prompt").value).toBe("Ordinary partial");
+    expect(control<HTMLButtonElement>(container, "Send prompt").disabled).toBe(false);
+  });
+
   it("uses the shared searchable model picker as the only mobile subview and retains draft on failures", async () => {
     writePiComposerDraft(BRIDGE_ID, PANE_ID, "Keep model draft");
     const { container } = await renderTerminalView();

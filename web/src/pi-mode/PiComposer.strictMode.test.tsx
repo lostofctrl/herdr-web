@@ -337,6 +337,36 @@ describe("PiComposer under StrictMode", () => {
     ).toHaveLength(1);
   });
 
+  it("invalidates a delayed image upload after Return without losing draft or chips", async () => {
+    let finish!: (files: { name: string; path: string; size: number }[]) => void;
+    const upload = vi.fn(() => new Promise<{ name: string; path: string; size: number }[]>((resolve) => { finish = resolve; }));
+    const { container, onSend } = await renderUnderStrictMode({ onUploadImages: upload });
+    await attachImage(container);
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send prompt"]')?.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Return to terminal"]')?.click());
+    await act(async () => finish([{ name: "shot.png", path: "/tmp/late.png", size: 1 }]));
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Open Composer"]')?.click());
+    expect(onSend).not.toHaveBeenCalled();
+    expect(container.querySelector('[aria-label="Edit shot.png"]')).not.toBeNull();
+    expect(container.querySelector<HTMLButtonElement>('[aria-label="Send prompt"]')?.disabled).toBe(true);
+    expect(container.textContent).toContain("Finish or clear the pending input in the terminal");
+  });
+
+  it("recovers an image prompt with Enter only and never reuploads or repastes its paths", async () => {
+    let attempt = 0;
+    const send = vi.fn((parts: string[], done: (n: number, total: number) => void) => {
+      done(attempt++ === 0 ? 1 : parts.length, parts.length);
+      return true;
+    });
+    const { container, onUploadImages } = await renderUnderStrictMode({ onSend: send });
+    await attachImage(container);
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send prompt"]')?.click());
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Submit prompt"]')?.click());
+    expect(send.mock.calls.map(([parts]) => parts)).toEqual([["\x1b[200~/tmp/uploads/shot.png\x1b[201~", "\r"], ["\r"]]);
+    expect(onUploadImages).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[aria-label="Edit shot.png"]')).toBeNull();
+  });
+
   it("finishes sending an attachment instead of staying in sending", async () => {
     const { container, onSend, onUploadImages } = await renderUnderStrictMode();
     const field = promptField(container);

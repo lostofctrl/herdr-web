@@ -22,6 +22,7 @@ export interface SessionEntryLike {
 
 export interface ContextLike {
   cwd: string;
+  isIdle?: () => boolean;
   mode?: string;
   hasUI?: boolean;
   ui?: import("./dialogs.ts").SharedUI;

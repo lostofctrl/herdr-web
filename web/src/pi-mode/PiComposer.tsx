@@ -41,7 +41,15 @@ import { usePiComposerViewport } from "./piComposerViewport";
 import "./pi-mode.css";
 import "./pi-composer-mobile.css";
 
+/** Shared with every terminal input path; generation invalidates queued work on handoff. */
+export type PiComposerInputOwner = {
+  generation: number;
+  mode: "idle" | "automatic" | "recovery" | "manual";
+  canClaim?: () => boolean;
+};
+
 export type PiComposerProps = {
+  inputOwner?: { current: PiComposerInputOwner };
   bridgeId: string;
   paneId: string;
   /** Phone layout: explicit launcher, Enter inserts a newline. */
@@ -85,6 +93,7 @@ export type PiComposerProps = {
  * images are uploaded first, then their paths are pasted ahead of the draft.
  */
 export function PiComposer({
+  inputOwner,
   bridgeId,
   paneId,
   mobile,
@@ -109,7 +118,25 @@ export function PiComposer({
   // Guards survive re-renders and keep a sent value from being restored.
   const compositionGuardUntilRef = useRef(0);
   const acceptedValueRef = useRef("");
+  const localInputOwner = useRef<PiComposerInputOwner>({ generation: 0, mode: "idle" });
+  const owner = inputOwner ?? localInputOwner;
+  const [manualInput, setManualInput] = useState(false);
   const pendingSendRef = useRef(false);
+  const claimInput = () => {
+    owner.current.mode = "automatic";
+    return ++owner.current.generation;
+  };
+  const ownsInput = (generation: number) => mountedRef.current && owner.current.generation === generation;
+  const handoffInput = useCallback(() => {
+    if (owner.current.mode !== "automatic" && owner.current.mode !== "recovery") return;
+    ++owner.current.generation;
+    owner.current.mode = "manual";
+    pendingSendRef.current = false;
+    setDeliveryPending(false);
+    setSending(false);
+    setActionError(null);
+    setManualInput(true);
+  }, [owner]);
   const [deliveryPending, setDeliveryPending] = useState(false);
   const [actionRecovery, setActionRecovery] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -181,12 +208,14 @@ export function PiComposer({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      ++owner.current.generation;
+      owner.current.mode = "idle";
       for (const attachment of attachmentsRef.current) {
         releasePiComposerAttachment(attachment);
       }
       attachmentsRef.current = [];
     };
-  }, []);
+  }, [owner]);
 
   useLayoutEffect(() => {
     onExpandedChange?.(mobile && open && active);
@@ -342,12 +371,13 @@ export function PiComposer({
   }, [bridgeId, paneId, openComposer, setAuthoredValue, value, awaitingSubmit, actionRecovery]);
 
   const closeComposer = useCallback(() => {
+    handoffInput();
     setHelpersOpen(false);
     setHistoryOpen(false);
     setModelOpen(false);
     setOpen(false);
     onTerminalFocus();
-  }, [onTerminalFocus]);
+  }, [onTerminalFocus, handoffInput]);
 
   // Desktop defaults to terminal focus; Ctrl+Space is the only way in.
   useEffect(() => {
@@ -491,11 +521,14 @@ export function PiComposer({
     parts: string[],
     sentValue: string,
     onDelivered: () => void,
+    generation = claimInput(),
   ) => {
     pendingSendRef.current = true;
     setDeliveryPending(true);
     let settled = false;
     const accepted = onSend(parts, (deliveredParts, totalParts) => {
+      if (!ownsInput(generation)) return;
+      owner.current.mode = deliveredParts === totalParts || (deliveredParts === 0 && !awaitingSubmit) ? "idle" : "recovery";
       settled = true;
       pendingSendRef.current = false;
       setDeliveryPending(false);
@@ -511,9 +544,10 @@ export function PiComposer({
         onDelivered();
         return;
       }
-      setAwaitingSubmit(deliveredParts > 0);
+      setAwaitingSubmit(deliveredParts > 0 || awaitingSubmit);
     });
     if (!accepted && !settled) {
+      owner.current.mode = awaitingSubmit ? "recovery" : "idle";
       pendingSendRef.current = false;
       setDeliveryPending(false);
     }
@@ -523,12 +557,12 @@ export function PiComposer({
   const send = async () => {
     // The draft clears only after the last frame reaches the socket, so a second
     // Send or Ctrl+Enter while that is pending would deliver the prompt twice.
-    if (disabled || composingRef.current || sending || pendingSendRef.current || actionRecovery) {
+    if (owner.current.canClaim?.() === false || manualInput || disabled || composingRef.current || sending || pendingSendRef.current || actionRecovery) {
       return;
     }
     const sentValue = value;
     const pending = attachmentsRef.current;
-    if (pending.length === 0) {
+    if (awaitingSubmit || pending.length === 0) {
       // A partially delivered prompt already sits in Pi's editor, so finishing it
       // must send the Enter alone instead of pasting the text a second time.
       const parts = awaitingSubmit ? ["\r"] : piComposerDeliveryParts(value);
@@ -541,6 +575,7 @@ export function PiComposer({
       const recoverText = awaitingSubmit ? recoveryTextRef.current : sentValue;
       const accepted = deliver(parts, sentValue, () => {
         recordDeliveredPrompt(recoverText);
+        if (awaitingSubmit) clearAttachments();
         recoveryTextRef.current = null;
       });
       if (accepted && !awaitingSubmit) {
@@ -552,11 +587,13 @@ export function PiComposer({
       setAttachmentError("Image uploads are not available here.");
       return;
     }
+    const generation = claimInput();
+    pendingSendRef.current = true;
     setSending(true);
     setAttachmentError(null);
     try {
       const uploaded = await onUploadImages(piComposerUploadCandidates(pending));
-      if (!mountedRef.current) {
+      if (!ownsInput(generation)) {
         return;
       }
       if (uploaded.length !== pending.length) {
@@ -570,7 +607,7 @@ export function PiComposer({
         clearAttachments();
         // Only the user's text is recalled, never the uploaded paths.
         recordDeliveredPrompt(sentValue);
-      });
+      }, generation);
       if (accepted) {
         recoveryTextRef.current = sentValue;
       }
@@ -578,14 +615,12 @@ export function PiComposer({
         setAttachmentError("Terminal is not attached; draft kept.");
       }
     } catch (error) {
-      if (!mountedRef.current) {
-        return;
-      }
+      if (!ownsInput(generation)) return;
+      owner.current.mode = "idle";
+      pendingSendRef.current = false;
       setAttachmentError(error instanceof Error ? error.message : "Upload failed");
     } finally {
-      if (mountedRef.current) {
-        setSending(false);
-      }
+      if (ownsInput(generation)) setSending(false);
     }
   };
 
@@ -624,12 +659,14 @@ export function PiComposer({
   // Explicit Side Panel commands share the terminal queue, not draft delivery:
   // completing one must never clear or record the user's unsent prompt.
   const sendQuickAction: PiComposerProps["onSend"] = (parts, onDelivered) => {
-    if (disabled || sending || pendingSendRef.current || awaitingSubmit || composingRef.current || (actionRecovery && (parts.length !== 1 || parts[0] !== "\r"))) return false;
+    if (owner.current.canClaim?.() === false || manualInput || disabled || sending || pendingSendRef.current || awaitingSubmit || composingRef.current || (actionRecovery && (parts.length !== 1 || parts[0] !== "\r"))) return false;
+    const generation = claimInput();
     pendingSendRef.current = true;
     setDeliveryPending(true);
     setActionError(null);
     const accepted = onSend(parts, (delivered, total) => {
-      if (!mountedRef.current) return;
+      if (!ownsInput(generation)) return;
+      owner.current.mode = delivered === total || (delivered === 0 && !actionRecovery) ? "idle" : "recovery";
       pendingSendRef.current = false;
       setDeliveryPending(false);
       setActionRecovery(delivered !== total && (delivered > 0 || actionRecovery));
@@ -639,6 +676,7 @@ export function PiComposer({
       onDelivered(delivered, total);
     });
     if (!accepted) {
+      owner.current.mode = actionRecovery ? "recovery" : "idle";
       setActionError("Action could not be queued. The draft is unchanged.");
       pendingSendRef.current = false;
       setDeliveryPending(false);
@@ -796,10 +834,10 @@ export function PiComposer({
       api={piBridge}
       tools={mobileTools}
       onQuickAction={sendQuickAction}
-      actionRecovery={actionRecovery}
-      actionPending={deliveryPending}
+      actionRecovery={actionRecovery && !manualInput}
+      actionPending={deliveryPending || manualInput}
       actionError={actionError}
-      authoringBlocked={awaitingSubmit || actionRecovery || deliveryPending}
+      authoringBlocked={manualInput || awaitingSubmit || actionRecovery || deliveryPending}
       onInsertCatalog={(text) => {
         if (disabled || sending || pendingSendRef.current || awaitingSubmit || actionRecovery || composingRef.current) return;
         setHelpersOpen(false);
@@ -870,6 +908,18 @@ export function PiComposer({
         onDrop={onDropImages}
         onDragOver={onDragOverImages}
       >
+      {manualInput ? <div role="status" className="pi-composer-manual-input">
+        <p>Finish or clear the pending input in the terminal. Draft and images are kept; Enter/Esc do not confirm completion.</p>
+        <button type="button" aria-label="Terminal input is empty; keep draft" onClick={() => {
+          ++owner.current.generation;
+          owner.current.mode = "idle";
+          setManualInput(false);
+          setAwaitingSubmit(false);
+          setActionRecovery(false);
+          setActionError(null);
+          recoveryTextRef.current = null;
+        }}>Terminal input is empty; keep draft</button>
+      </div> : null}
       {showAttachments ? (
         <div className="pi-composer-attachments">
           {attachments.length > 0 ? (
@@ -952,7 +1002,7 @@ export function PiComposer({
           onPick={pickSuggestion}
         />
       ) : null}
-      {awaitingSubmit ? (
+      {awaitingSubmit && !manualInput ? (
         <p className="pi-composer-recovery" role="status">
           Prompt text reached Pi without Enter. Send submits it without pasting again.
         </p>
@@ -1084,9 +1134,9 @@ export function PiComposer({
         <button
           className="term-send pi-composer-send"
           type="submit"
-          disabled={disabled || sending || deliveryPending || actionRecovery || (value.length === 0 && attachments.length === 0)}
-          aria-label={awaitingSubmit ? "Submit prompt" : "Send prompt"}
-          title={awaitingSubmit ? "Submit the pasted prompt" : "Send (Ctrl+Enter)"}
+          disabled={manualInput || disabled || sending || deliveryPending || actionRecovery || (value.length === 0 && attachments.length === 0)}
+          aria-label={awaitingSubmit && !manualInput ? "Submit prompt" : "Send prompt"}
+          title={awaitingSubmit && !manualInput ? "Submit the pasted prompt" : "Send (Ctrl+Enter)"}
         >
           <Send size={16} />
           <span className="pi-composer-send-label">Send</span>

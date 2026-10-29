@@ -27,7 +27,7 @@ import {
 import type { MobileTerminalChordKey } from "./mobileTerminalControls";
 import { MobileTerminalKeyButton } from "./MobileTerminalKeyButton";
 import { ConfirmDialog } from "./overlays";
-import { PiComposer } from "./pi-mode/PiComposer";
+import { PiComposer, type PiComposerInputOwner } from "./pi-mode/PiComposer";
 import { ConversationContext } from "./pi/conversation/ConversationContext";
 import { piControlsStackHeight } from "./pi-mode/piControlsHeight";
 import { PiDialogCards } from "./pi/cards/PiDialogCard";
@@ -156,6 +156,7 @@ type UploadConflictState = {
 type QueuedTerminalInput = {
   data: string;
   settle?: (delivered: boolean) => void;
+  isCurrent?: () => boolean;
 };
 type MobileSelectionAction = {
   text: string;
@@ -221,6 +222,7 @@ export function TerminalView({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mobileCommandInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const piComposerInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const piInputOwnerRef = useRef<PiComposerInputOwner>({ generation: 0, mode: "idle" });
   const piPaneRef = useRef(false);
   const rendererRef = useRef<TerminalRenderer | null>(null);
   const rendererGenerationRef = useRef(0);
@@ -231,6 +233,11 @@ export function TerminalView({
   const uploadInputId = useId();
   const sendResizeRef = useRef<(size: TerminalSize) => void>(() => {});
   const inputQueueRef = useRef<QueuedTerminalInput[]>([]);
+  piInputOwnerRef.current.canClaim = () => {
+    if (inputQueueRef.current.length > 0) return false;
+    flushBatchedTerminalInput();
+    return true;
+  };
   const inputFlushTimerRef = useRef<number | null>(null);
   const batchedInputRef = useRef(emptyTerminalInputBatch());
   const batchedInputFlushTimerRef = useRef<number | null>(null);
@@ -477,8 +484,9 @@ export function TerminalView({
       }
       const next = inputQueueRef.current.shift();
       if (next !== undefined) {
-        sendTerminalInputFrame(socket, next.data);
-        next.settle?.(true);
+        const current = next.isCurrent?.() ?? true;
+        if (current) sendTerminalInputFrame(socket, next.data);
+        next.settle?.(current);
       }
       if (inputQueueRef.current.length > 0) {
         inputFlushTimerRef.current = window.setTimeout(flush, 35);
@@ -513,6 +521,7 @@ export function TerminalView({
 
   const sendTerminalInputData = useCallback(
     (data: string) => {
+      if (piInputOwnerRef.current.mode === "automatic" || piInputOwnerRef.current.mode === "recovery") return;
       const socket = socketRef.current;
       if (socket?.readyState !== WebSocket.OPEN) {
         return;
@@ -1359,6 +1368,7 @@ export function TerminalView({
     }
     uploadInFlightRef.current = true;
     setUploading(true);
+    const uploadInputGeneration = piInputOwnerRef.current.generation;
     const uploadConnectionKey = connectionKey;
     const uploadTerminalId = pane.terminal_id;
     const uploadFiles = files.slice(0, MAX_UPLOAD_FILES);
@@ -1381,6 +1391,7 @@ export function TerminalView({
         );
       }
       if (
+        piInputOwnerRef.current.generation !== uploadInputGeneration ||
         connectionKeyRef.current !== uploadConnectionKey ||
         terminalIdRef.current !== uploadTerminalId
       ) {
@@ -1453,8 +1464,13 @@ export function TerminalView({
 
   const enqueueTerminalInput = (
     parts: string[],
-    options?: { onSettled?: (deliveredParts: number, totalParts: number) => void },
+    options?: { onSettled?: (deliveredParts: number, totalParts: number) => void; generation?: number },
   ) => {
+    const owner = piInputOwnerRef.current;
+    const generation = options?.generation ?? owner.generation;
+    const automatic = options?.generation !== undefined;
+    if (generation !== owner.generation || (!automatic && (owner.mode === "automatic" || owner.mode === "recovery"))) return false;
+    const isCurrent = () => generation === piInputOwnerRef.current.generation;
     if (terminalInputBlockedRef.current) {
       showUploadStatus("Terminal detached", 2500);
       return false;
@@ -1465,7 +1481,7 @@ export function TerminalView({
     }
     const onSettled = options?.onSettled;
     if (!onSettled) {
-      inputQueueRef.current.push(...filteredParts.map((data) => ({ data })));
+      inputQueueRef.current.push(...filteredParts.map((data) => ({ data, isCurrent })));
     } else {
       let remaining = filteredParts.length;
       let deliveredParts = 0;
@@ -1478,7 +1494,7 @@ export function TerminalView({
           onSettled(deliveredParts, filteredParts.length);
         }
       };
-      inputQueueRef.current.push(...filteredParts.map((data) => ({ data, settle })));
+      inputQueueRef.current.push(...filteredParts.map((data) => ({ data, settle, isCurrent })));
     }
     flushQueuedTerminalInput();
     return true;
@@ -1515,7 +1531,9 @@ export function TerminalView({
       showUploadStatus("Terminal detached", 2500);
       return false;
     }
-    return enqueueTerminalInput(parts, { onSettled: onDelivered });
+    // Drain earlier typing before the automatic paste, never between its frames.
+    flushBatchedTerminalInput();
+    return enqueueTerminalInput(parts, { onSettled: onDelivered, generation: piInputOwnerRef.current.generation });
   };
 
   const showCommandControls = mobileControls || desktopCommandComposer || piPane;
@@ -1611,6 +1629,7 @@ export function TerminalView({
           key={JSON.stringify([bridgeId, pane.pane_id])}
           bridgeId={bridgeId}
           paneId={pane.pane_id}
+          inputOwner={piInputOwnerRef}
           mobile={mobileControls}
           conversationContext={mobileControls ? <ConversationContext paneId={pane.pane_id} /> : undefined}
           mobileTools={mobileControls ? <>

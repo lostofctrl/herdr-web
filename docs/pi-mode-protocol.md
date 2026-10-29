@@ -218,8 +218,18 @@ changes, and recorded message completion refresh the context. Pi awaits extensio
 `message_end` handlers before persisting the message, so that refresh runs on a later
 macrotask, pinned to the runtime/context and selection generation. Reconnect and page/native
 resume request fresh authority rather than trusting cached text. An explicit conversation
-request also revalidates the currently selected live ancestry after a cancelled before-hook
-operation (Pi does not emit a matching completion event for every cancelled operation).
+request can revalidate cancelled tree/compaction operations only after the public `ctx.isIdle()`
+confirms their controller has unwound, with the same session-manager owner and selection generation.
+Pi 1.4.0 holds those controllers through all before hooks, including tree navigation without a summary.
+A resync during a pending operation remains unavailable. Successful revalidation also restores subsequent
+unsolicited message/run publication, not just the request result.
+
+Pi 1.4.0 exposes no public cancellation verdict for `session_before_switch` or `session_before_fork`:
+`isIdle()` can be true while another extension is still awaiting either hook. These unresolved
+selections therefore stay `unavailable` / `selection_changing`, even after cancellation and resync,
+until a real completion/session-start/reload restores authority. An unchanged branch or request ID
+is not cancellation proof. This is a deliberate missing-API, fail-closed availability limitation;
+no private runtime, disk ancestry, or timeout is used to guess completion.
 Clients clear on socket,
 pane, bridge, capability or epoch loss and ignore old socket/request/generation/revision/
 session records. Unsupported, malformed or oversized conversation records clear context

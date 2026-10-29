@@ -97,6 +97,64 @@ test("completion refresh runs after Pi persists message_end, and selection immed
 });
 
 
+for (const event of ["session_before_tree", "session_before_compact"]) {
+  test(`${event}: pending hook stays unavailable; cancelled unwind plus resync restores subsequent publication without completion`, async (t) => {
+    const { socket, fake, setBranch } = await setup(t, [user("before")]);
+    let idle = true;
+    fake.ctx.isIdle = () => idle;
+    let cancel;
+    // Public event/context seam, matching Pi 1.4.0's controller lifetime (including non-summary tree).
+    fake.pi.on(event, () => new Promise((resolve) => { cancel = () => resolve({ cancel: true }); }));
+    idle = false;
+    const pending = fake.emit(event).finally(() => { idle = true; });
+    await socket.next((r) => r.type === "conversation_update" && r.availability === "unavailable");
+    assert.equal((await context(socket, "while-hook-pending")).availability, "unavailable");
+    cancel();
+    await pending;
+    const recovered = await context(socket, "after-cancel-unwind");
+    assert.equal(recovered.availability, "ready");
+    await fake.emit("agent_start");
+    const running = await socket.next((r) => r.type === "conversation_update" && !r.request_id && r.revision > recovered.revision);
+    assert.equal(running.availability, "ready");
+    await fake.emit("message_end", { message: assistant("new answer").message });
+    setBranch([user("after cancel"), assistant("new answer")]);
+    await fake.emit("agent_end");
+    const updated = await socket.next((r) => r.type === "conversation_update" && r.exchanges[0]?.assistant === "new answer");
+    assert.equal(updated.availability, "ready");
+  });
+}
+
+for (const event of ["session_before_switch", "session_before_fork"]) {
+  test(`${event}: cancellation is explicitly unresolved until a real lifecycle restores authority`, async (t) => {
+    const { socket, fake } = await setup(t, [user("before")]);
+    let release;
+    fake.pi.on(event, () => new Promise((resolve) => { release = () => resolve({ cancel: true }); }));
+    const pending = fake.emit(event);
+    await socket.next((r) => r.type === "conversation_update" && r.availability === "unavailable");
+    // isIdle remains true during these hooks in Pi; it is NOT cancellation proof.
+    assert.equal((await context(socket, "generic-pending")).availability, "unavailable");
+    release(); await pending;
+    assert.equal((await context(socket, "generic-cancelled")).availability, "unavailable");
+    await fake.emit("agent_start");
+    await fake.emit("agent_end");
+    assert.equal((await context(socket, "generic-after-run")).availability, "unavailable");
+    await fake.emit("session_start");
+    assert.equal((await context(socket, "real-lifecycle")).availability, "ready");
+  });
+}
+
+test("a resync from an older controller generation cannot release a newer unresolved selection", async (t) => {
+  const { socket, fake } = await setup(t, [user("before")]);
+  await fake.emit("session_before_tree");
+  const old = await context(socket, "old-revalidation");
+  await fake.emit("session_before_switch");
+  const newer = await context(socket, "old-request-repeated");
+  assert.ok(newer.selection_generation > old.selection_generation);
+  assert.equal(newer.availability, "unavailable");
+  await fake.emit("agent_start");
+  assert.equal((await context(socket, "still-newer")).availability, "unavailable");
+});
+
 test("actual encoded conversation caps prioritize latest tails, preserve Unicode and flag every truncation", async (t) => {
   const huge = "😀\"\n\u0000".repeat(20000);
   const { socket, setBranch, setSession } = await setup(t, [user("FIRST-HEAD" + huge), assistant("FIRST-ANSWER" + huge), user(huge + "LATEST-TAIL"), assistant(huge + "ANSWER-TAIL")]);
@@ -136,8 +194,8 @@ test("session replacement, compaction and authority loss refresh separately, wit
     assert.equal(invalid.availability, "unavailable");
     assert.deepEqual(invalid.exchanges, []);
     assert.ok(invalid.selection_generation > initial.selection_generation);
-    // If a later extension cancels the operation, explicit resync reads current authority.
-    assert.equal((await context(socket, event + "-cancel-resync")).availability, "ready");
+    // Only controller-backed operations have a public cancellation revalidation boundary.
+    assert.equal((await context(socket, event + "-cancel-resync")).availability, event === "session_before_compact" ? "ready" : "unavailable");
     await fake.emit(event === "session_before_compact" ? "session_compact_failed" : "session_start");
     assert.equal((await context(socket, event + "-after")).availability, "ready");
   }

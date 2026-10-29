@@ -6,6 +6,17 @@
 
 .pi-composer-desktop-actions { display: contents; }
 
+.pi-composer-manual-input { min-width: 0; font-size: 12px; }
+.pi-composer-manual-input p { margin: 0 0 8px; }
+.pi-composer-manual-input button { min-height: 44px; }
+.pi-composer[data-mobile-controls="true"] .pi-composer-manual-input {
+  order: 2;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 30%;
+  overflow: auto;
+}
+
 .pi-composer[data-mobile-controls="true"]:not([data-expanded="true"]) {
   align-items: flex-end;
   padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom));
