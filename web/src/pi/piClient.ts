@@ -1,3 +1,4 @@
+import { parseConversation, type PiConversation } from "./piConversation";
 import type {
   PiCapabilities,
   PiCatalog,
@@ -15,6 +16,7 @@ export type PiBridgeState = {
   catalog: PiCatalog | null;
   dialogs: PiDialog[];
   assistantMessage: string | null;
+  conversation: PiConversation | null;
   lastError: string | null;
 };
 
@@ -25,6 +27,7 @@ export const INITIAL_PI_BRIDGE_STATE: PiBridgeState = {
   catalog: null,
   dialogs: [],
   assistantMessage: null,
+  conversation: null,
   lastError: null,
 };
 
@@ -58,6 +61,11 @@ export class PiBridgeClient {
   private disposed = false;
   private nextRequestId = 1;
   private pending = new Map<string, PendingRequest>();
+  private conversationEpoch: string | null = null;
+  private conversationGeneration = 0;
+  private conversationRevision = 0;
+  private conversationSession: string | null = null;
+  private conversationRequestId: string | null = null;
 
   constructor(options: PiBridgeClientOptions) {
     this.options = options;
@@ -83,6 +91,7 @@ export class PiBridgeClient {
     }
     if (this.socket?.readyState === WebSocket.OPEN) {
       this.requestSnapshot();
+      this.requestConversation();
       return;
     }
     if (!this.socket) {
@@ -125,12 +134,14 @@ export class PiBridgeClient {
       }
       settled = true;
       this.socket = null;
+      this.conversationEpoch = null;
+      this.conversationRequestId = null;
       this.rejectPending(new Error(reason || "Pi Bridge connection closed"));
       if (code === 4501) {
-        this.patch({ status: "unknown-pane", lastError: reason || "unknown_pane" });
+        this.patch({ status: "unknown-pane", lastError: reason || "unknown_pane", conversation: null });
         return;
       }
-      this.patch({ status: "offline", lastError: reason || `relay_closed_${code}` });
+      this.patch({ status: "offline", lastError: reason || `relay_closed_${code}`, conversation: null });
       this.scheduleReconnect();
     };
 
@@ -161,6 +172,16 @@ export class PiBridgeClient {
     });
   }
 
+  private requestConversation() {
+    this.patch({ conversation: null });
+    if (!this.state.capabilities.conversation_context || !this.conversationEpoch) return;
+    const id = String(this.nextRequestId);
+    this.conversationRequestId = id;
+    void this.request("get_conversation", { schema_version: 1 }).catch(() => {
+      if (this.conversationRequestId === id) this.patch({ conversation: null });
+    });
+  }
+
   private requestSnapshot() {
     void this.request<PiSnapshotResult>("get_snapshot")
       .then((result) => {
@@ -188,18 +209,47 @@ export class PiBridgeClient {
       }
       record = parsed as Record<string, unknown>;
     } catch {
+      this.patch({ conversation: null });
       return;
     }
 
     switch (record.type) {
-      case "hello":
+      case "conversation_update": {
+        if (!this.state.capabilities.conversation_context || !this.conversationEpoch) return;
+        const value = parseConversation(raw);
+        if (!value) {
+          this.patch({ conversation: null });
+          return;
+        }
+        if (value.epoch !== this.conversationEpoch ||
+            (value.request_id !== undefined && value.request_id !== this.conversationRequestId) ||
+            value.selection_generation < this.conversationGeneration || value.revision <= this.conversationRevision) return;
+        if (value.selection_generation === this.conversationGeneration && this.conversationSession &&
+            value.session_id && value.session_id !== this.conversationSession) return;
+        this.conversationGeneration = value.selection_generation;
+        this.conversationRevision = value.revision;
+        this.conversationSession = value.session_id;
+        this.patch({ conversation: value });
+        return;
+      }
+      case "hello": {
+        const epoch = record.protocol_version === 1 && typeof record.conversation_epoch === "string" ? record.conversation_epoch : null;
+        if (epoch !== this.conversationEpoch) {
+          this.conversationEpoch = epoch;
+          this.conversationGeneration = 0;
+          this.conversationRevision = 0;
+          this.conversationSession = null;
+        }
         this.patch({
+          conversation: null,
           capabilities:
             record.capabilities && typeof record.capabilities === "object"
               ? (record.capabilities as PiCapabilities)
               : {},
         });
+        this.requestConversation();
         return;
+      }
       case "state":
         this.patch({ state: record as unknown as PiState });
         return;

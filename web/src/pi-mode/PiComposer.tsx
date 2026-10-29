@@ -1,6 +1,6 @@
 import { History, ImagePlus, Send, TextCursorInput, X } from "lucide-react";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import type { ChangeEvent, DragEvent, KeyboardEvent, ClipboardEvent, RefObject } from "react";
+import type { ChangeEvent, DragEvent, KeyboardEvent, ClipboardEvent, RefObject, ReactNode } from "react";
 
 import { compositionGuardDeadline, isLateCompositionEdit } from "../commandTextFieldGuard";
 import { hasOpenMenu, hasOpenModal, isShortcutTextEntryTarget } from "../keyboardShortcutTargets";
@@ -50,6 +50,8 @@ export type PiComposerProps = {
   inputRef?: RefObject<HTMLTextAreaElement | null>;
   /** Parent focus request token; focuses the field while the Composer is open. */
   focusToken?: number;
+  /** Optional pane-owned context rendered above the open editor. */
+  conversationContext?: ReactNode;
   /**
    * Queues the prompt on the terminal socket. Returns false when nothing was
    * queued, which keeps the draft and attachments. `onDelivered` reports how
@@ -83,6 +85,7 @@ export function PiComposer({
   disabled,
   inputRef,
   focusToken = 0,
+  conversationContext,
   onSend,
   onUploadImages,
   onTerminalFocus,
@@ -864,6 +867,7 @@ export function PiComposer({
           <span className="pi-composer-action-label">File</span>
         </button>
       </div>
+      {conversationContext}
       <form
         className="term-input-row pi-composer-row"
         data-expanding="true"

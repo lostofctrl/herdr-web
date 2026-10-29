@@ -6,6 +6,10 @@
 
 ### Added
 
+- Pi mode: the mobile Composer shows read-only first/latest exchanges from the live selected
+  branch, including pending/running and interrupted replies, explicit truncation and unavailable
+  states. A capability-gated conversation schema keeps legacy peers and terminal delivery working;
+  context is bounded, cleared on authority changes, and never persisted by the browser.
 - Pi mode: panes running Pi get native surfaces instead of an opaque terminal. A new in-repo
   `pi-bridge` package publishes Pi State, the command and skill catalog, dialogs and the last
   assistant answer on a per-pane Unix socket, and the Rust bridge relays it to the browser over

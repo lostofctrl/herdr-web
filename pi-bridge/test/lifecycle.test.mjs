@@ -80,6 +80,7 @@ test("hello advertises protocol version 1 and capabilities, then sends the snaps
     assistant_message: true,
     list_files: true,
     skills_catalog: true,
+    conversation_context: false,
   });
 
   const state = await connection.next((record) => record.type === "state");

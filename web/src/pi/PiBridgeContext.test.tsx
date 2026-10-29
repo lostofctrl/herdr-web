@@ -111,6 +111,7 @@ function Probe({ paneId }: { paneId: string }) {
       <div data-testid="commands">{JSON.stringify(bridge?.catalog?.commands ?? null)}</div>
       <div data-testid="dialogs">{JSON.stringify(bridge?.dialogs ?? null)}</div>
       <div data-testid="assistant">{bridge?.assistantMessage ?? "none"}</div>
+      <div data-testid="conversation">{JSON.stringify(bridge?.conversation ?? null)}</div>
       <div data-testid="capabilities">{JSON.stringify(bridge?.capabilities ?? null)}</div>
       <div data-testid="results">{JSON.stringify(results)}</div>
       <button aria-label="set model" onClick={() => bridge && run("model", bridge.setModel("openai", "gpt-5"))} />
@@ -303,4 +304,95 @@ describe("PiBridgeProvider (Seam 3)", () => {
     await act(async () => vi.advanceTimersByTime(60_000));
     expect(TestSocket.instances).toHaveLength(1);
   });
+});
+
+
+const CONTEXT = {
+  type: "conversation_update", schema_version: 1, epoch: "epoch-a", session_id: "session-a", leaf_id: "leaf-a",
+  selection_generation: 1, revision: 1, availability: "ready", reason: null,
+  exchanges: [{ user: "first question", assistant: "public answer", status: "complete", user_truncated: false, assistant_truncated: false }],
+};
+
+it("capability-gates fresh conversation resync, rejects stale authority/revisions and clears context immediately offline", async () => {
+  const { container } = await renderProbe();
+  const pi = await openPiSocket();
+  expect(sentRecords(pi).some((r) => r.type === "get_conversation")).toBe(false);
+  await send({ type: "hello", protocol_version: 1, conversation_epoch: "epoch-a", capabilities: { conversation_context: true } });
+  expect(sentRecords(pi).filter((r) => r.type === "get_conversation")).toMatchObject([{ schema_version: 1 }]);
+  await send(CONTEXT);
+  expect(text(container, "conversation")).toContain("public answer");
+  await send({ ...CONTEXT, revision: 1, exchanges: [] });
+  await send({ ...CONTEXT, epoch: "superseded", revision: 100, exchanges: [] });
+  expect(text(container, "conversation")).toContain("public answer");
+  await send({ ...CONTEXT, selection_generation: 2, revision: 2, availability: "unavailable", reason: "selection_changing", exchanges: [] });
+  expect(text(container, "conversation")).not.toContain("public answer");
+  await send({ ...CONTEXT, revision: 3 });
+  expect(text(container, "conversation")).not.toContain("public answer");
+  await send({ ...CONTEXT, selection_generation: 2, revision: 4, leaf_id: "leaf-b" });
+  expect(text(container, "conversation")).toContain("leaf-b");
+  await closePiSocket(4500);
+  expect(text(container, "conversation")).toBe("null");
+});
+
+it("treats malformed/oversized/unsupported conversation as unavailable without disabling ordinary Pi controls", async () => {
+  const { container } = await renderProbe();
+  await openPiSocket();
+  await send({ type: "hello", protocol_version: 1, conversation_epoch: "epoch-a", capabilities: { conversation_context: true } });
+  for (const bad of [
+    { ...CONTEXT, schema_version: 2 },
+    { ...CONTEXT, exchanges: [{ ...CONTEXT.exchanges[0], user: "x".repeat(16385) }] },
+    { ...CONTEXT, exchanges: [{ ...CONTEXT.exchanges[0], status: "invented" }] },
+    { ...CONTEXT, session_id: "x".repeat(9000) },
+    { ...CONTEXT, padding: "x".repeat(65536) },
+  ]) {
+    await send(bad);
+    expect(text(container, "conversation")).toBe("null");
+    expect(text(container, "status")).toBe("online");
+  }
+  await send(CONTEXT);
+  expect(text(container, "conversation")).toContain("public answer");
+  await send({ type: "hello", protocol_version: 1, capabilities: {} });
+  expect(text(container, "conversation")).toBe("null");
+});
+
+
+it("resync clears cached context and ignores delayed replies, superseded sockets and epoch resets", async () => {
+  const { container } = await renderProbe();
+  const pi = await openPiSocket();
+  await send({ type: "hello", protocol_version: 1, conversation_epoch: "epoch-a", capabilities: { conversation_context: true } });
+  const request = sentRecords(pi).find((r) => r.type === "get_conversation")!;
+  await send({ ...CONTEXT, request_id: request.id });
+  expect(text(container, "conversation")).toContain("public answer");
+  await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+  expect(text(container, "conversation")).toBe("null");
+  await send({ ...CONTEXT, request_id: request.id, revision: 20 });
+  expect(text(container, "conversation")).toBe("null");
+  const next = sentRecords(pi).filter((r) => r.type === "get_conversation").at(-1)!;
+  await send({ ...CONTEXT, request_id: next.id, revision: 2 });
+  expect(text(container, "conversation")).toContain("public answer");
+  await send({ type: "hello", protocol_version: 1, conversation_epoch: "epoch-b", capabilities: { conversation_context: true } });
+  await send({ ...CONTEXT, revision: 99 });
+  expect(text(container, "conversation")).toBe("null");
+  await send({ ...CONTEXT, epoch: "epoch-b" });
+  expect(text(container, "conversation")).toContain("public answer");
+  await closePiSocket(4500);
+  await act(async () => { vi.advanceTimersByTime(500); });
+  await openPiSocket();
+  await act(async () => pi.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ ...CONTEXT, revision: 100 }) })));
+  expect(text(container, "conversation")).toBe("null");
+});
+
+
+it("does not carry conversation into a different pane or bridge runtime while the new socket awaits hello", async () => {
+  const { root, container } = await renderProbe();
+  await openPiSocket();
+  await send({ type: "hello", protocol_version: 1, conversation_epoch: "epoch-a", capabilities: { conversation_context: true } });
+  await send(CONTEXT);
+  expect(text(container, "conversation")).toContain("public answer");
+  await act(async () => root.render(
+    <PiBridgeProvider paneId="pane-b" connectionKey="bridge-b" wsUrl={(path) => path}>
+      <Probe paneId="pane-b" />
+    </PiBridgeProvider>,
+  ));
+  expect(text(container, "conversation")).toBe("null");
 });
