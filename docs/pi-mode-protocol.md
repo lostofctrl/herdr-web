@@ -168,3 +168,86 @@ Relay-level failures are WebSocket close codes, not protocol records:
 The browser reconnects with backoff, sends `get_snapshot` after every successful
 reconnect and on app resume, and treats any close as Bridge Offline until the next
 successful `hello`. The terminal WebSocket on the same pane is unaffected.
+
+
+## Read-only conversation context (conversation schema 1)
+
+This additive feature is independent of protocol v1 snapshots and the legacy Reader Sheet.
+`hello.capabilities.conversation_snapshot` is true only when the live session manager exposes
+`getBranch()`, `getSessionId()` and `getLeafId()`. `hello.conversation_epoch` identifies the
+extension runtime. Missing capability/epoch means unavailable context, not disabled terminal
+or Composer controls. Old clients ignore these additive records; new clients do not ask old
+bridges for conversation. Legacy `state`, `catalog`, dialogs, `assistant_message`, and
+`get_snapshot` retain their existing contents and limits.
+
+Clients send `get_conversation` with `id` and `schema_version: 1`. The bridge sends a separate
+`conversation_update` carrying `request_id: id`, then an ordinary successful `response` with
+an empty result. Unsupported request schemas receive an error response. Lifecycle updates
+use the same record without `request_id`; they never change a draft or send input.
+
+Every conversation update contains:
+
+- `type: "conversation_update"`, `schema_version: 1`;
+- `epoch`, `session_id`, `leaf_id`, `selection_generation`, `revision`;
+- `availability: "ready" | "unavailable"`, `reason: string | null`, `exchanges`.
+
+`epoch` is a fresh runtime UUID announced by hello. Session identity and selected leaf come
+from the live manager, never disk, terminal output, browser history, or the all-entry list.
+`leaf_id` may be null for an empty branch. `selection_generation` increases for session
+start and before switch/fork/tree/compaction, including navigating away and back to the
+same leaf. `revision` increases monotonically across every update/request in that runtime.
+The selected leaf can advance within a generation as messages are recorded. A different
+session requires a newer generation. Null identities on an unavailable record make no
+identity claim (for example, essential metadata too large); they are never truncated IDs.
+
+`exchanges` contains zero, one, or two distinct first/latest user-led exchanges in the
+selected root-to-leaf ancestry. Each has `user`, `assistant`, `status`, `user_truncated`,
+and `assistant_truncated`. Public text blocks (and string user content) only are included;
+assistant messages are joined until the next user. Empty/tool-only updates do not erase
+prior public text or an interrupted status. Thinking, tool calls/results, images, custom
+messages, compaction and branch summaries are excluded. An unanswered user stays separate
+from the prior answer. Status is `pending`, `running`, `complete`, `aborted`, or `error`;
+completed interrupted text remains readable. A successful completed assistant message with no
+public text leaves an unanswered current user `pending` (or `running` while the run is active),
+not falsely answered. An empty completion after eligible public text preserves that text and its
+status. Streaming deltas are not published.
+
+Before selection/authority changes, updates immediately become unavailable and empty.
+Session start/reload/new/resume/fork, tree navigation, compaction success/failure, run-status
+changes, and recorded message completion refresh the context. Pi awaits extension
+`message_end` handlers before persisting the message, so that refresh runs on a later
+macrotask, pinned to the runtime/context and selection generation. Reconnect and page/native
+resume request fresh authority rather than trusting cached text. An explicit conversation
+request also revalidates the currently selected live ancestry after a cancelled before-hook
+operation (Pi does not emit a matching completion event for every cancelled operation).
+Clients clear on socket,
+pane, bridge, capability or epoch loss and ignore old socket/request/generation/revision/
+session records. Unsupported, malformed or oversized conversation records clear context
+without disabling other Pi controls. Text is untrusted and rendered as React text, not HTML.
+
+### Conversation byte budgets
+
+Conversation records alone have a **64 KiB actual UTF-8 encoded JSON record cap**, including
+all envelope fields, JSON escaping and optional request ID. Each text field has a **16 KiB
+UTF-8 cap**. Empty-text identity/status/structure metadata may occupy at most **8 KiB**;
+metadata that cannot fit produces `unavailable` / `metadata_too_large` with no exchanges,
+never shortened identities. Excessively large request IDs may be omitted from that
+unavailable update. The ordinary response still uses the request ID under the legacy cap.
+
+The remaining encoded-record budget is allocated to the latest/current exchange before
+the first, user then assistant within each. Latest/current fields retain their tails;
+first fields retain their heads. A single exchange is current and retains its tail.
+Truncation respects Unicode code points and every affected field is explicitly flagged,
+even when its entire text must be omitted. Flag size is included in the envelope budget.
+These limits do not alter the relay's **1 MiB** cap or its existing pane/origin/socket rules.
+No new endpoint, network listener, filesystem reader, prompt-send path, or conversation
+persistence is introduced.
+
+### Verification scope
+
+Real Unix-socket tests cover ancestry, public content/status grouping, delayed persistence,
+selection lifecycle, encoded/Unicode limits, and compatibility. Provider lifecycle tests
+cover resync, stale authority, malformed records and offline degradation; mounted real
+mobile Composer/TerminalView tests include StrictMode and literal untrusted text. Live
+rendering in an owned disposable Pi/Herdr session is a separate acceptance gate; these
+automated tests do not establish physical iOS Safari or Android Chrome verification.

@@ -64,6 +64,7 @@ export function PiBridgeProvider({
   const [snapshot, setSnapshot] = useState<PiBridgeState>(INITIAL_PI_BRIDGE_STATE);
   const [client, setClient] = useState<PiBridgeClient | null>(null);
   const clientRef = useRef<PiBridgeClient | null>(null);
+  const [owner, setOwner] = useState<{ paneId: string; connectionKey: string; wsUrl: PiBridgeProviderProps["wsUrl"] } | null>(null);
 
   useEffect(() => {
     if (!enabled) {
@@ -72,6 +73,8 @@ export function PiBridgeProvider({
       setSnapshot(INITIAL_PI_BRIDGE_STATE);
       return;
     }
+    setSnapshot(INITIAL_PI_BRIDGE_STATE);
+    setOwner({ paneId, connectionKey, wsUrl });
     const next = new PiBridgeClient({
       url: () => piBridgeSocketUrl(wsUrl, paneId),
       onState: setSnapshot,
@@ -105,7 +108,7 @@ export function PiBridgeProvider({
   }, [resumeToken]);
 
   const api = useMemo<PiBridgeApi | null>(() => {
-    if (!enabled || !client) {
+    if (!enabled || !client || owner?.paneId !== paneId || owner.connectionKey !== connectionKey || owner.wsUrl !== wsUrl) {
       return null;
     }
     return {
@@ -132,7 +135,7 @@ export function PiBridgeProvider({
       },
       resync: () => client.resync(),
     };
-  }, [client, enabled, paneId, snapshot]);
+  }, [client, connectionKey, enabled, owner, paneId, snapshot, wsUrl]);
 
   const value = useMemo<PiBridgeContextValue | null>(
     () => (api ? { paneId, api } : null),

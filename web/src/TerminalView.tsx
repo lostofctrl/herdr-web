@@ -28,6 +28,7 @@ import type { MobileTerminalChordKey } from "./mobileTerminalControls";
 import { MobileTerminalKeyButton } from "./MobileTerminalKeyButton";
 import { ConfirmDialog } from "./overlays";
 import { PiComposer } from "./pi-mode/PiComposer";
+import { ConversationContext } from "./pi/conversation/ConversationContext";
 import { piControlsStackHeight } from "./pi-mode/piControlsHeight";
 import { PiDialogCards } from "./pi/cards/PiDialogCard";
 import { PiSidePanel } from "./pi/sidepanel/PiSidePanel";
@@ -1605,6 +1606,7 @@ export function TerminalView({
           bridgeId={bridgeId}
           paneId={pane.pane_id}
           mobile={mobileControls}
+          conversationContext={mobileControls ? <ConversationContext paneId={pane.pane_id} /> : undefined}
           active={selected}
           disabled={connectionState !== "attached"}
           inputRef={piComposerInputRef}
