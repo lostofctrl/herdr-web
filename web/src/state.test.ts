@@ -8,10 +8,12 @@ import {
   chooseSelectedPane,
   chooseSelectedPaneForActiveWorkspace,
   displayTabLabel,
+  topTabLabel,
   paneListSubtitle,
   paneSubtitle,
   paneTitle,
   sortPanesForPicker,
+  tabsForWorkspace,
   spaceSubtitle,
 } from "./state";
 import type { PaneInfo, Snapshot, TabInfo, WorkspaceInfo } from "./types";
@@ -112,6 +114,23 @@ describe("chooseSelectedPane", () => {
           selected_pane_id: "1-1",
         },
         "1-2",
+        true,
+        true,
+      ),
+    ).toBe("1-1");
+  });
+
+  it("keeps the local selection when no client shared selection exists", () => {
+    // The bridge reports no shared selection when no web client has selected a
+    // pane yet, even though another client (a Herdr TUI) has a focused pane.
+    // Following that focused pane here made the browser undo the user's click.
+    expect(
+      chooseSelectedPane(
+        {
+          ...snapshot([pane("1-1"), pane("1-2", true)]),
+          selected_pane_id: null,
+        },
+        "1-1",
         true,
         true,
       ),
@@ -409,6 +428,35 @@ describe("spaceSubtitle", () => {
     expect(spaceSubtitle(item, "srv", 2)).toBe("srv · 2 tabs · 3 panes · 2 agents");
     expect(spaceSubtitle(item, undefined, 1)).toBe("2 tabs · 3 panes · 1 agent");
     expect(spaceSubtitle(item)).toBe("2 tabs · 3 panes");
+  });
+});
+
+describe("Herdr tab order", () => {
+  it("preserves snapshot order instead of sorting stable tab numbers", () => {
+    const tabs = [
+      { ...tab("third", "third"), number: 3 },
+      { ...tab("elsewhere", "other"), workspace_id: "2", number: 9 },
+      { ...tab("first", "first"), number: 1 },
+      { ...tab("second", "second"), number: 2 },
+    ];
+    expect(tabsForWorkspace(tabs, "1").map((item) => item.tab_id)).toEqual([
+      "third", "first", "second",
+    ]);
+    expect(tabs.map((item) => item.tab_id)).toEqual(["third", "other", "first", "second"]);
+  });
+});
+
+describe("topTabLabel", () => {
+  it("puts the Herdr tab name before the single pane title, including custom names", () => {
+    expect(topTabLabel(tab("1"), [{ ...pane("1-1"), title: "Pi session" }])).toBe("1 · Pi session");
+    expect(topTabLabel(tab("review"), [{ ...pane("1-1"), title: "Pi session" }])).toBe("review · Pi session");
+  });
+
+  it("does not repeat names or invent a pane title, and avoids picking among multiple panes", () => {
+    expect(topTabLabel(tab("review"), [{ ...pane("1-1"), title: "review" }])).toBe("review");
+    expect(topTabLabel(tab("1"), [pane("1-1")])).toBe("1");
+    expect(topTabLabel(tab("1"), [{ ...pane("1-1"), title: "one" }, { ...pane("1-2"), title: "two" }])).toBe("1");
+    expect(topTabLabel(tab("1"), [{ ...pane("1-1"), tab_id: "other", title: "unrelated" }])).toBe("1");
   });
 });
 

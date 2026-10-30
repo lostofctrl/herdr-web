@@ -842,7 +842,12 @@ button {
 }
 
 .agent-row {
-  grid-template-columns: 16px minmax(0, 1fr) auto;
+  grid-template-columns: 16px minmax(0, 1fr);
+}
+
+.agent-row > .dot {
+  align-self: start;
+  margin-top: 4px;
 }
 
 .agent-row .pane-name {

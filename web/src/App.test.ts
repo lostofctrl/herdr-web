@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   areAllVisibleSidebarGroupsCollapsed,
-  agentSubtitle,
+  agentRowText,
   applySnapshotOverlays,
   buildCombinedTabWorkspaceGroups,
   buildScopedAgentGroups,
@@ -142,32 +142,29 @@ describe("App multi-bridge helpers", () => {
     );
   });
 
-  it("keeps agent subtitles compact by omitting redundant status text", () => {
-    expect(
-      agentSubtitle(
-        {
-          ...pane("agent", "workspace-a", "tab-a", "working"),
-          state_labels: { working: "Reviewing" },
-          cwd: "/work/project",
-        },
-        workspace("workspace-a", 1),
-        "tab-a",
-        "host-a",
-      ),
-    ).toBe("host-a · workspace-a · tab-a · project · Reviewing");
-    expect(
-      agentSubtitle({
-        ...pane("agent", "workspace-a", "tab-a", "working"),
-        state_labels: { working: "Running" },
-      }),
-    ).toBe("Running");
-    expect(agentSubtitle(pane("agent", "workspace-a", "tab-a", "working"))).toBe("");
-    expect(
-      agentSubtitle({
-        ...pane("agent", "workspace-a", "tab-a", "unknown"),
-        state_labels: { unknown: "Connecting" },
-      }),
-    ).toBe("Connecting");
+  it("formats agent rows with workspace, tab, branch, pane title and state", () => {
+    const agent = {
+      ...pane("agent", "workspace-a", "tab-a", "working"),
+      title: "pi session in project",
+      label: "fallback",
+      tokens: { branch: "main" },
+      state_labels: { working: "Reviewing" },
+    };
+    expect(agentRowText(agent, workspace("workspace-a", 1), "1", "host-a")).toEqual({
+      heading: "host-a · workspace-a · 1 · main",
+      title: "pi session in project",
+      detail: "1 · Reviewing",
+    });
+    expect(agentRowText({ ...agent, tokens: { branch: "feature" }, title: "" }, undefined, undefined)).toEqual({
+      heading: "feature",
+      title: "fallback",
+      detail: "Reviewing",
+    });
+    expect(agentRowText({ ...agent, tokens: {}, state_labels: {}, agent_status: "unknown" }, undefined, "1")).toEqual({
+      heading: "1",
+      title: "pi session in project",
+      detail: "1 · idle",
+    });
   });
 
   it("uses display preference selection before store fallback", () => {

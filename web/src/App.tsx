@@ -195,9 +195,10 @@ import {
   paneListSubtitle,
   paneTitle,
   sortPanesForTab,
-  sortTabsForWorkspace,
+  tabsForWorkspace,
   spaceSubtitle,
   statusLabel,
+  topTabLabel,
 } from "./state";
 import type {
   AgentStatus,
@@ -5022,7 +5023,7 @@ export function buildVisibleAgentPaneEntries(
           snapshot: entry.snapshot,
           workspace: entry.workspace,
           tabNumber: tab?.number,
-          tabLabel: tab ? displayTabLabel(tab, entry.snapshot.panes) : undefined,
+          tabLabel: tab?.label,
           pinned: isAgentPinned(pinnedAgentKeys, entry.bridgeId, pane.pane_id),
           lastStatusTransitionAt: agentActivityTransitions.get(
             agentActivityKey(entry.bridgeId, pane.pane_id, pane.terminal_id),
@@ -5255,7 +5256,7 @@ export function buildVisibleTabWorkspaceGroups(
 ): ScopedTabWorkspace[] {
   return scopedWorkspaces
     .map((entry) => {
-      const tabs = sortTabsForWorkspace(entry.snapshot.tabs, entry.workspace.workspace_id)
+      const tabs = tabsForWorkspace(entry.snapshot.tabs, entry.workspace.workspace_id)
         .map((tab) => {
           const panes = sortPanesForTab(entry.snapshot.panes, tab.tab_id);
           const pinnedPanes = pinnedOnly
@@ -6030,7 +6031,7 @@ function TabBar({
   if (!snapshot || !activeSpace) {
     return null;
   }
-  const tabs = sortTabsForWorkspace(snapshot.tabs, activeSpace.workspace_id);
+  const tabs = tabsForWorkspace(snapshot.tabs, activeSpace.workspace_id);
   if (tabs.length === 0) {
     return null;
   }
@@ -6042,20 +6043,21 @@ function TabBar({
     <div className="tabbar">
       <div className="tabbar-scroll" role="tablist" aria-label="Tabs">
         {tabs.map((tab) => {
-          const label = displayTabLabel(tab, snapshot.panes);
+          const label = topTabLabel(tab, snapshot.panes);
           return (
             <button
               key={tab.tab_id}
               type="button"
               className="tabbar-tab"
               role="tab"
+              title={label}
               aria-selected={tab.tab_id === activeTabId}
               data-active={tab.tab_id === activeTabId}
               onClick={() => onSelectTab(tab.tab_id)}
               onContextMenu={(event) => {
                 event.preventDefault();
                 focusOverlayTrigger(event.currentTarget);
-                onMenu("tab", tab.tab_id, label, event.clientX, event.clientY, canClearTabName(tab));
+                onMenu("tab", tab.tab_id, tab.label, event.clientX, event.clientY, canClearTabName(tab));
               }}
               onKeyDown={(event) => {
                 if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) {
@@ -6064,7 +6066,7 @@ function TabBar({
                 event.preventDefault();
                 focusOverlayTrigger(event.currentTarget);
                 const rect = event.currentTarget.getBoundingClientRect();
-                onMenu("tab", tab.tab_id, label, rect.left, rect.bottom, canClearTabName(tab));
+                onMenu("tab", tab.tab_id, tab.label, rect.left, rect.bottom, canClearTabName(tab));
               }}
             >
               <span className="dot" data-status={tab.agent_status} />
@@ -6759,8 +6761,8 @@ function Switcher({
                   key={`${group.bridgeId}:${pane.pane_id}`}
                   index={index}
                   pane={pane}
-                  workspace={rowContext.workspaceLabel ? group.workspace : undefined}
-                  tabLabel={tabLabel}
+                  workspace={group.workspace}
+                  tabLabel={tab.label}
                   bridgeLabel={rowContext.bridgeLabel}
                   pinned={pinned}
                   active={active}
@@ -7046,7 +7048,7 @@ function Switcher({
         key={`${entry.bridgeId}:${entry.pane.pane_id}`}
         index={index}
         pane={entry.pane}
-        workspace={rowContext.workspaceLabel ? entry.workspace : undefined}
+        workspace={entry.workspace}
         tabLabel={entry.tabLabel}
         bridgeLabel={rowContext.bridgeLabel}
         pinned={entry.pinned === true}
@@ -9049,6 +9051,7 @@ function AgentRow({
 }) {
   const press = useLongPress(onMenu, onSelect);
   const iconKind = agentIconKind(pane);
+  const text = agentRowText(pane, workspace, tabLabel, bridgeLabel);
   return (
     <button
       className="pane-row agent-row"
@@ -9061,19 +9064,18 @@ function AgentRow({
       <span className="dot" data-status={pane.agent_status} />
       <span className="pane-body">
         <span className="pane-name pane-title">
-          {iconKind ? <AgentIcon kind={iconKind} /> : null}
-          {pinned ? (
-            <Pin className="agent-pin-indicator" size={10} aria-label="Pinned" />
-          ) : null}
-          <span className="pane-title-text">{agentTitle(pane)}</span>
+          {!text.heading && iconKind ? <AgentIcon kind={iconKind} /> : null}
+          <span className="pane-title-text">{text.heading || text.title}</span>
+          {pinned ? <Pin className="agent-pin-indicator" size={10} aria-label="Pinned" /> : null}
         </span>
-        <span className="pane-meta mono">{agentSubtitle(pane, workspace, tabLabel, bridgeLabel)}</span>
+        {text.heading ? (
+          <span className="pane-meta pane-title">
+            {iconKind ? <AgentIcon kind={iconKind} /> : null}
+            <span className="pane-title-text">{text.title}</span>
+          </span>
+        ) : null}
+        <span className="pane-meta mono">{text.detail}</span>
       </span>
-      {isLoud(pane.agent_status) ? (
-        <span className="pane-word" data-status={pane.agent_status}>
-          {statusLabel(pane.agent_status)}
-        </span>
-      ) : null}
     </button>
   );
 }
@@ -9433,17 +9435,21 @@ function agentTitle(pane: PaneInfo) {
   return pane.display_agent || pane.label || pane.agent || pane.title || paneTitle(pane);
 }
 
-export function agentSubtitle(
+export function agentRowText(
   pane: PaneInfo,
   workspace?: WorkspaceInfo,
   tabLabel?: string,
   bridgeLabel?: string,
 ) {
-  const dir = basename(pane.foreground_cwd || pane.cwd);
-  const stateText = pane.state_labels?.[pane.agent_status];
-  return [bridgeLabel, workspace?.label, tabLabel, dir, stateText]
-    .filter(Boolean)
-    .join(" · ");
+  return {
+    heading: [bridgeLabel, workspace?.label, tabLabel, pane.tokens?.branch]
+      .filter(Boolean)
+      .join(" · "),
+    title: pane.title || pane.label || agentTitle(pane),
+    detail: [tabLabel, pane.state_labels?.[pane.agent_status] || statusLabel(pane.agent_status)]
+      .filter(Boolean)
+      .join(" · "),
+  };
 }
 
 function SplitGlyph() {

@@ -127,6 +127,7 @@
 
 ### Fixed
 
+- Keep workspace tabs in Herdr's order after tabs are moved.
 - Keep this browser's own tab selection when another client on the same Herdr session (for example
   the TUI in a terminal) changes its focused tab in shared navigation mode. A browser that has not
   selected a pane yet still opens on the session's focused pane.

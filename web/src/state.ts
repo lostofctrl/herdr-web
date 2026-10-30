@@ -216,6 +216,17 @@ export function canClearWorkspaceName(workspace: WorkspaceInfo, panes: readonly 
   return workspace.label !== inferredWorkspaceDefaultLabel(workspace, panes);
 }
 
+export function topTabLabel(tab: TabInfo, panes: readonly PaneInfo[]) {
+  const tabPanes = panes.filter((pane) => pane.tab_id === tab.tab_id);
+  if (tabPanes.length !== 1) return tab.label;
+  const pane = tabPanes[0];
+  if (!pane.label && !pane.title && !pane.display_agent && !pane.agent && !pane.foreground_cwd && !pane.cwd) {
+    return tab.label;
+  }
+  const title = paneTitle(pane);
+  return title === tab.label ? tab.label : `${tab.label} · ${title}`;
+}
+
 export function displayTabLabel(tab: TabInfo, panes: readonly PaneInfo[]) {
   if (!isDefaultTabLabel(tab)) {
     return tab.label;
@@ -295,10 +306,9 @@ export function spaceSubtitle(
   return [bridgeLabel, tabs, panes, agents].filter(Boolean).join(" · ");
 }
 
-export function sortTabsForWorkspace(tabs: TabInfo[], workspaceId: string) {
-  return tabs
-    .filter((tab) => tab.workspace_id === workspaceId)
-    .sort((a, b) => a.number - b.number);
+export function tabsForWorkspace(tabs: TabInfo[], workspaceId: string) {
+  // Herdr's numbers are stable IDs; snapshot order reflects the current tab order.
+  return tabs.filter((tab) => tab.workspace_id === workspaceId);
 }
 
 export function sortPanesForTab(panes: PaneInfo[], tabId: string) {

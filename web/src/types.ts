@@ -46,6 +46,7 @@ export type PaneInfo = {
   display_agent?: string;
   agent_status: AgentStatus;
   state_labels?: Record<string, string>;
+  tokens?: Record<string, string>;
   revision: number;
 };
 
