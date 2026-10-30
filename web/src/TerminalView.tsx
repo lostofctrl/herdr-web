@@ -1631,7 +1631,7 @@ export function TerminalView({
           paneId={pane.pane_id}
           inputOwner={piInputOwnerRef}
           mobile={mobileControls}
-          conversationContext={mobileControls ? <ConversationContext paneId={pane.pane_id} /> : undefined}
+          conversationContext={mobileControls ? (editor) => <ConversationContext paneId={pane.pane_id} editor={editor} /> : undefined}
           mobileTools={mobileControls ? <>
             <PiKeyBar paneId={pane.pane_id} disabled={connectionState !== "attached"}
               onInput={(data) => enqueueTerminalInput([data])} />

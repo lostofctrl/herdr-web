@@ -1,10 +1,12 @@
 /** @vitest-environment jsdom */
-import { act, StrictMode } from "react";
+import { act, StrictMode, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PiComposer } from "./PiComposer";
-import { retainPiComposerDrafts } from "./piComposerDraft";
+import { piComposerDraftKey, retainPiComposerDrafts } from "./piComposerDraft";
+import { ConversationContext } from "../pi/conversation/ConversationContext";
+import type { PiConversation } from "../pi/piConversation";
 
 /**
  * The app renders under <StrictMode>, which mounts, unmounts and remounts every
@@ -32,14 +34,16 @@ vi.mock("../pi/screenshot", () => ({
   ...editor,
 }));
 
+const bridgeState = vi.hoisted(() => ({ current: null as null | { status: string; conversation: unknown; capabilities: { list_files: boolean; skills_catalog: boolean }; state: null; catalog: null; dialogs: unknown[] } }));
 vi.mock("../pi/PiBridgeContext", () => ({
-  usePiBridge: () => null,
+  usePiBridge: () => bridgeState.current,
 }));
 
 const roots: Root[] = [];
 
 beforeEach(() => {
   window.localStorage.clear();
+  bridgeState.current = null;
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   Object.assign(URL, {
     createObjectURL: vi.fn(() => "blob:pi-mode-strict"),
@@ -139,6 +143,79 @@ async function typePrompt(container: HTMLElement, text: string) {
 }
 
 describe("PiComposer under StrictMode", () => {
+  it("preserves the mounted editor and attachment input across conversation authority and availability changes", async () => {
+    const exchange = { user: "first question", assistant: "answer", status: "complete" as const, user_truncated: false, assistant_truncated: false };
+    const conversation: PiConversation = { type: "conversation_update", schema_version: 1, epoch: "epoch-1", session_id: "session-1", leaf_id: "leaf-1", selection_generation: 1, revision: 1, availability: "ready", reason: null, exchanges: [exchange] };
+    const props = { conversationContext: (editor: ReactNode) => <ConversationContext paneId="pane-a" editor={editor} /> };
+    const api = { capabilities: { list_files: false, skills_catalog: false }, state: null, catalog: null, dialogs: [] };
+    bridgeState.current = { ...api, status: "online", conversation };
+    const { container, rerender } = await renderUnderStrictMode(props);
+    await typePrompt(container, "durable draft");
+    await attachImage(container);
+    const field = promptField(container);
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    await act(async () => { field.focus(); field.setSelectionRange(2, 7); });
+    const chip = container.querySelector('.pi-attachment-chip');
+    const changes = [
+      { expected: "latest", status: "online", conversation: { ...conversation, revision: 2, leaf_id: "leaf-2", exchanges: [exchange, { ...exchange, assistant: "latest" }] } },
+      { expected: "No recorded exchanges yet", status: "online", conversation: { ...conversation, revision: 3, exchanges: [] } },
+      { expected: "unavailable", status: "online", conversation: { ...conversation, revision: 4, availability: "unavailable", reason: "selection_changing", exchanges: [] } },
+      { expected: "Bridge Offline", status: "offline", conversation: null },
+      { expected: "unavailable", status: "online", conversation: null },
+      { expected: "first question", status: "online", conversation: { ...conversation, epoch: "epoch-2", session_id: "session-2", selection_generation: 2 } },
+    ];
+    for (const { expected, ...next } of changes) {
+      bridgeState.current = { ...api, ...next };
+      await rerender({ conversationContext: (editor: ReactNode) => <ConversationContext paneId="pane-a" editor={editor} /> });
+      expect(container.querySelector('[aria-label="Conversation context"]')?.textContent).toContain(expected);
+      expect(container.querySelector('.pi-attachment-chip')).toBe(chip);
+      expect(promptField(container)).toBe(field);
+      expect(container.querySelector('input[type="file"]')).toBe(input);
+      expect(document.activeElement).toBe(field);
+      expect([field.selectionStart, field.selectionEnd]).toEqual([2, 7]);
+      expect(field.value).toBe("durable draft");
+      expect(window.localStorage.getItem(piComposerDraftKey("bridge-1", "pane-a"))).toBe("durable draft");
+      expect(container.querySelector('[aria-label="Edit shot.png"]')).not.toBeNull();
+    }
+  });
+
+  it("exposes attachment and history through the mobile helpers menu with keyboard navigation", async () => {
+    const { container } = await renderUnderStrictMode();
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    expect(container.querySelector('[aria-label="Attach image"]')).toBeNull();
+    expect(container.querySelector('[aria-label="Open prompt history"]')).toBeNull();
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Composer helpers"]')!;
+    await act(async () => trigger.click());
+    const menu = container.querySelector<HTMLElement>('[role="menu"][aria-label="Composer helpers"]')!;
+    const attach = menu.querySelector<HTMLButtonElement>('[role="menuitem"][aria-label="Attach image"]');
+    const history = menu.querySelector<HTMLButtonElement>('[role="menuitem"][aria-label="Open prompt history"]');
+    expect(attach).not.toBeNull();
+    expect(history).not.toBeNull();
+    expect(container.querySelector('input[type="file"]')).toBe(input);
+    const items = [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')];
+    await act(async () => { items[0].focus(); });
+    for (let i = 0; i < items.indexOf(history!); i++) {
+      await act(async () => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    }
+    expect(document.activeElement).toBe(history);
+    await act(async () => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(document.activeElement).toBe(trigger);
+    expect(container.querySelector('input[type="file"]')).toBe(input);
+  });
+
+  it.each([450, 600])("recognizes a %ipx visual viewport as compact without blurring the editor", async (height) => {
+    const viewport = new EventTarget() as VisualViewport;
+    Object.defineProperties(viewport, { width: { value: 390 }, height: { value: height }, offsetLeft: { value: 0 }, offsetTop: { value: 0 } });
+    vi.stubGlobal("visualViewport", viewport);
+    const { container } = await renderUnderStrictMode();
+    const field = promptField(container);
+    await act(async () => field.focus());
+    expect(container.querySelector('.pi-composer[data-expanded="true"]')?.getAttribute("data-compact")).toBe("true");
+    expect(container.querySelector('.pi-composer[data-expanded="true"]')?.getAttribute("data-short")).toBe(String(height <= 450));
+    expect(document.activeElement).toBe(field);
+  });
   it.each([false, true])("keeps a newer draft after Enter-only recovery (deferred: %s)", async (deferred) => {
     const callbacks: Array<() => void> = [];
     const send = vi.fn((parts: string[], done: (n: number, total: number) => void) => {
@@ -380,13 +457,11 @@ describe("PiComposer under StrictMode", () => {
   });
 
   it("renders supplied conversation context only above an open editor", async () => {
-    const conversationContext = <aside aria-label="Conversation context">Current exchange</aside>;
-    const { container } = await renderUnderStrictMode({ mobile: false, conversationContext });
-    expect(container.querySelector('[aria-label="Conversation context"]')).toBeNull();
-    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Open Composer"]')?.click());
+    const conversationContext = (editor: ReactNode) => <aside aria-label="Conversation context">Current exchange{editor}</aside>;
+    const { container } = await renderUnderStrictMode({ conversationContext });
     const context = container.querySelector('[aria-label="Conversation context"]');
     expect(context).not.toBeNull();
-    expect((context?.compareDocumentPosition(promptField(container)) ?? 0) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(context?.contains(promptField(container))).toBe(true);
   });
 
   it("keeps disabled terminal helpers unavailable and ignores authoring during IME composition", async () => {
@@ -415,7 +490,7 @@ describe("PiComposer under StrictMode", () => {
   it("keeps every visible action label inside its accessible name", async () => {
     const { container } = await renderUnderStrictMode();
     const labels = [...container.querySelectorAll<HTMLElement>(".pi-composer-action-label")];
-    expect(labels.map((label) => label.textContent)).toEqual(["History"]);
+    expect(labels).toHaveLength(0);
     for (const label of labels) {
       const name = label.closest("button")?.getAttribute("aria-label") ?? "";
       expect(name.toLowerCase(), label.textContent ?? "").toContain((label.textContent ?? "").toLowerCase());
