@@ -31,7 +31,15 @@ export function PiSidePanel({ bridgeId, paneId, disabled, onSend }: PiSidePanelP
   };
 
   return (
-    <aside className="pi-side-panel" data-open={open} aria-label="Pi Side Panel">
+    <aside className="pi-side-panel" data-open={open} aria-label="Pi Side Panel"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && open && !(event.target as Element).closest('.pi-model-picker[data-open="true"]')) {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen(false);
+          event.currentTarget.querySelector<HTMLButtonElement>(":scope > button")?.focus();
+        }
+      }}>
       <button type="button" aria-label="Toggle Pi Side Panel" title="Toggle Pi Side Panel"
         aria-expanded={open} aria-controls={contentId} onClick={() => setOpen(!open)}>
         <PanelRight size={18} aria-hidden="true" />

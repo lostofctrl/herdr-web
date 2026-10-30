@@ -199,8 +199,33 @@
   display: none;
 }
 
-.pi-composer {
-  position: relative;
+/* Keep the terminal at full pane size; only the controls themselves intercept input. */
+.terminal-stage > .pi-composer {
+  position: absolute;
+  z-index: 11;
+  right: 8px;
+  bottom: 8px;
+  box-sizing: border-box;
+  max-width: calc(100% - 16px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px #0006;
+}
+
+.terminal-stage > .pi-composer[data-expanded="true"][data-mobile-controls="false"] {
+  width: calc(100% - 16px);
+}
+
+/* The expanded mobile Composer is viewport-sized, including in split panes. */
+.terminal-stage > .pi-composer[data-expanded="true"][data-mobile-controls="true"] {
+  max-width: none;
+}
+
+.terminal-stage > .pi-composer:not([data-expanded="true"]) {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .pi-composer .pi-composer-suggest {

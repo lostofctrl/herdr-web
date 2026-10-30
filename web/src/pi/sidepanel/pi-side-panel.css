@@ -1,26 +1,31 @@
 .pi-terminal-workspace {
+  position: absolute;
+  inset: 0;
   display: flex;
-  flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
 }
 
 .pi-side-panel {
-  flex: 0 0 auto;
-  width: 60px;
-  transition: width 160ms ease;
-  min-height: 0;
+  position: absolute;
+  z-index: 10;
+  top: 8px;
+  right: 8px;
+  width: 44px;
+  max-width: calc(100% - 16px);
+  max-height: calc(100% - 16px);
   overflow: auto;
-  padding: 6px;
-  border-left: 1px solid var(--line);
-  background: var(--base);
   color: var(--text);
   box-sizing: border-box;
 }
 
 .pi-side-panel[data-open="true"] {
-  width: min(320px, 45%);
-  padding: 12px;
+  width: min(320px, calc(100% - 16px));
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--base);
+  box-shadow: 0 8px 24px #0006;
 }
 
 .pi-side-panel > button {
@@ -128,52 +133,4 @@
 
 .pi-side-panel-catalog small {
   color: var(--subtext0);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pi-side-panel {
-    transition: none;
-  }
-}
-
-@media (max-width: 600px) {
-  .pi-terminal-workspace {
-    flex-direction: column;
-  }
-
-  .pi-side-panel {
-    width: 100%;
-    padding: 8px;
-    overflow: hidden;
-  }
-
-  /* Full-width on a phone: there is room for the label and the status text. */
-  .pi-side-panel[data-open="false"] > button > span {
-    display: inline;
-  }
-
-  .pi-side-panel[data-open="false"] .pi-side-panel-status {
-    position: static;
-    width: auto;
-    height: auto;
-    margin: 6px 0 0;
-    color: var(--subtext0);
-    font-size: 13px;
-    overflow: visible;
-    clip-path: none;
-    white-space: normal;
-  }
-
-  .pi-side-panel[data-open="false"] .pi-side-panel-dot {
-    position: static;
-    flex: none;
-  }
-
-  .pi-side-panel[data-open="true"] {
-    width: 100%;
-    max-height: 45vh;
-    overflow: auto;
-    border-left: 0;
-    border-top: 1px solid var(--line);
-  }
 }

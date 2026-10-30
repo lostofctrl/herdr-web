@@ -1,11 +1,29 @@
 .pi-dialog-cards {
+  position: absolute;
+  z-index: 20;
+  top: 8px;
+  left: 8px;
   display: flex;
-  flex: 0 0 auto;
   flex-direction: column;
-  max-height: 52vh;
+  box-sizing: border-box;
+  width: min(480px, calc(100% - 16px));
+  max-height: calc(100% - 16px);
   overflow-y: auto;
-  border-top: 1px solid var(--line, var(--term-border, #3a3a3a));
+  border: 1px solid var(--line, var(--term-border, #3a3a3a));
+  border-radius: 8px;
   background: color-mix(in srgb, var(--mantle, #181825) 94%, black);
+  box-shadow: 0 8px 24px #0006;
+}
+
+.pi-dialog-notice {
+  position: absolute;
+  z-index: 9;
+  top: 8px;
+  left: 8px;
+  max-width: calc(100% - 72px);
+  margin: 0;
+  padding: 8px;
+  background: var(--base);
 }
 
 .pi-question-card {

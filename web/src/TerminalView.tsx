@@ -341,6 +341,7 @@ export function TerminalView({
   }, []);
   useLayoutEffect(() => {
     setCommandControlsHeight(piControlsStackHeight(piStackHeights.keyBar, piStackHeights.composer));
+    stageRef.current?.style.setProperty("--pi-composer-height", `${piStackHeights.composer ?? 0}px`);
   }, [piStackHeights, setCommandControlsHeight]);
 
   const focusTerminalKeyboardInput = useCallback(() => {

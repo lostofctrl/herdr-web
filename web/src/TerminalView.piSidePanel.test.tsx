@@ -856,6 +856,19 @@ describe("TerminalView Pi Side Panel (Seam 3)", () => {
     expect(control<HTMLTextAreaElement>(container, "Pi prompt").value).toBe("/resume");
   });
 
+  it("dismisses the floating side panel with Escape and restores focus", async () => {
+    const { container } = await renderTerminalView({ mobile: false });
+    await openSockets();
+    await click(container, "Toggle Pi Side Panel");
+    const toggle = control<HTMLButtonElement>(container, "Toggle Pi Side Panel");
+    const panel = control<HTMLElement>(container, "Pi Side Panel");
+    await act(async () => {
+      panel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(toggle);
+  });
+
   it("keeps commands usable and explains degraded skills when the catalog note is present", async () => {
     const { container } = await renderTerminalView();
     await openSockets();

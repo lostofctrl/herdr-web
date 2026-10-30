@@ -20,6 +20,21 @@
   background: color-mix(in srgb, var(--mantle) 94%, black);
 }
 
+/* Desktop keys float above the Composer instead of taking terminal rows. */
+.terminal-stage > .pi-key-bar {
+  position: absolute;
+  z-index: 10;
+  bottom: calc(var(--pi-composer-height, 0px) + 16px);
+  left: 8px;
+  max-width: calc(100% - 16px);
+  max-height: calc(100% - var(--pi-composer-height, 0px) - 24px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
 /* The Key Bar and Composer read as one strip: a single divider above both. */
 .pi-key-bar ~ .pi-composer {
   border-top: 0;
