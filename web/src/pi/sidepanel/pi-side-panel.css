@@ -114,6 +114,21 @@
   white-space: nowrap;
 }
 
+.pi-side-panel-actions {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.pi-side-panel .pi-side-panel-actions button {
+  display: inline-flex;
+  flex: 0 0 44px;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  padding: 0;
+}
+
 .pi-side-panel-catalog ul {
   display: flex;
   flex-direction: column;

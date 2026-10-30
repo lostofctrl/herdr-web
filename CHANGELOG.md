@@ -6,6 +6,9 @@
 
 ### Added
 
+- Pi panes without a confirmed Pi Bridge use the standard command composer (respecting the desktop
+  setting). A pending standard draft delays the switch; after confirmation, the Pi Composer stays
+  available through temporary disconnects and preserves pending-input recovery.
 - Mobile Pi Composer: B Thumbrail inset working surface with an explicit launcher/terminal return,
   visible-viewport and safe-area fitting, independently scrolling bounded context and bottom-right
   Send/Stop/Terminal/helpers actions. The connected terminal and assistive mirror are hidden/inert
@@ -97,6 +100,8 @@
 
 ### Changed
 
+- Pi Side Panel: place quick actions in one compact icon row with hover labels and a Kitty-compatible Alt+C chat-log shortcut; move commands and skills below and remember recently selected entries in browser storage.
+- Pi question cards can collapse to a top-left button to reveal the terminal without losing unfinished answers.
 - Compact the terminal top bar with smaller text and spacing while retaining touch-sized controls.
 
 - Mobile Pi Composer now uses the approved B context strip and working sheet, formatted assistant replies, labeled action rail, and helpers menu for history and image attachment.
@@ -112,6 +117,8 @@
 
 ### Fixed
 
+- Forward terminal mouse clicks, movement and scrolling to applications that request mouse tracking;
+  normal selection and scrollback remain available when tracking is off.
 - Let focused terminal input receive shortcuts instead of intercepting them for pane navigation or
   Pi Composer. Open the Composer with its button while the terminal has focus.
 - Pi panes keep the terminal at full pane size while the side panel, Composer, key bar and dialog

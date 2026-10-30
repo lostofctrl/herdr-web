@@ -1,10 +1,11 @@
-import { PanelRight } from "lucide-react";
+import { Archive, CircleStop, History, MessageSquareText, PanelRight, Plus } from "lucide-react";
 import { useId, useState } from "react";
 
 import { usePiBridge } from "../PiBridgeContext";
 import { PI_QUICK_ACTIONS, piQuickActionParts } from "./piQuickActions";
 import { insertPiComposerText } from "./piComposerInsert";
 import { piCatalogTrigger, piSidePanelEntries } from "./piSidePanelCatalog";
+import { readRecentPiTriggers, rememberPiTrigger } from "./piSidePanelRecents";
 import { PiModelPicker } from "../../pi-mode/PiModelPicker";
 import "./pi-side-panel.css";
 
@@ -19,6 +20,7 @@ export function PiSidePanel({ bridgeId, paneId, disabled, onSend }: PiSidePanelP
   const bridge = usePiBridge(paneId);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [recents, setRecents] = useState(readRecentPiTriggers);
   const [error, setError] = useState<string | null>(null);
   const contentId = useId();
   const state = bridge?.state;
@@ -63,6 +65,16 @@ export function PiSidePanel({ bridgeId, paneId, disabled, onSend }: PiSidePanelP
               </select>
             </label>
           </> : null}
+          <section aria-label="Pi quick actions" className="pi-side-panel-actions">
+            {PI_QUICK_ACTIONS.map(({ label, title, command }) => {
+              const Icon = command === null ? CircleStop : command === "/compact" ? Archive : command === "/new" ? Plus : History;
+              return <button key={label} type="button" aria-label={label} title={title} disabled={disabled}
+                onClick={() => onSend(piQuickActionParts(command))}><Icon size={18} aria-hidden="true" /></button>;
+            })}
+            <button type="button" aria-label="Open chat log" title="Open chat log (Alt+C)" disabled={disabled}
+              onClick={() => onSend(["\x1b[99;3u"])}><MessageSquareText size={18} aria-hidden="true" /></button>
+          </section>
+          {error ? <p role="alert">{error}</p> : null}
           {online && bridge?.catalog ? (
             <section aria-label="Commands and skills" className="pi-side-panel-catalog">
               <label>Commands and skills
@@ -71,11 +83,22 @@ export function PiSidePanel({ bridgeId, paneId, disabled, onSend }: PiSidePanelP
               </label>
               {bridge.catalog.skills_note ? <p role="note">{bridge.catalog.skills_note}</p> : null}
               <ul>
-                {piSidePanelEntries(bridge.catalog, bridge.capabilities.skills_catalog === true, query).map((entry, index) => {
+                {piSidePanelEntries(bridge.catalog, bridge.capabilities.skills_catalog === true, query)
+                  .map((entry, index) => ({ entry, index }))
+                  .sort(({ entry: a }, { entry: b }) => {
+                    const rank = (trigger: string) => {
+                      const index = recents.indexOf(trigger);
+                      return index < 0 ? recents.length : index;
+                    };
+                    return rank(piCatalogTrigger(a, a.kind)) - rank(piCatalogTrigger(b, b.kind));
+                  }).map(({ entry, index }) => {
                   const trigger = piCatalogTrigger(entry, entry.kind);
                   return <li key={`${entry.kind}:${entry.name}:${index}`}>
                     <button type="button" aria-label={`Insert ${trigger}`}
-                      onClick={() => insertPiComposerText(bridgeId, paneId, trigger)}>
+                      onClick={() => {
+                        insertPiComposerText(bridgeId, paneId, trigger);
+                        setRecents(rememberPiTrigger(trigger, recents));
+                      }}>
                       <strong>{trigger}</strong>
                       <span>{entry.description}</span>
                       <small>{entry.kind} · {entry.source}</small>
@@ -85,13 +108,6 @@ export function PiSidePanel({ bridgeId, paneId, disabled, onSend }: PiSidePanelP
               </ul>
             </section>
           ) : null}
-          <section aria-label="Pi quick actions" className="pi-side-panel-actions">
-            {PI_QUICK_ACTIONS.map(({ label, title, command }) => (
-              <button key={label} type="button" aria-label={label} disabled={disabled}
-                onClick={() => onSend(piQuickActionParts(command))}>{title}</button>
-            ))}
-          </section>
-          {error ? <p role="alert">{error}</p> : null}
         </div>
       ) : null}
     </aside>

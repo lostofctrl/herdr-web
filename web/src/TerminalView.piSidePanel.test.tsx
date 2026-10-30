@@ -24,6 +24,8 @@ const renderer = vi.hoisted(() => ({
   focus: vi.fn(),
   onInput: vi.fn(),
   onScroll: vi.fn(),
+  setMouseCapture: vi.fn(),
+  onMouse: vi.fn(() => () => {}),
 }));
 vi.mock("./terminalRenderer", () => ({
   GhosttyRenderer: class {
@@ -110,11 +112,13 @@ async function renderTerminalView({ agent = "pi", mobile = true, bridgeId = BRID
       </CommandDraftContext.Provider></StrictMode>,
     );
   await act(async () => render());
+  if (agent === "pi") await sendPiRecord({ type: "hello", protocol_version: 1 });
   if (mobile && !collapsed) {
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Open Composer"]')?.click());
   }
   return { container, root, reconnect: async (paneId = PANE_ID) => {
     await act(async () => render("reconnected", paneId));
+    if (agent === "pi") await sendPiRecord({ type: "hello", protocol_version: 1 });
     if (mobile && !collapsed) await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Open Composer"]')?.click());
   } };
 }
@@ -779,18 +783,60 @@ describe("TerminalView Pi Side Panel (Seam 3)", () => {
     expect(sentTerminalInput(terminal)).toEqual([]);
   });
 
+  it("puts compact quick actions before the catalog and persists recent catalog selections", async () => {
+    const catalog = { type: "catalog", commands: [
+      { name: "alpha", description: "Alpha", source: "extension" },
+      { name: "beta", description: "Beta", source: "extension" },
+    ], skills: [{ name: "tdd", description: "Testing", source: "project" }] };
+    const showCatalog = async () => {
+      await openSockets();
+      await sendPiRecord({ type: "hello", capabilities: { skills_catalog: true } });
+      await sendPiRecord(catalog);
+    };
+    const order = (container: HTMLElement) => Array.from(
+      container.querySelectorAll<HTMLButtonElement>('.pi-side-panel-catalog li button'),
+      (button) => button.getAttribute("aria-label"),
+    );
+    const first = await renderTerminalView({ mobile: false });
+    await showCatalog();
+    await click(first.container, "Toggle Pi Side Panel");
+    const panel = control<HTMLElement>(first.container, "Pi Side Panel");
+    const actions = control<HTMLElement>(panel, "Pi quick actions");
+    const catalogSection = control<HTMLElement>(panel, "Commands and skills");
+    expect(actions.compareDocumentPosition(catalogSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const button of actions.querySelectorAll("button")) {
+      expect(button.getAttribute("aria-label")).toBeTruthy();
+      expect(button.title).toBeTruthy();
+      expect(button.querySelector("svg")).not.toBeNull();
+      expect(button.textContent).toBe("");
+    }
+    await click(first.container, "Insert /beta");
+    const skill = control<HTMLButtonElement>(first.container, "Insert /skill:tdd");
+    await act(async () => skill.focus());
+    await click(first.container, "Insert /skill:tdd");
+    expect(control<HTMLButtonElement>(first.container, "Insert /skill:tdd")).toBe(skill);
+    expect(document.activeElement).toBe(control<HTMLTextAreaElement>(first.container, "Pi prompt"));
+    expect(order(first.container)).toEqual(["Insert /skill:tdd", "Insert /beta", "Insert /alpha"]);
+    await act(async () => first.root.unmount());
+    roots.splice(roots.indexOf(first.root), 1);
+    const second = await renderTerminalView({ mobile: false });
+    await showCatalog();
+    await click(second.container, "Toggle Pi Side Panel");
+    expect(order(second.container)).toEqual(["Insert /skill:tdd", "Insert /beta", "Insert /alpha"]);
+  });
+
   it("sends abort as Esc and session actions as separate Composer paste and Enter frames", async () => {
     writePiComposerDraft(BRIDGE_ID, PANE_ID, "Unsent prompt");
     const { container } = await renderTerminalView();
     const { terminal } = await openSockets();
     await click(container, "Toggle Pi Side Panel");
-    for (const label of ["Abort Pi", "Compact Pi session", "New Pi session", "Resume Pi session"]) {
+    for (const label of ["Abort Pi", "Compact Pi session", "New Pi session", "Resume Pi session", "Open chat log"]) {
       await click(container, label);
       await act(async () => vi.advanceTimersByTime(80));
     }
     expect(sentTerminalInput(terminal)).toEqual([
       "\x1b", "\x1b[200~/compact\x1b[201~", "\r",
-      "\x1b[200~/new\x1b[201~", "\r", "\x1b[200~/resume\x1b[201~", "\r",
+      "\x1b[200~/new\x1b[201~", "\r", "\x1b[200~/resume\x1b[201~", "\r", "\x1b[99;3u",
     ]);
     expect(readPiComposerDraft(BRIDGE_ID, PANE_ID)).toBe("Unsent prompt");
   });
