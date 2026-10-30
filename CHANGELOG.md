@@ -6,6 +6,13 @@
 
 ### Added
 
+- Pi mode: the Composer opens the Pi Side Panel as a floating panel placed above (or below) its
+  own trigger, on desktop and mobile. It renders the same view as the terminal's Side Panel — model,
+  thinking level, quick actions, chat log and the searchable command/skill catalog — so catalog
+  picks insert into the Composer draft without sending. It closes on Esc, an outside press or its
+  own control, and only one Composer popup is open at a time. The trigger sits in the desktop action
+  row and, on mobile, beside the Composer's own dismiss control because the meta row is hidden there.
+
 - Pi panes without a confirmed Pi Bridge use the standard command composer (respecting the desktop
   setting). A pending standard draft delays the switch; after confirmation, the Pi Composer stays
   available through temporary disconnects and preserves pending-input recovery.
@@ -101,7 +108,8 @@
 ### Changed
 
 - Pi Side Panel: place quick actions in one compact icon row with hover labels and a Kitty-compatible Alt+C chat-log shortcut; move commands and skills below and remember recently selected entries in browser storage.
-- Pi question cards can collapse to a top-left button to reveal the terminal without losing unfinished answers.
+- Composer helpers: every menu row shows an icon beside its unchanged label.
+- Pi question cards can collapse to a top-left icon button to reveal the terminal without losing unfinished answers.
 - Compact the terminal top bar with smaller text and spacing while retaining touch-sized controls.
 
 - Mobile Pi Composer now uses the approved B context strip and working sheet, formatted assistant replies, labeled action rail, and helpers menu for history and image attachment.
@@ -118,9 +126,12 @@
 ### Fixed
 
 - Forward terminal mouse clicks, movement and scrolling to applications that request mouse tracking;
-  normal selection and scrollback remain available when tracking is off.
+  normal selection and scrollback remain available when tracking is off, and Shift-drag selects text
+  while tracking is on.
 - Let focused terminal input receive shortcuts instead of intercepting them for pane navigation or
-  Pi Composer. Open the Composer with its button while the terminal has focus.
+  Pi Composer, and preserve Alt shortcuts such as Alt+C. Open the Composer with its button while the
+  terminal has focus. The Composer forwards supported shortcuts without changing its draft, while
+  retaining common browser shortcuts and blocking Ctrl+D and Ctrl+Z from reaching Pi.
 - Pi panes keep the terminal at full pane size while the side panel, Composer, key bar and dialog
   cards float over it instead of reserving blank space at the right and bottom.
 - Mobile Pi Composer: added a top-right Close button and refit the viewport after the keyboard

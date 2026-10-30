@@ -1,4 +1,4 @@
-import { History, ImagePlus, Send, TextCursorInput, X, Square, Terminal } from "lucide-react";
+import { History, ImagePlus, PanelRight, Send, TextCursorInput, X, Square, Terminal } from "lucide-react";
 import { flushSync } from "react-dom";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, KeyboardEvent, ClipboardEvent, ReactNode, RefObject, CSSProperties } from "react";
@@ -6,6 +6,7 @@ import type { ChangeEvent, DragEvent, KeyboardEvent, ClipboardEvent, ReactNode, 
 import { compositionGuardDeadline, isLateCompositionEdit } from "../commandTextFieldGuard";
 import { hasOpenMenu, hasOpenModal, isShortcutTextEntryTarget } from "../keyboardShortcutTargets";
 import { autosizeMobileCommandTextarea } from "../mobileCommandTextarea";
+import { encodeMobileTerminalChord, mobileTerminalPrintableKey, MOBILE_TERMINAL_SPECIAL_KEYS, type MobileTerminalModifier } from "../mobileTerminalControls";
 import { usePiBridge } from "../pi/PiBridgeContext";
 import { ScreenshotEditor } from "../pi/screenshot";
 import type { ScreenshotSaveResult } from "../pi/screenshot";
@@ -14,6 +15,7 @@ import { PiComposerSuggest, usePiComposerSuggest } from "./composer-suggest";
 import { PiModelPicker } from "./PiModelPicker";
 import { PiComposerHelpers, type PiComposerHelper } from "./PiComposerHelpers";
 import { PiComposerHistory } from "./PiComposerHistory";
+import { PiComposerSidePanel } from "./PiComposerSidePanel";
 import type { PiComposerSuggestion } from "./composer-suggest";
 import {
   PI_COMPOSER_MAX_ATTACHMENTS,
@@ -42,8 +44,32 @@ import { PI_COMPOSER_INSERT_EVENT, insertPiComposerText, type PiComposerInsertDe
 import { usePiComposerViewport } from "./piComposerViewport";
 import "./pi-mode.css";
 import "./pi-composer-mobile.css";
+import "./pi-composer-side-panel.css";
 
 /** Shared with every terminal input path; generation invalidates queued work on handoff. */
+function composerShortcut(event: KeyboardEvent<HTMLTextAreaElement>): string | null {
+  if ((!event.ctrlKey && !event.altKey) || event.metaKey || event.nativeEvent.getModifierState("AltGraph")) return null;
+  const key = event.key.toLowerCase();
+  // Leave browser navigation, editing, clipboard, and Composer submission to the browser.
+  if (!event.ctrlKey && event.altKey && !event.shiftKey && ["d", "e", "f", " ", "arrowleft", "arrowright"].includes(key)) return null;
+  if (event.ctrlKey && !event.altKey && event.shiftKey && key === "i") return null;
+  if (event.ctrlKey && !event.altKey && (/^[0-9]$/.test(key) || ["a", "b", "c", "d", "f", "g", "h", "j", "k", "l", "n", "o", "p", "r", "s", "t", "u", "v", "w", "x", "z", "+", "-", "=", "tab", "pageup", "pagedown", "enter"].includes(key))) return null;
+  // Ctrl+Alt may otherwise bypass the user's exit/suspend safety boundary.
+  if (event.ctrlKey && ["d", "z"].includes(key)) return null;
+  const names: Record<string, string> = {
+    arrowleft: "arrow-left", arrowright: "arrow-right", arrowup: "arrow-up", arrowdown: "arrow-down",
+    pageup: "page-up", pagedown: "page-down",
+  };
+  const special = MOBILE_TERMINAL_SPECIAL_KEYS.find((item) => item.id === (names[key] ?? key));
+  const chord = special ?? (/^[\x20-\x7e]$/.test(event.key) ? mobileTerminalPrintableKey(key) : null);
+  if (!chord) return null;
+  const modifiers: MobileTerminalModifier[] = [];
+  if (event.ctrlKey) modifiers.push("ctrl");
+  if (event.altKey) modifiers.push("alt");
+  if (event.shiftKey) modifiers.push("shift");
+  return encodeMobileTerminalChord(chord, modifiers);
+}
+
 export type PiComposerInputOwner = {
   generation: number;
   mode: "idle" | "automatic" | "recovery" | "manual";
@@ -74,6 +100,8 @@ export type PiComposerProps = {
     parts: string[],
     onDelivered: (deliveredParts: number, totalParts: number) => void,
   ) => boolean;
+  /** Send a manual shortcut without changing the independent Composer draft. */
+  onShortcut?: (data: string) => boolean;
   /**
    * Uploads Attachment Chips through the same flow as TerminalView uploads.
    * Results must come back in the same order as the candidates. Absent means
@@ -104,6 +132,7 @@ export function PiComposer({
   inputRef,
   focusToken = 0,
   onSend,
+  onShortcut,
   onUploadImages,
   conversationContext,
   mobileTools,
@@ -174,11 +203,23 @@ export function PiComposer({
   const [helpersOpen, setHelpersOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [sidePanelOpen, setSidePanelOpen] = useState(false);
+  /** One toggle for both shells: the desktop action row and the mobile icon. */
+  const toggleSidePanel = () => {
+    suggestion.close();
+    setModelOpen(false);
+    setHistoryOpen(false);
+    setHelpersOpen(false);
+    setSidePanelOpen((value) => !value);
+  };
+  /** The Composer control the floating Side Panel is placed from. */
+  const sidePanelAnchorRef = useRef<HTMLButtonElement | null>(null);
   const [historyEntries, setHistoryEntries] = useState<string[]>([]);
   useEffect(() => {
     setHelpersOpen(false);
     setHistoryOpen(false);
     setModelOpen(false);
+    setSidePanelOpen(false);
   }, [bridgeId, paneId, active, disabled, piBridge?.status]);
   /** Original text and image versions represented by the paste, reused by Enter-only recovery. */
   const recoveryDeliveryRef = useRef<{ text: string; attachments: PiComposerAttachment[] } | null>(null);
@@ -390,6 +431,7 @@ export function PiComposer({
     setHelpersOpen(false);
     setHistoryOpen(false);
     setModelOpen(false);
+    setSidePanelOpen(false);
     setOpen(false);
     onTerminalFocus();
   }, [onTerminalFocus, handoffInput]);
@@ -666,6 +708,7 @@ export function PiComposer({
     suggestion.close();
     setModelOpen(false);
     setHelpersOpen(false);
+    setSidePanelOpen(false);
     setHistoryOpen(next);
     if (next) setHistoryEntries(getPiComposerHistory(bridgeId, paneId));
   };
@@ -705,6 +748,12 @@ export function PiComposer({
   const onFieldKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     event.stopPropagation();
     if (composingRef.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
+      return;
+    }
+    const shortcut = composerShortcut(event);
+    if (shortcut !== null && onShortcut) {
+      event.preventDefault();
+      if (!disabled) onShortcut?.(shortcut);
       return;
     }
     if (suggestion.isOpen && !event.ctrlKey && !event.metaKey && !event.altKey) {
@@ -920,6 +969,21 @@ export function PiComposer({
           <X size={18} aria-hidden="true" />
         </button>
       ) : null}
+      {mobile && open ? (
+        <button
+          ref={sidePanelAnchorRef}
+          className="term-key pi-composer-side-panel-trigger-mobile"
+          type="button"
+          aria-label="Toggle Pi Side Panel"
+          title="Pi Side Panel"
+          aria-expanded={sidePanelOpen}
+          disabled={disabled}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={toggleSidePanel}
+        >
+          <PanelRight size={18} aria-hidden="true" />
+        </button>
+      ) : null}
       {manualInput ? <div role="status" className="pi-composer-manual-input">
         <p>Finish or clear the pending input in the terminal. Draft and images are kept; Enter/Esc do not confirm completion.</p>
         <button type="button" aria-label="Terminal input is empty; keep draft" onClick={() => {
@@ -1031,10 +1095,25 @@ export function PiComposer({
               suggestion.close();
               setHistoryOpen(false);
               setHelpersOpen(false);
+              setSidePanelOpen(false);
             }
             setModelOpen(next);
           }}
         />
+        {!mobile ? <button
+          ref={sidePanelAnchorRef}
+          className="term-key pi-composer-side-panel-trigger"
+          type="button"
+          aria-label="Toggle Pi Side Panel"
+          title="Pi Side Panel"
+          aria-expanded={sidePanelOpen}
+          disabled={disabled}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={toggleSidePanel}
+        >
+          <PanelRight size={16} aria-hidden="true" />
+          <span className="pi-composer-action-label">Panel</span>
+        </button> : null}
         {!mobile ? <button
           className="term-key pi-composer-history-trigger"
           type="button"
@@ -1177,6 +1256,18 @@ export function PiComposer({
         )}
         </div>
       </form>)}
+      {sidePanelOpen ? (
+        <PiComposerSidePanel
+          bridgeId={bridgeId}
+          paneId={paneId}
+          disabled={disabled || !active}
+          // Same action path as the helpers menu; the panel has no per-action
+          // caller state, and delivery/recovery state stays Composer-owned.
+          onSend={(parts) => sendQuickAction(parts, () => {})}
+          onClose={() => setSidePanelOpen(false)}
+          anchorRef={sidePanelAnchorRef}
+        />
+      ) : null}
       </div>
     </>
   );

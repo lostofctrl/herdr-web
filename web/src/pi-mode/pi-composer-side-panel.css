@@ -1,0 +1,72 @@
+/* The Composer's floating Side Panel: same body as the terminal aside, placed
+   from the Composer trigger and dismissed by outside pointerdown or Escape. It
+   deliberately outranks the helpers menu so the panel is never hidden behind a
+   popup the Composer already opened. */
+.pi-composer-side-panel {
+  position: fixed;
+  z-index: 85;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--base);
+  box-shadow: 0 8px 24px #0006;
+}
+
+.pi-composer-side-panel-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* The header close control keeps a touch target without the full-width body
+   sizing the shared Side Panel rules apply to every other button. */
+.pi-composer-side-panel .pi-composer-side-panel-header button {
+  display: inline-flex;
+  flex: 0 0 44px;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.pi-composer-side-panel .pi-side-panel-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 0;
+}
+
+.pi-composer .pi-composer-side-panel-trigger[aria-expanded="true"],
+.pi-composer .pi-composer-side-panel-trigger-mobile[aria-expanded="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* On mobile the meta row is hidden, so the trigger sits beside the Composer's
+   dismiss control in the same top-right cluster and takes the same touch size. */
+.pi-composer[data-mobile-controls="true"] .pi-composer-side-panel-trigger-mobile {
+  position: absolute;
+  z-index: 2;
+  top: 14px;
+  right: 58px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--term-bg);
+  color: var(--text);
+}

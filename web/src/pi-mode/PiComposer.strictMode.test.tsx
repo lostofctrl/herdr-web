@@ -143,6 +143,38 @@ async function typePrompt(container: HTMLElement, text: string) {
 }
 
 describe("PiComposer under StrictMode", () => {
+  it("forwards modified Pi shortcuts without changing the Composer draft or forwarding dangerous and clipboard keys", async () => {
+    const onShortcut = vi.fn<(data: string) => boolean>(() => true);
+    const { container } = await renderUnderStrictMode({ onShortcut });
+    await typePrompt(container, "my unsent draft");
+    const field = promptField(container);
+    await act(async () => { field.focus(); field.setSelectionRange(2, 5); });
+    const key = (name: string, options: KeyboardEventInit) => {
+      const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: name, ...options });
+      field.dispatchEvent(event);
+      return event;
+    };
+    await act(async () => {
+      expect(key("c", { altKey: true }).defaultPrevented).toBe(true);
+      expect(key("End", { ctrlKey: true }).defaultPrevented).toBe(true);
+      key("d", { ctrlKey: true });
+      key("z", { ctrlKey: true });
+      key("c", { ctrlKey: true });
+      key("v", { ctrlKey: true });
+      key("x", { ctrlKey: true });
+      expect(key("r", { ctrlKey: true }).defaultPrevented).toBe(false);
+      expect(key("l", { ctrlKey: true }).defaultPrevented).toBe(false);
+      expect(key("I", { ctrlKey: true, shiftKey: true }).defaultPrevented).toBe(false);
+      expect(key("d", { altKey: true }).defaultPrevented).toBe(false);
+      expect(key("ArrowLeft", { altKey: true }).defaultPrevented).toBe(false);
+      key("c", { metaKey: true });
+      key("c", { altKey: true, isComposing: true });
+    });
+    expect(onShortcut.mock.calls).toEqual([["\x1bc"], ["\x1b[1;5F"]]);
+    expect(field.value).toBe("my unsent draft");
+    expect([field.selectionStart, field.selectionEnd]).toEqual([2, 5]);
+  });
+
   it("preserves the mounted editor and attachment input across conversation authority and availability changes", async () => {
     const exchange = { user: "first question", assistant: "answer", status: "complete" as const, user_truncated: false, assistant_truncated: false };
     const conversation: PiConversation = { type: "conversation_update", schema_version: 1, epoch: "epoch-1", session_id: "session-1", leaf_id: "leaf-1", selection_generation: 1, revision: 1, availability: "ready", reason: null, exchanges: [exchange] };
@@ -490,7 +522,9 @@ describe("PiComposer under StrictMode", () => {
   it("keeps every visible action label inside its accessible name", async () => {
     const { container } = await renderUnderStrictMode();
     const labels = [...container.querySelectorAll<HTMLElement>(".pi-composer-action-label")];
-    expect(labels).toHaveLength(0);
+    // The desktop-only labels must not reach the mobile row; the Side Panel
+    // trigger is the one action that shows a word next to its symbol there.
+    expect(labels.filter((label) => ["History", "Slash", "File"].includes(label.textContent ?? ""))).toHaveLength(0);
     for (const label of labels) {
       const name = label.closest("button")?.getAttribute("aria-label") ?? "";
       expect(name.toLowerCase(), label.textContent ?? "").toContain((label.textContent ?? "").toLowerCase());

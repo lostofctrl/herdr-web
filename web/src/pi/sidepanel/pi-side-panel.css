@@ -6,6 +6,15 @@
   min-height: 0;
 }
 
+/* Shell roots. The terminal aside and the Composer's floating panel render the
+   same body (`PiSidePanelContent`), so everything below the shell is written
+   against both roots and cannot drift between them. */
+.pi-side-panel,
+.pi-composer-side-panel {
+  color: var(--text);
+  box-sizing: border-box;
+}
+
 .pi-side-panel {
   position: absolute;
   z-index: 10;
@@ -15,8 +24,6 @@
   max-width: calc(100% - 16px);
   max-height: calc(100% - 16px);
   overflow: auto;
-  color: var(--text);
-  box-sizing: border-box;
 }
 
 .pi-side-panel[data-open="true"] {
@@ -40,12 +47,16 @@
 
 .pi-side-panel button:focus-visible,
 .pi-side-panel select:focus-visible,
-.pi-side-panel input:focus-visible {
+.pi-side-panel input:focus-visible,
+.pi-composer-side-panel button:focus-visible,
+.pi-composer-side-panel select:focus-visible,
+.pi-composer-side-panel input:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-.pi-side-panel button:disabled {
+.pi-side-panel button:disabled,
+.pi-composer-side-panel button:disabled {
   cursor: default;
   opacity: 0.48;
 }
@@ -74,7 +85,10 @@
 
 .pi-side-panel button,
 .pi-side-panel select,
-.pi-side-panel input {
+.pi-side-panel input,
+.pi-composer-side-panel button,
+.pi-composer-side-panel select,
+.pi-composer-side-panel input {
   box-sizing: border-box;
   min-width: 44px;
   min-height: 44px;
@@ -88,7 +102,8 @@
 }
 
 .pi-side-panel-content,
-.pi-side-panel label {
+.pi-side-panel label,
+.pi-composer-side-panel label {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -98,7 +113,16 @@
   margin-top: 8px;
 }
 
-.pi-side-panel p {
+/* The floating panel constrains its height and scrolls, so the body must keep
+   its natural height: otherwise a long catalog shrinks the quick actions to
+   zero and paints over them. */
+.pi-composer-side-panel .pi-side-panel-content,
+.pi-composer-side-panel .pi-side-panel-content > * {
+  flex: 0 0 auto;
+}
+
+.pi-side-panel p,
+.pi-composer-side-panel p {
   overflow-wrap: break-word;
 }
 
@@ -120,7 +144,8 @@
   overflow-x: auto;
 }
 
-.pi-side-panel .pi-side-panel-actions button {
+.pi-side-panel .pi-side-panel-actions button,
+.pi-composer-side-panel .pi-side-panel-actions button {
   display: inline-flex;
   flex: 0 0 44px;
   align-items: center;
