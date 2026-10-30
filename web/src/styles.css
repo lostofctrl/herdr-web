@@ -1002,10 +1002,10 @@ button {
 .stage-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 56px;
+  gap: 6px;
+  min-height: 44px;
   flex: 0 0 auto;
-  padding: 0 12px 0 10px;
+  padding: 4px 8px;
   border-bottom: 1px solid var(--line);
   background: var(--mantle);
 }
@@ -1098,7 +1098,7 @@ button {
 
 .stage-title {
   overflow: hidden;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 550;
   color: var(--text);
   text-overflow: ellipsis;
@@ -1107,7 +1107,7 @@ button {
 
 .stage-sub {
   overflow: hidden;
-  font-size: 11.5px;
+  font-size: 10.5px;
   color: var(--overlay1);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3515,9 +3515,18 @@ button {
   height: 42px;
 }
 
-.app[data-touch="true"] .sb-head,
-.app[data-touch="true"] .stage-bar {
+.app[data-touch="true"] .sb-head {
   height: 60px;
+}
+
+.app[data-touch="true"] .stage-bar {
+  min-height: 49px;
+  padding-block: 2px;
+}
+
+.app[data-touch="true"] .stage-bar .icon-btn {
+  width: 44px;
+  height: 44px;
 }
 
 .terminal-stage:has(.terminal-command-controls) .terminal-overlay {

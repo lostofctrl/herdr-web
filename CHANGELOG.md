@@ -97,6 +97,8 @@
 
 ### Changed
 
+- Compact the terminal top bar with smaller text and spacing while retaining touch-sized controls.
+
 - Mobile Pi Composer now uses the approved B context strip and working sheet, formatted assistant replies, labeled action rail, and helpers menu for history and image attachment.
 
 - Pi mode: redesigned the Key Bar, Composer actions and Side Panel toggle for touch and
@@ -110,6 +112,10 @@
 
 ### Fixed
 
+- Let focused terminal input receive shortcuts instead of intercepting them for pane navigation or
+  Pi Composer. Open the Composer with its button while the terminal has focus.
+- Pi panes keep the terminal at full pane size while the side panel, Composer, key bar and dialog
+  cards float over it instead of reserving blank space at the right and bottom.
 - Mobile Pi Composer: added a top-right Close button and refit the viewport after the keyboard
   closes, which could leave a blank band above the expanded Composer. Not verified on a physical
   device.
