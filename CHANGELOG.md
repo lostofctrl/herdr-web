@@ -125,12 +125,17 @@
 
 ### Fixed
 
+- Keep this browser's own tab selection when another client on the same Herdr session (for example
+  the TUI in a terminal) changes its focused tab in shared navigation mode. A browser that has not
+  selected a pane yet still opens on the session's focused pane.
+- Remove grid-like gaps from terminal background colors at fractional display scaling.
 - Display idle agent status dots as hollow outlines, matching Herdr.
 - Forward terminal mouse clicks, movement and scrolling to applications that request mouse tracking;
   normal selection and scrollback remain available when tracking is off, and Shift-drag selects text
   while tracking is on.
 - Let focused terminal input receive shortcuts instead of intercepting them for pane navigation or
-  Pi Composer, and preserve Alt shortcuts such as Alt+C. Open the Composer with its button while the
+  Pi Composer, and preserve Alt shortcuts such as Alt+C, including applications that negotiate the
+  Kitty keyboard protocol. Open the Composer with its button while the
   terminal has focus. The Composer forwards supported shortcuts without changing its draft, while
   retaining common browser shortcuts and blocking Ctrl+D and Ctrl+Z from reaching Pi.
 - Pi panes keep the terminal at full pane size while the side panel, Composer, key bar and dialog

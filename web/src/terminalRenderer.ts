@@ -1,4 +1,5 @@
 import type { FitAddon, Terminal } from "ghostty-web";
+import { installTerminalBackgroundPixelAlignment } from "./terminalBackground";
 import {
   findFirstUrlInSelection,
   terminalSelectionRange,
@@ -46,6 +47,8 @@ import {
 } from "./terminalImeInput";
 import type { TerminalImeState } from "./terminalImeInput";
 import { installTerminalImeFocusRedirect } from "./terminalImeFocus";
+import { installTerminalMouse } from "./terminalMouse";
+import type { TerminalMouseFrame } from "./terminalMouse";
 
 const TERMINAL_FONT_FAMILY =
   'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "DejaVu Sans Mono", "JetBrainsMono Nerd Font Mono", monospace';
@@ -142,6 +145,9 @@ export type TerminalRenderer = {
   setAccessibleScreenListener(callback: ((text: string) => void) | null): void;
   onInput(callback: (data: string) => void): () => void;
   onScroll(callback: (lines: number) => void): () => void;
+  setMouseCapture(enabled: boolean): void;
+  setTerminalKeyboardFlags(kittyFlags: number): void;
+  onMouse(callback: (frame: TerminalMouseFrame) => void): () => void;
   setTapFocusHandler(callback: (() => TerminalTapFocusResult) | null): void;
   setMobileTouchSelection(
     behavior: MobileLongPressBehavior,
@@ -164,6 +170,10 @@ export class GhosttyRenderer implements TerminalRenderer {
   #container: HTMLElement | null = null;
   #scrollSensitivity = 1;
   #scrollCallback: ((lines: number) => void) | null = null;
+  #mouseCapture = false;
+  #kittyFlags = 0;
+  #mouseCallback: ((frame: TerminalMouseFrame) => void) | null = null;
+  #mouseHandler: ReturnType<typeof installTerminalMouse> | null = null;
   #touchCleanup: (() => void) | null = null;
   #mobileInputCleanup: (() => void) | null = null;
   #imeFocusCleanup: (() => void) | null = null;
@@ -229,6 +239,7 @@ export class GhosttyRenderer implements TerminalRenderer {
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
     terminal.open(container);
+    installTerminalBackgroundPixelAlignment(terminal.renderer);
     if (this.#eventDrivenRendering) {
       suspendGhosttyIdleRenderLoop(terminal);
       this.#renderInteractionCleanup = installTerminalInteractionRendering(
@@ -246,6 +257,17 @@ export class GhosttyRenderer implements TerminalRenderer {
     this.#terminal = terminal;
     this.#fitAddon = fitAddon;
     this.#installAccessibleScreenPublisher();
+    this.#mouseHandler = installTerminalMouse(
+      container,
+      () => this.#mouseCapture,
+      (x, y) => {
+        const { col, row } = touchCellPosition(terminal, x, y);
+        return { column: col, row };
+      },
+      () => this.focus(),
+      (frame) => this.#mouseCallback?.(frame),
+      (event) => normalizeWheelLines(event, terminal.rows, this.#scrollSensitivity),
+    );
     this.#installScrollHandlers();
     this.#installMobileInputBridge();
     this.#installImeFocusRedirect();
@@ -281,6 +303,25 @@ export class GhosttyRenderer implements TerminalRenderer {
       if (this.#scrollCallback === callback) {
         this.#scrollCallback = null;
       }
+    };
+  }
+
+  setMouseCapture(enabled: boolean) {
+    if (!enabled && this.#mouseCapture) this.#mouseHandler?.release();
+    this.#mouseCapture = enabled;
+  }
+
+  // Herdr reports the application's keyboard protocol separately from the
+  // rendered screen, so the encoder needs the active Kitty flags to send the
+  // forms the application actually parses.
+  setTerminalKeyboardFlags(kittyFlags: number) {
+    this.#kittyFlags = Number.isFinite(kittyFlags) ? kittyFlags : 0;
+  }
+
+  onMouse(callback: (frame: TerminalMouseFrame) => void) {
+    this.#mouseCallback = callback;
+    return () => {
+      if (this.#mouseCallback === callback) this.#mouseCallback = null;
     };
   }
 
@@ -372,6 +413,9 @@ export class GhosttyRenderer implements TerminalRenderer {
       window.cancelAnimationFrame(this.#renderFrameId);
       this.#renderFrameId = null;
     }
+    this.#mouseHandler?.dispose();
+    this.#mouseHandler = null;
+    this.#mouseCallback = null;
     this.#touchCleanup?.();
     this.#touchCleanup = null;
     this.#mobileInputCleanup?.();
@@ -457,7 +501,7 @@ export class GhosttyRenderer implements TerminalRenderer {
       return true;
     }
     try {
-      return terminal.hasMouseTracking();
+      return this.#mouseCapture || terminal.hasMouseTracking();
     } catch (error) {
       if (isGhosttyDisposedError(error)) {
         return true;
@@ -1268,7 +1312,7 @@ export class GhosttyRenderer implements TerminalRenderer {
         // edit, so cancellation suppression must not consume this new key.
         imeState = reduceTerminalImeState(imeState, { type: "settle" }).state;
       }
-      const customOutput = textareaKeyboardEventOutput(event);
+      const customOutput = textareaKeyboardEventOutput(event, this.#kittyFlags);
       if (customOutput) {
         event.preventDefault();
         event.stopPropagation();
@@ -1717,7 +1761,20 @@ function isTerminalSelectionCopyShortcut(
     : event.ctrlKey && !event.metaKey;
 }
 
-function textareaKeyboardEventOutput(event: KeyboardEvent) {
+export function textareaKeyboardEventOutput(event: KeyboardEvent, kittyFlags = 0) {
+  if (isImeComposingKeyEvent(event)) return null;
+  if (event.altKey && !event.ctrlKey && !event.metaKey && !event.getModifierState("AltGraph") &&
+      /^[\x21-\x7e]$/.test(event.key) &&
+      (event.shiftKey || !["d", "e", "f"].includes(event.key.toLowerCase()))) {
+    if (kittyFlags > 0) {
+      // Kitty keyboard mode ignores the legacy ESC-prefixed form, so Alt+key
+      // must use the CSI u encoding: codepoint ; modifiers (1 + shift + 2*alt).
+      const codepoint = event.key.codePointAt(0) ?? 0;
+      const modifiers = 1 + (event.shiftKey ? 1 : 0) + 2;
+      return `\x1b[${codepoint};${modifiers}u`;
+    }
+    return `\x1b${event.key}`;
+  }
   if (event.key !== "Tab" || event.ctrlKey || event.altKey || event.metaKey) {
     return customKeyboardEventOutput(event);
   }
