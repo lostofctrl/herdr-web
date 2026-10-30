@@ -915,6 +915,11 @@ export function PiComposer({
         onDrop={onDropImages}
         onDragOver={onDragOverImages}
       >
+      {mobile && open ? (
+        <button className="term-key pi-composer-dismiss" type="button" aria-label="Close Composer" title="Close Composer" onClick={closeComposer}>
+          <X size={18} aria-hidden="true" />
+        </button>
+      ) : null}
       {manualInput ? <div role="status" className="pi-composer-manual-input">
         <p>Finish or clear the pending input in the terminal. Draft and images are kept; Enter/Esc do not confirm completion.</p>
         <button type="button" aria-label="Terminal input is empty; keep draft" onClick={() => {

@@ -51,11 +51,21 @@ export function ConversationContext({ paneId, editor }: { paneId: string; editor
   const current = exchanges.at(-1);
   return <section className="pi-conversation" role="region" aria-label="Conversation context" tabIndex={0}>
     <div className="pi-conversation-strip">
-      {first ? <Exchange key={`${authority}:first`} exchange={first} label="First exchange" current={false} /> : null}
+      {first ? <Exchange key={`${authority}:first`} exchange={first} label="First exchange" current={false} /> : (
+        <article className="pi-conversation-exchange pi-conversation-first">
+          <header><strong>First exchange</strong></header>
+          <p className="pi-conversation-status">Empty</p>
+        </article>
+      )}
       {!available ? <p className="pi-conversation-status">Conversation context unavailable{bridge?.status === "offline" ? " — Bridge Offline" : ""}.</p> : available && exchanges.length === 0 ? <p className="pi-conversation-status">No recorded exchanges yet.</p> : null}
     </div>
     <div className="pi-conversation-working">
-      {current ? <Exchange key={`${authority}:current`} exchange={current} label={exchanges.length === 1 ? "First / current exchange" : "Latest / current exchange"} current /> : null}
+      {current ? <Exchange key={`${authority}:current`} exchange={current} label={exchanges.length === 1 ? "First / current exchange" : "Latest / current exchange"} current /> : (
+        <article className="pi-conversation-exchange pi-conversation-current">
+          <header><strong>Latest / current exchange</strong></header>
+          <p className="pi-conversation-status">Empty</p>
+        </article>
+      )}
       {editor}
     </div>
   </section>;

@@ -20,12 +20,22 @@ export function usePiComposerViewport(enabled: boolean) {
     window.addEventListener("resize", refit);
     window.addEventListener("pageshow", refit);
     document.addEventListener("visibilitychange", refit);
+    // Some mobile browsers skip the viewport event when the keyboard closes,
+    // leaving a stale offset that blanks the top of the expanded Composer.
+    let settle: number | undefined;
+    const refitAfterBlur = () => {
+      window.clearTimeout(settle);
+      settle = window.setTimeout(refit, 250);
+    };
+    document.addEventListener("focusout", refitAfterBlur);
     viewport?.addEventListener("resize", refit);
     viewport?.addEventListener("scroll", refit);
     return () => {
       window.removeEventListener("resize", refit);
       window.removeEventListener("pageshow", refit);
       document.removeEventListener("visibilitychange", refit);
+      document.removeEventListener("focusout", refitAfterBlur);
+      window.clearTimeout(settle);
       viewport?.removeEventListener("resize", refit);
       viewport?.removeEventListener("scroll", refit);
     };

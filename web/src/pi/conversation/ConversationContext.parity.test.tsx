@@ -120,11 +120,15 @@ describe("ConversationContext prototype B presentation", () => {
   it("renders one exchange once and fails closed for empty and unavailable snapshots", async () => {
     const value = conversation();
     await render({ ...value, exchanges: [value.exchanges[1]] });
-    expect(container.querySelectorAll("article")).toHaveLength(1);
+    // The first-exchange box stays visible and reads "Empty" when there is no first exchange.
+    expect(container.querySelectorAll("article")).toHaveLength(2);
+    expect(container.querySelector(".pi-conversation-first")?.textContent).toContain("Empty");
     expect(container.textContent).toContain("First / current exchange");
     await render({ ...value, exchanges: [] });
     expect(container.textContent).toContain("No recorded exchanges yet");
-    expect(container.querySelectorAll("article")).toHaveLength(0);
+    expect(container.querySelectorAll("article")).toHaveLength(2);
+    expect(container.querySelector(".pi-conversation-first")?.textContent).toContain("Empty");
+    expect(container.querySelector(".pi-conversation-current")?.textContent).toContain("Empty");
     await render({ ...value, availability: "unavailable", reason: "selection_changing", exchanges: [] });
     expect(container.textContent).toContain("Conversation context unavailable");
     await render(value, "offline");

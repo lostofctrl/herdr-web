@@ -110,6 +110,9 @@
 
 ### Fixed
 
+- Mobile Pi Composer: added a top-right Close button and refit the viewport after the keyboard
+  closes, which could leave a blank band above the expanded Composer. Not verified on a physical
+  device.
 - Pi Screenshot Editor: keep Save, Cancel and editing controls above the expanded mobile Composer
   so image edits remain reachable.
   [PR #20](https://github.com/lostofctrl/herdr-web/pull/20)
