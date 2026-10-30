@@ -125,6 +125,7 @@
 
 ### Fixed
 
+- Display idle agent status dots as hollow outlines, matching Herdr.
 - Forward terminal mouse clicks, movement and scrolling to applications that request mouse tracking;
   normal selection and scrollback remain available when tracking is off, and Shift-drag selects text
   while tracking is on.

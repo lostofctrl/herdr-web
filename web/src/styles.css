@@ -942,7 +942,8 @@ button {
   background: var(--st-done);
 }
 .dot[data-status="idle"] {
-  background: var(--st-idle);
+  border: 1px solid var(--st-idle);
+  background: transparent;
 }
 .dot[data-status="unknown"] {
   background: var(--st-unknown);
