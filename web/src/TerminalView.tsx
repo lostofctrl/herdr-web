@@ -591,6 +591,7 @@ export function TerminalView({
     let disposed = false;
     let disposeInput: (() => void) | null = null;
     let disposeScroll: (() => void) | null = null;
+    let disposeMouse: (() => void) | null = null;
     let resizeObserver: ResizeObserver | null = null;
     const generation = rendererGenerationRef.current + 1;
     rendererGenerationRef.current = generation;
@@ -638,6 +639,13 @@ export function TerminalView({
 
         disposeInput = renderer.onInput((data) => {
           sendTerminalInputData(data);
+        });
+        disposeMouse = renderer.onMouse((frame) => {
+          const socket = socketRef.current;
+          if (socket?.readyState !== WebSocket.OPEN) return;
+          if ((frame.kind === "moved" || frame.kind === "drag") && socket.bufferedAmount > 65536) return;
+          flushBatchedTerminalInput();
+          socket.send(JSON.stringify(frame));
         });
         disposeScroll = renderer.onScroll((lines) => {
           const socket = socketRef.current;
@@ -694,8 +702,11 @@ export function TerminalView({
       flushBatchedTerminalInput();
       batchedInputRef.current = emptyTerminalInputBatch();
       clearQueuedTerminalInput();
+      renderer.setMouseCapture(false);
+      renderer.setTerminalKeyboardFlags(0);
       disposeInput?.();
       disposeScroll?.();
+      disposeMouse?.();
       resizeObserver?.disconnect();
       if (rendererReadyRef.current?.generation === generation) {
         rendererReadyRef.current = null;
@@ -813,6 +824,8 @@ export function TerminalView({
     sendResizeRef.current = sendResize;
 
     const closeActiveSocket = () => {
+      ready.renderer.setMouseCapture(false);
+      ready.renderer.setTerminalKeyboardFlags(0);
       const current = socket;
       socket = null;
       if (socketRef.current === current) {
@@ -926,6 +939,23 @@ export function TerminalView({
             gzipOutputAcknowledged = true;
             return;
           }
+          try {
+            const frame: unknown = JSON.parse(event.data);
+            if (frame && typeof frame === "object" && "type" in frame &&
+                frame.type === "mouse_capture" && "enabled" in frame &&
+                typeof frame.enabled === "boolean") {
+              ready.renderer.setMouseCapture(frame.enabled);
+              return;
+            }
+            if (frame && typeof frame === "object" && "type" in frame &&
+                frame.type === "keyboard_flags" && "kitty_flags" in frame &&
+                typeof frame.kitty_flags === "number") {
+              ready.renderer.setTerminalKeyboardFlags(frame.kitty_flags);
+              return;
+            }
+          } catch {
+            // Other control messages are handled by the close-reason parser.
+          }
           lastCloseReason = parseTerminalCloseReason(event.data) ?? lastCloseReason;
           return;
         }
@@ -947,6 +977,8 @@ export function TerminalView({
           return;
         }
         clearConnectTimer();
+        ready.renderer.setMouseCapture(false);
+        ready.renderer.setTerminalKeyboardFlags(0);
         if (socketRef.current === nextSocket) {
           socketRef.current = null;
         }
@@ -1643,6 +1675,11 @@ export function TerminalView({
           inputRef={piComposerInputRef}
           focusToken={focusToken}
           onSend={sendPiComposerPrompt}
+          onShortcut={(data) => {
+            if (piInputOwnerRef.current.mode === "automatic" || piInputOwnerRef.current.mode === "recovery") return false;
+            flushBatchedTerminalInput();
+            return enqueueTerminalInput([data]);
+          }}
           onUploadImages={uploadPiComposerImages}
           onTerminalFocus={() => rendererRef.current?.focusTextInput()}
           onExpandedChange={setPiComposerExpanded}

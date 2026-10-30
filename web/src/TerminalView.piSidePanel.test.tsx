@@ -25,6 +25,7 @@ const renderer = vi.hoisted(() => ({
   onInput: vi.fn(),
   onScroll: vi.fn(),
   setMouseCapture: vi.fn(),
+  setTerminalKeyboardFlags: vi.fn(),
   onMouse: vi.fn(() => () => {}),
 }));
 vi.mock("./terminalRenderer", () => ({

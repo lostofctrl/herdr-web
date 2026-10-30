@@ -43,8 +43,9 @@ use herdr_compat::api::schema::{
     SubscriptionEventKind, TabCreateParams, TabInfo, TabListParams, TabTarget, WorkspaceInfo,
 };
 use herdr_compat::protocol::{
-    self, AttachScrollDirection, AttachScrollSource, ClientMessage, RenderEncoding, ServerMessage,
-    MAX_FRAME_SIZE, MAX_GRAPHICS_FRAME_SIZE, PROTOCOL_VERSION,
+    self, AttachScrollDirection, AttachScrollSource, ClientMessage, ClientMouseButton,
+    ClientMouseKind, ClientMousePosition, RenderEncoding, ServerMessage, MAX_FRAME_SIZE,
+    MAX_GRAPHICS_FRAME_SIZE, PROTOCOL_VERSION,
 };
 
 use crate::agent_activity::{AgentActivityListResponse, AgentActivityManager};
@@ -76,6 +77,9 @@ const PI_CLOSE_UNKNOWN_PANE: u16 = 4501;
 const PI_CLOSE_RECORD_TOO_LARGE: u16 = 4502;
 const PI_CLOSE_RELAY_ERROR: u16 = 1011;
 const MAX_QUEUED_TERMINAL_INPUT_BYTES: usize = 8 * 1024 * 1024;
+const MAX_QUEUED_TERMINAL_MOUSE_EVENTS: usize = 256;
+const MAX_QUEUED_TERMINAL_MOUSE_MOTION: usize = 240;
+const MAX_TERMINAL_MOUSE_WHEEL_LINES: u16 = 200;
 const TERMINAL_DETACH_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_TERMINAL_DETACH_DRAIN_WAITS: usize = 4;
 const MAX_ATTACH_HANDSHAKE_RETRIES: usize = 2;
@@ -245,6 +249,35 @@ enum TerminalClientFrame {
         #[serde(default = "default_scroll_lines")]
         lines: u16,
     },
+    Mouse {
+        kind: MouseKind,
+        button: Option<MouseButton>,
+        column: u16,
+        row: u16,
+        modifiers: u8,
+        lines: u16,
+    },
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum MouseKind {
+    Down,
+    Up,
+    Drag,
+    Moved,
+    ScrollUp,
+    ScrollDown,
+    ScrollLeft,
+    ScrollRight,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum MouseButton {
+    Left,
+    Middle,
+    Right,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -684,11 +717,23 @@ struct SharedTerminalSession {
 struct TerminalWriter {
     tx: mpsc::Sender<ClientMessage>,
     queued_input_bytes: Arc<AtomicUsize>,
+    mouse_capture: tokio::sync::watch::Sender<bool>,
+    keyboard_flags: tokio::sync::watch::Sender<u16>,
+    queued_mouse_events: Arc<AtomicUsize>,
+    viewport: Arc<Mutex<(u16, u16)>>,
 }
 
 impl TerminalWriter {
     fn send(&self, message: ClientMessage) -> Result<(), mpsc::SendError<ClientMessage>> {
-        self.tx.send(message)
+        if let ClientMessage::Resize { cols, rows, .. } = &message {
+            let size = (*cols, *rows);
+            let mut viewport = self.viewport.lock().unwrap_or_else(|err| err.into_inner());
+            self.tx.send(message)?;
+            *viewport = size;
+            Ok(())
+        } else {
+            self.tx.send(message)
+        }
     }
 
     /// Reserve queue budget for a whole input frame before any of its chunks
@@ -3020,19 +3065,19 @@ fn web_snapshot_from_session_snapshot(
     selected_pane_id: Option<String>,
 ) -> Snapshot {
     let SessionSnapshot {
-        focused_pane_id,
         workspaces,
         tabs,
         panes,
         layouts,
         ..
     } = snapshot;
+    // Only a selection a web client actually made is a shared selection. Herdr's
+    // focused pane belongs to whichever client set it last (the TUI on another
+    // terminal, another browser, ...), so reporting it here made every web client
+    // follow that other client's active tab and undo its own selection. The web
+    // app already falls back to the focused pane when it has no selection yet.
     let selected_pane_id = selected_pane_id
-        .filter(|pane_id| panes.iter().any(|pane| pane.pane_id == pane_id.as_str()))
-        .or_else(|| {
-            focused_pane_id
-                .filter(|pane_id| panes.iter().any(|pane| pane.pane_id == pane_id.as_str()))
-        });
+        .filter(|pane_id| panes.iter().any(|pane| pane.pane_id == pane_id.as_str()));
     let workspaces = workspaces
         .into_iter()
         .map(|workspace| {
@@ -3961,6 +4006,8 @@ async fn handle_terminal_socket(socket: WebSocket, state: BridgeState, query: Te
 
     let write_tx = session.write_tx.clone();
     let mut terminal_rx = session.output_tx.subscribe();
+    let mut mouse_capture_rx = write_tx.mouse_capture.subscribe();
+    let mut keyboard_flags_rx = write_tx.keyboard_flags.subscribe();
     if output_encoding == TerminalOutputWireEncoding::Gzip {
         let ack = Message::Text(TERMINAL_OUTPUT_GZIP_ACKNOWLEDGEMENT.into());
         if send_websocket_message(&mut ws_sender, ack, "terminal")
@@ -3970,6 +4017,17 @@ async fn handle_terminal_socket(socket: WebSocket, state: BridgeState, query: Te
             release_terminal_session(&state.terminal_sessions, &terminal_id, &session);
             return;
         }
+    }
+
+    let enabled = *mouse_capture_rx.borrow_and_update();
+    if !send_mouse_capture(&mut ws_sender, enabled).await {
+        release_terminal_session(&state.terminal_sessions, &terminal_id, &session);
+        return;
+    }
+    let kitty_flags = *keyboard_flags_rx.borrow_and_update();
+    if !send_keyboard_flags(&mut ws_sender, kitty_flags).await {
+        release_terminal_session(&state.terminal_sessions, &terminal_id, &session);
+        return;
     }
 
     let mut output_coalescer = TerminalOutputCoalescer::new(coalesce_window);
@@ -4014,6 +4072,16 @@ async fn handle_terminal_socket(socket: WebSocket, state: BridgeState, query: Te
                         break;
                     }
                 }
+                changed = mouse_capture_rx.changed() => {
+                    if changed.is_err() { break; }
+                    let enabled = *mouse_capture_rx.borrow_and_update();
+                    if !send_mouse_capture(&mut ws_sender, enabled).await { break; }
+                }
+                changed = keyboard_flags_rx.changed() => {
+                    if changed.is_err() { break; }
+                    let flags = *keyboard_flags_rx.borrow_and_update();
+                    if !send_keyboard_flags(&mut ws_sender, flags).await { break; }
+                }
                 output = terminal_rx.recv() => {
                     if !handle_terminal_output_message(
                         output,
@@ -4053,6 +4121,16 @@ async fn handle_terminal_socket(socket: WebSocket, state: BridgeState, query: Te
                         break;
                     }
                 }
+                changed = mouse_capture_rx.changed() => {
+                    if changed.is_err() { break; }
+                    let enabled = *mouse_capture_rx.borrow_and_update();
+                    if !send_mouse_capture(&mut ws_sender, enabled).await { break; }
+                }
+                changed = keyboard_flags_rx.changed() => {
+                    if changed.is_err() { break; }
+                    let flags = *keyboard_flags_rx.borrow_and_update();
+                    if !send_keyboard_flags(&mut ws_sender, flags).await { break; }
+                }
                 Some(message) = ws_receiver.next() => {
                     record_websocket_peer_activity(&mut heartbeat, &message);
                     if !handle_terminal_client_message(&write_tx, message) {
@@ -4065,6 +4143,40 @@ async fn handle_terminal_socket(socket: WebSocket, state: BridgeState, query: Te
     }
 
     release_terminal_session(&state.terminal_sessions, &terminal_id, &session);
+}
+
+fn mouse_capture_message(enabled: bool) -> String {
+    format!(r#"{{"type":"mouse_capture","enabled":{enabled}}}"#)
+}
+
+async fn send_mouse_capture(
+    ws_sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    enabled: bool,
+) -> bool {
+    send_websocket_message(
+        ws_sender,
+        Message::Text(mouse_capture_message(enabled).into()),
+        "terminal",
+    )
+    .await
+    .is_ok()
+}
+
+fn keyboard_flags_message(kitty_flags: u16) -> String {
+    format!(r#"{{"type":"keyboard_flags","kitty_flags":{kitty_flags}}}"#)
+}
+
+async fn send_keyboard_flags(
+    ws_sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    kitty_flags: u16,
+) -> bool {
+    send_websocket_message(
+        ws_sender,
+        Message::Text(keyboard_flags_message(kitty_flags).into()),
+        "terminal",
+    )
+    .await
+    .is_ok()
 }
 
 async fn handle_terminal_output_deadline(
@@ -4878,6 +4990,90 @@ fn handle_terminal_text_frame(write_tx: &TerminalWriter, text: &str) -> Result<(
             })
             .map(|_| ())
             .map_err(|_| "terminal writer closed".to_string()),
+        TerminalClientFrame::Mouse {
+            kind,
+            button,
+            column,
+            row,
+            modifiers,
+            lines,
+        } => {
+            if modifiers & !0x3f != 0 {
+                return Err("invalid mouse modifiers".to_string());
+            }
+            let button = button.map(|button| match button {
+                MouseButton::Left => ClientMouseButton::Left,
+                MouseButton::Middle => ClientMouseButton::Middle,
+                MouseButton::Right => ClientMouseButton::Right,
+            });
+            let is_motion = matches!(kind, MouseKind::Moved | MouseKind::Drag);
+            let is_wheel = matches!(
+                kind,
+                MouseKind::ScrollUp
+                    | MouseKind::ScrollDown
+                    | MouseKind::ScrollLeft
+                    | MouseKind::ScrollRight
+            );
+            if is_wheel && !(1..=MAX_TERMINAL_MOUSE_WHEEL_LINES).contains(&lines) {
+                return Err("invalid mouse wheel lines".to_string());
+            }
+            let kind = match (kind, button) {
+                (MouseKind::Down, Some(button)) => ClientMouseKind::Down(button),
+                (MouseKind::Up, Some(button)) => ClientMouseKind::Up(button),
+                (MouseKind::Drag, Some(button)) => ClientMouseKind::Drag(button),
+                (MouseKind::Moved, None) => ClientMouseKind::Moved,
+                (MouseKind::ScrollUp, None) => ClientMouseKind::ScrollUp,
+                (MouseKind::ScrollDown, None) => ClientMouseKind::ScrollDown,
+                (MouseKind::ScrollLeft, None) => ClientMouseKind::ScrollLeft,
+                (MouseKind::ScrollRight, None) => ClientMouseKind::ScrollRight,
+                _ => return Err("invalid mouse kind and button combination".to_string()),
+            };
+            let viewport = write_tx
+                .viewport
+                .lock()
+                .unwrap_or_else(|err| err.into_inner());
+            if viewport.0 == 0 || viewport.1 == 0 {
+                return Ok(());
+            }
+            let column = column.min(viewport.0 - 1);
+            let row = row.min(viewport.1 - 1);
+            let capture = write_tx.mouse_capture.borrow();
+            if !*capture {
+                return Ok(());
+            }
+            let limit = if is_motion {
+                MAX_QUEUED_TERMINAL_MOUSE_MOTION
+            } else {
+                MAX_QUEUED_TERMINAL_MOUSE_EVENTS
+            };
+            if write_tx
+                .queued_mouse_events
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                    (count < limit).then_some(count + 1)
+                })
+                .is_err()
+            {
+                return if is_motion {
+                    Ok(())
+                } else {
+                    Err("terminal mouse backlog exceeded".to_string())
+                };
+            }
+            if write_tx
+                .send(ClientMessage::AttachMouse {
+                    kind,
+                    position: ClientMousePosition::Cell { column, row },
+                    geometry: None,
+                    modifiers,
+                    lines,
+                })
+                .is_err()
+            {
+                write_tx.queued_mouse_events.fetch_sub(1, Ordering::AcqRel);
+                return Err("terminal writer closed".to_string());
+            }
+            Ok(())
+        }
         TerminalClientFrame::Scroll { direction, lines } => write_tx
             .send(ClientMessage::AttachScroll {
                 source: AttachScrollSource::Wheel,
@@ -4956,8 +5152,15 @@ fn open_terminal_attach(
 
     let mut read_stream = stream.try_clone()?;
     let (write_tx, write_rx) = mpsc::channel::<ClientMessage>();
+    let (mouse_capture, _) = tokio::sync::watch::channel(false);
+    let (keyboard_flags, _) = tokio::sync::watch::channel(0u16);
+    let reader_mouse_capture = mouse_capture.clone();
+    let reader_keyboard_flags = keyboard_flags.clone();
     let queued_input_bytes = Arc::new(AtomicUsize::new(0));
     let writer_queued_input_bytes = queued_input_bytes.clone();
+    let queued_mouse_events = Arc::new(AtomicUsize::new(0));
+    let writer_queued_mouse_events = queued_mouse_events.clone();
+    let viewport = Arc::new(Mutex::new((cols, rows)));
     let connection_closed = Arc::new(ConnectionClosed::default());
     let reader_connection_closed = connection_closed.clone();
 
@@ -4972,6 +5175,9 @@ fn open_terminal_attach(
             let result = protocol::write_message(&mut write_stream, &message);
             if input_len > 0 {
                 writer_queued_input_bytes.fetch_sub(input_len, Ordering::AcqRel);
+            }
+            if matches!(message, ClientMessage::AttachMouse { .. }) {
+                writer_queued_mouse_events.fetch_sub(1, Ordering::AcqRel);
             }
             if result.is_err() {
                 break;
@@ -5017,12 +5223,16 @@ fn open_terminal_attach(
                     break;
                 }
                 ServerMessage::Welcome { .. } => {}
+                ServerMessage::MouseCapture { enabled, .. } => {
+                    reader_mouse_capture.send_replace(enabled);
+                }
+                ServerMessage::DirectTerminalKeyboardProtocol { flags, .. } => {
+                    reader_keyboard_flags.send_replace(flags);
+                }
                 ServerMessage::Notify { .. }
                 | ServerMessage::Clipboard { .. }
                 | ServerMessage::WindowTitle { .. }
                 | ServerMessage::ReloadSoundConfig
-                | ServerMessage::MouseCapture { .. }
-                | ServerMessage::DirectTerminalKeyboardProtocol { .. }
                 | ServerMessage::ClientShellKeyboardReportAll { .. }
                 | ServerMessage::ClientShellSnapshot(_)
                 | ServerMessage::PaneSurface(_)
@@ -5047,6 +5257,10 @@ fn open_terminal_attach(
         write_tx: TerminalWriter {
             tx: write_tx,
             queued_input_bytes,
+            mouse_capture,
+            keyboard_flags,
+            queued_mouse_events,
+            viewport,
         },
         connection_closed,
     })
@@ -5669,12 +5883,204 @@ mod tests {
         );
     }
 
+    #[test]
+    fn mouse_frames_forward_structured_values_and_reject_invalid_input() {
+        use herdr_compat::protocol::{ClientMouseButton as Button, ClientMouseKind as Kind};
+        let (tx, rx) = test_terminal_writer();
+        tx.mouse_capture.send_replace(true);
+        let cases = [
+            ("down", Some("left"), Kind::Down(Button::Left)),
+            ("up", Some("middle"), Kind::Up(Button::Middle)),
+            ("drag", Some("right"), Kind::Drag(Button::Right)),
+            ("moved", None, Kind::Moved),
+            ("scroll_up", None, Kind::ScrollUp),
+            ("scroll_down", None, Kind::ScrollDown),
+            ("scroll_left", None, Kind::ScrollLeft),
+            ("scroll_right", None, Kind::ScrollRight),
+        ];
+        for (kind, button, expected) in cases {
+            let mut frame = serde_json::json!({"type":"mouse", "kind":kind, "column":79, "row":0, "modifiers":63, "lines":2});
+            if let Some(button) = button {
+                frame["button"] = button.into();
+            }
+            handle_terminal_text_frame(&tx, &frame.to_string()).unwrap();
+            assert_eq!(
+                rx.try_recv().unwrap(),
+                ClientMessage::AttachMouse {
+                    kind: expected,
+                    position: ClientMousePosition::Cell { column: 79, row: 0 },
+                    geometry: None,
+                    modifiers: 63,
+                    lines: 2,
+                }
+            );
+        }
+        for frame in [
+            r#"{"type":"mouse","kind":"down","column":1,"row":2,"modifiers":0,"lines":1}"#,
+            r#"{"type":"mouse","kind":"moved","button":"left","column":1,"row":2,"modifiers":0,"lines":1}"#,
+            r#"{"type":"mouse","kind":"down","button":"other","column":1,"row":2,"modifiers":0,"lines":1}"#,
+            r#"{"type":"mouse","kind":"bad","column":1,"row":2,"modifiers":0,"lines":1}"#,
+            r#"{"type":"mouse","kind":"moved","column":1,"row":2,"modifiers":64,"lines":1}"#,
+            r#"{"type":"mouse","kind":"moved","column":1,"row":2,"modifiers":128,"lines":1}"#,
+            r#"{"type":"mouse","kind":"moved","column":65536,"row":2,"modifiers":0,"lines":1}"#,
+            r#"{"type":"mouse","kind":"moved","column":0,"row":-1,"modifiers":0,"lines":1}"#,
+            r#"{"type":"mouse","kind":"moved","column":0,"row":1,"modifiers":0,"lines":65536}"#,
+        ] {
+            assert!(handle_terminal_text_frame(&tx, frame).is_err(), "{frame}");
+            assert!(rx.try_recv().is_err());
+        }
+    }
+
+    #[test]
+    fn mouse_frames_are_bounded_by_viewport_wheel_and_queue() {
+        let (tx, rx) = test_terminal_writer();
+        tx.mouse_capture.send_replace(true);
+        for frame in [
+            r#"{"type":"mouse","kind":"scroll_up","column":0,"row":0,"modifiers":0,"lines":0}"#,
+            r#"{"type":"mouse","kind":"scroll_down","column":0,"row":0,"modifiers":0,"lines":201}"#,
+        ] {
+            assert!(handle_terminal_text_frame(&tx, frame).is_err(), "{frame}");
+            assert!(rx.try_recv().is_err());
+        }
+        let frame = r#"{"type":"mouse","kind":"moved","column":79,"row":23,"modifiers":0,"lines":1}"#;
+        for _ in 0..240 {
+            handle_terminal_text_frame(&tx, frame).unwrap();
+        }
+        assert!(handle_terminal_text_frame(&tx, frame).is_ok());
+        let button = r#"{"type":"mouse","kind":"up","button":"left","column":1,"row":1,"modifiers":0,"lines":1}"#;
+        for _ in 0..16 {
+            handle_terminal_text_frame(&tx, button).unwrap();
+        }
+        assert!(handle_terminal_text_frame(&tx, button).is_err());
+        assert_eq!(rx.try_iter().count(), 256);
+    }
+
+    #[test]
+    fn mouse_coordinates_follow_queued_resizes_and_send_failure_releases_capacity() {
+        let (tx, rx) = test_terminal_writer();
+        tx.mouse_capture.send_replace(true);
+        handle_terminal_text_frame(&tx, r#"{"type":"resize","cols":2,"rows":3}"#).unwrap();
+        assert!(matches!(rx.try_recv().unwrap(), ClientMessage::Resize { .. }));
+        let wheel = r#"{"type":"mouse","kind":"scroll_right","column":1,"row":2,"modifiers":0,"lines":200}"#;
+        handle_terminal_text_frame(&tx, wheel).unwrap();
+        assert!(matches!(rx.try_recv().unwrap(), ClientMessage::AttachMouse { lines: 200, .. }));
+        let outside = r#"{"type":"mouse","kind":"moved","column":2,"row":9,"modifiers":0,"lines":1}"#;
+        handle_terminal_text_frame(&tx, outside).unwrap();
+        assert!(matches!(rx.try_recv().unwrap(), ClientMessage::AttachMouse {
+            position: ClientMousePosition::Cell { column: 1, row: 2 }, ..
+        }));
+        handle_terminal_text_frame(&tx, r#"{"type":"resize","cols":0,"rows":3}"#).unwrap();
+        assert!(matches!(rx.try_recv().unwrap(), ClientMessage::Resize { .. }));
+        handle_terminal_text_frame(&tx, outside).unwrap();
+        assert!(rx.try_recv().is_err());
+        handle_terminal_text_frame(&tx, r#"{"type":"resize","cols":2,"rows":3}"#).unwrap();
+        assert!(matches!(rx.try_recv().unwrap(), ClientMessage::Resize { .. }));
+        drop(rx);
+        let before = tx.queued_mouse_events.load(Ordering::Acquire);
+        assert!(handle_terminal_text_frame(&tx, wheel).is_err());
+        assert_eq!(tx.queued_mouse_events.load(Ordering::Acquire), before);
+    }
+
+    #[tokio::test]
+    async fn mouse_capture_replays_and_tracks_updates_and_gates_input() {
+        let (tx, rx) = test_terminal_writer();
+        let frame = r#"{"type":"mouse","kind":"moved","column":1,"row":2,"modifiers":0,"lines":0}"#;
+        assert!(!*tx.mouse_capture.borrow());
+        assert!(handle_terminal_text_frame(&tx, r#"{"type":"mouse","kind":"moved","column":80,"row":0,"modifiers":0,"lines":1}"#).is_ok());
+        handle_terminal_text_frame(&tx, frame).unwrap();
+        assert!(rx.try_recv().is_err());
+        tx.mouse_capture.send_replace(true);
+        let mut late = tx.mouse_capture.subscribe();
+        assert_eq!(
+            mouse_capture_message(*late.borrow_and_update()),
+            r#"{"type":"mouse_capture","enabled":true}"#
+        );
+        handle_terminal_text_frame(&tx, frame).unwrap();
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            ClientMessage::AttachMouse { .. }
+        ));
+        tx.mouse_capture.send_replace(false);
+        late.changed().await.unwrap();
+        assert_eq!(
+            mouse_capture_message(*late.borrow_and_update()),
+            r#"{"type":"mouse_capture","enabled":false}"#
+        );
+        handle_terminal_text_frame(&tx, frame).unwrap();
+        assert!(rx.try_recv().is_err());
+        let (fresh, _) = test_terminal_writer();
+        assert!(!*fresh.mouse_capture.borrow());
+        let mut racing = fresh.mouse_capture.subscribe();
+        fresh.mouse_capture.send_replace(true);
+        assert!(*racing.borrow_and_update());
+        fresh.mouse_capture.send_replace(false);
+        racing.changed().await.unwrap();
+        assert!(!*racing.borrow_and_update());
+    }
+
+    #[test]
+    fn keyboard_flags_replay_latest_state_to_late_viewers() {
+        let (tx, _rx) = test_terminal_writer();
+        assert_eq!(*tx.keyboard_flags.borrow(), 0);
+        assert_eq!(
+            keyboard_flags_message(0),
+            r#"{"type":"keyboard_flags","kitty_flags":0}"#
+        );
+        tx.keyboard_flags.send_replace(1);
+        let mut late = tx.keyboard_flags.subscribe();
+        assert_eq!(*late.borrow_and_update(), 1);
+        tx.keyboard_flags.send_replace(0);
+        assert_eq!(keyboard_flags_message(*tx.keyboard_flags.borrow()), keyboard_flags_message(0));
+        let (fresh, _) = test_terminal_writer();
+        assert_eq!(*fresh.keyboard_flags.borrow(), 0);
+    }
+
+    #[test]
+    fn existing_terminal_text_frames_still_forward() {
+        let (tx, rx) = test_terminal_writer();
+        handle_terminal_text_frame(&tx, r#"{"type":"input","data":"hi"}"#).unwrap();
+        assert_eq!(
+            rx.try_recv().unwrap(),
+            ClientMessage::Input { data: b"hi".to_vec() }
+        );
+        handle_terminal_text_frame(&tx, r#"{"type":"resize","cols":80,"rows":24}"#).unwrap();
+        assert_eq!(
+            rx.try_recv().unwrap(),
+            ClientMessage::Resize {
+                cols: 80,
+                rows: 24,
+                cell_width_px: 0,
+                cell_height_px: 0,
+                pixel_mouse: false,
+            }
+        );
+        handle_terminal_text_frame(&tx, r#"{"type":"scroll","direction":"down","lines":0}"#)
+            .unwrap();
+        assert_eq!(
+            rx.try_recv().unwrap(),
+            ClientMessage::AttachScroll {
+                source: AttachScrollSource::Wheel,
+                direction: AttachScrollDirection::Down,
+                lines: 1,
+                column: None,
+                row: None,
+                modifiers: 0,
+            }
+        );
+    }
+
     fn test_terminal_writer() -> (TerminalWriter, mpsc::Receiver<ClientMessage>) {
         let (tx, rx) = mpsc::channel();
+        let (mouse_capture, _) = tokio::sync::watch::channel(false);
+        let (keyboard_flags, _) = tokio::sync::watch::channel(0u16);
         (
             TerminalWriter {
                 tx,
                 queued_input_bytes: Arc::new(AtomicUsize::new(0)),
+                mouse_capture,
+                keyboard_flags,
+                queued_mouse_events: Arc::new(AtomicUsize::new(0)),
+                viewport: Arc::new(Mutex::new((DEFAULT_COLS, DEFAULT_ROWS))),
             },
             rx,
         )
@@ -5854,6 +6260,7 @@ mod tests {
         let listener = std::os::unix::net::UnixListener::bind(&socket_path).unwrap();
 
         let (daemon_tx, daemon_rx) = mpsc::channel();
+        let (mouse_tx, mouse_rx) = mpsc::channel();
         let daemon = thread::spawn(move || {
             let (mut sock, _) = listener.accept().unwrap();
             sock.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
@@ -5870,6 +6277,17 @@ mod tests {
             .unwrap();
             let attach: ClientMessage = protocol::read_message(&mut sock, MAX_FRAME_SIZE).unwrap();
             assert!(matches!(attach, ClientMessage::AttachTerminal { .. }));
+            protocol::write_message(
+                &mut sock,
+                &ServerMessage::MouseCapture {
+                    enabled: true,
+                    sgr_pixels: false,
+                },
+            )
+            .unwrap();
+            let mouse: ClientMessage = protocol::read_message(&mut sock, MAX_FRAME_SIZE).unwrap();
+            assert!(matches!(mouse, ClientMessage::AttachMouse { .. }));
+            mouse_tx.send(()).unwrap();
             let detach: ClientMessage = protocol::read_message(&mut sock, MAX_FRAME_SIZE).unwrap();
             assert!(matches!(detach, ClientMessage::Detach));
             // Like the real daemon: keep the socket open after Detach and
@@ -5891,6 +6309,33 @@ mod tests {
         )
         .unwrap();
 
+        let mut capture = attach.write_tx.mouse_capture.subscribe();
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while !*capture.borrow_and_update() {
+                    capture.changed().await.unwrap();
+                }
+            })
+            .await
+            .unwrap();
+        });
+        let late = attach.write_tx.mouse_capture.subscribe();
+        assert!(*late.borrow());
+        handle_terminal_text_frame(
+            &attach.write_tx,
+            r#"{"type":"mouse","kind":"moved","column":1,"row":1,"modifiers":0,"lines":1}"#,
+        )
+        .unwrap();
+        mouse_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while attach.write_tx.queued_mouse_events.load(Ordering::Acquire) != 0 {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+        });
         attach.write_tx.send(ClientMessage::Detach).unwrap();
 
         // The bridge's own post-Detach shutdown must resolve the close signal
@@ -6172,20 +6617,23 @@ mod tests {
     }
 
     #[test]
-    fn web_snapshot_adapter_falls_back_to_focused_pane_for_stale_selection() {
+    fn web_snapshot_adapter_drops_stale_selection_instead_of_focused_pane() {
         let snapshot = web_snapshot_from_session_snapshot(
             test_session_snapshot(),
             Some("missing".to_string()),
         );
 
-        assert_eq!(snapshot.selected_pane_id.as_deref(), Some("pane-1"));
+        assert_eq!(snapshot.selected_pane_id, None);
     }
 
     #[test]
-    fn web_snapshot_adapter_uses_focused_pane_before_shared_selection_exists() {
+    fn web_snapshot_adapter_does_not_report_focused_pane_as_shared_selection() {
+        // The focused pane can belong to another client (a TUI on another
+        // terminal). Reporting it as the shared selection made web clients
+        // switch back to that client's tab.
         let snapshot = web_snapshot_from_session_snapshot(test_session_snapshot(), None);
 
-        assert_eq!(snapshot.selected_pane_id.as_deref(), Some("pane-1"));
+        assert_eq!(snapshot.selected_pane_id, None);
     }
 
     #[test]

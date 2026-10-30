@@ -6,9 +6,6 @@ export function isShortcutTextEntryTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) {
     return false;
   }
-  if (target.classList.contains("ghostty-hidden-input")) {
-    return false;
-  }
   if (target.isContentEditable) {
     return true;
   }

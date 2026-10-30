@@ -25,6 +25,9 @@ const renderer = vi.hoisted(() => ({
   focus: vi.fn(),
   onInput: vi.fn(),
   onScroll: vi.fn(),
+  setMouseCapture: vi.fn(),
+  setTerminalKeyboardFlags: vi.fn(),
+  onMouse: vi.fn(() => () => {}),
 }));
 vi.mock("./terminalRenderer", () => ({
   GhosttyRenderer: class {
@@ -205,6 +208,25 @@ function sentTerminalInput(socket: TestSocket): string[] {
 }
 
 describe("TerminalView Pi Composer (Seam 3)", () => {
+  it("sends Composer shortcuts as manual input but never between prompt delivery frames", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    const socket = await openSocket();
+    const field = promptField(container);
+    await typePrompt(field, "draft");
+    const shortcut = async () => act(async () => {
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "c", altKey: true, bubbles: true, cancelable: true }));
+    });
+    await shortcut();
+    expect(sentTerminalInput(socket)).toEqual(["\x1bc"]);
+    expect(field.value).toBe("draft");
+    await clickButton(container, "Send prompt");
+    await shortcut();
+    expect(sentTerminalInput(socket)).toEqual(["\x1bc", "\x1b[200~draft\x1b[201~"]);
+    await act(async () => vi.advanceTimersByTime(40));
+    expect(sentTerminalInput(socket)).toEqual(["\x1bc", "\x1b[200~draft\x1b[201~", "\r"]);
+  });
+
   it("sends multi-line and special characters as one bracketed paste then Enter", async () => {
     const { pane, paneId } = testPane(PANE_A);
     const { container } = await renderTerminalView({ paneId, pane, mobile: true });
@@ -485,6 +507,30 @@ describe("TerminalView Pi Composer (Seam 3)", () => {
     expect(container.querySelector('[role="menu"] [aria-label="Open prompt history"]')).not.toBeNull();
   });
 
+  it("gives every Composer helpers menu row an icon without changing its label", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: true });
+    await openSocket();
+    await openPiBridgeWithCatalog();
+    await clickButton(container, "Composer helpers");
+
+    const rows = [
+      ...container.querySelectorAll<HTMLButtonElement>('[role="menu"][aria-label="Composer helpers"] > button'),
+    ];
+    expect(rows.length).toBeGreaterThanOrEqual(8);
+    for (const row of rows) {
+      const icon = row.querySelector("svg");
+      expect(icon, row.getAttribute("aria-label") ?? row.textContent ?? "").not.toBeNull();
+      expect(icon!.getAttribute("aria-hidden")).toBe("true");
+      // The icon decorates the row; the visible label remains the accessible name.
+      expect(row.textContent?.trim()).not.toBe("");
+    }
+
+    await clickButton(container, "Terminal keys and Reader");
+    const back = container.querySelector<HTMLButtonElement>('[aria-label="Back to Composer helpers"]')!;
+    expect(back.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+  });
+
   it("does not send a whitespace-only draft on desktop Ctrl+Enter", async () => {
     const { pane, paneId } = testPane(PANE_A);
     const { container } = await renderTerminalView({ paneId, pane, mobile: false });
@@ -515,6 +561,26 @@ describe("TerminalView Pi Composer (Seam 3)", () => {
     await act(async () => vi.advanceTimersByTime(40));
     expect(sentTerminalInput(socket)).toEqual([]);
     expect(field.value).toBe("   ");
+  });
+
+  it("leaves Ctrl+Space for the focused terminal instead of opening the Composer", async () => {
+    const { pane, paneId } = testPane(PANE_A);
+    const { container } = await renderTerminalView({ paneId, pane, mobile: false });
+    await openSocket();
+    const terminalInput = document.createElement("textarea");
+    terminalInput.classList.add("ghostty-hidden-input");
+    container.appendChild(terminalInput);
+    terminalInput.focus();
+    const event = new KeyboardEvent("keydown", {
+      key: " ", ctrlKey: true, bubbles: true, cancelable: true,
+    });
+
+    await act(async () => {
+      terminalInput.dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(container.querySelector('[aria-label="Pi prompt"]')).toBeNull();
   });
 
   it("ignores Ctrl+Space while another text field owns the keyboard", async () => {

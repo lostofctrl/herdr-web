@@ -1,12 +1,43 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  applyEncoderKittyFlags,
   handleTerminalCustomKeyEvent,
+  textareaKeyboardEventOutput,
   installTerminalInteractionRendering,
   renderGhosttyTerminalFrame,
   refreshTerminalFontRendering,
   shouldUseEventDrivenTerminalRendering,
   suspendGhosttyIdleRenderLoop,
 } from "./terminalRenderer";
+
+describe("terminal keyboard protocol handoff", () => {
+  it("pushes the negotiated Kitty flags into the ghostty key encoder", () => {
+    const setKittyFlags = vi.fn();
+    const terminal = { inputHandler: { encoder: { setKittyFlags } } };
+
+    applyEncoderKittyFlags(terminal, 7);
+    applyEncoderKittyFlags(terminal, 0);
+
+    expect(setKittyFlags.mock.calls).toEqual([[7], [0]]);
+  });
+
+  it("survives terminals without an accessible encoder", () => {
+    const throwing = {
+      inputHandler: {
+        encoder: {
+          setKittyFlags: () => {
+            throw new Error("wasm disposed");
+          },
+        },
+      },
+    };
+
+    expect(() => applyEncoderKittyFlags(null, 7)).not.toThrow();
+    expect(() => applyEncoderKittyFlags({}, 7)).not.toThrow();
+    expect(() => applyEncoderKittyFlags({ inputHandler: {} }, 7)).not.toThrow();
+    expect(() => applyEncoderKittyFlags(throwing, 7)).not.toThrow();
+  });
+});
 
 describe("terminal event-driven rendering", () => {
   it("redraws idle selections and scrolling and removes the hooks on disposal", () => {
@@ -101,6 +132,47 @@ describe("terminal renderer font refresh", () => {
   });
 });
 
+describe("terminal textarea shortcuts", () => {
+  it("encodes Alt printable keys without swallowing IME, AltGr, or browser modifiers", () => {
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "c", altKey: true }))).toBe("\x1bc");
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "C", altKey: true, shiftKey: true }))).toBe("\x1bC");
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "d", altKey: true }))).toBeNull();
+    expect(textareaKeyboardEventOutput(keyEvent({ key: " ", altKey: true }))).toBeNull();
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "c", altKey: true, metaKey: true }))).toBeNull();
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "c", altKey: true, ctrlKey: true }))).toBeNull();
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "c", altKey: true, isComposing: true }))).toBeNull();
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "c", altKey: true, getModifierState: (key: string) => key === "AltGraph" }))).toBeNull();
+  });
+
+  it("encodes Alt printable keys as CSI u only for the disabling-unambiguity Kitty flags", () => {
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "c", altKey: true }), 1)).toBe("\x1b[99;3u");
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "C", altKey: true, shiftKey: true }), 8)).toBe("\x1b[67;4u");
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "c", altKey: true }), 7)).toBe("\x1b[99;3u");
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "c", altKey: true }), 9)).toBe("\x1b[99;3u");
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "d", altKey: true }), 1)).toBeNull();
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "c", altKey: true }), 0)).toBe("\x1bc");
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "c", altKey: true }), 2)).toBe("\x1bc");
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "c", altKey: true }), 4)).toBe("\x1bc");
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "c", altKey: true }), 6)).toBe("\x1bc");
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "c", altKey: true }), 16)).toBe("\x1bc");
+  });
+
+  it("encodes Ctrl+Shift printable keys as CSI u so they stay distinct", () => {
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "C", ctrlKey: true, shiftKey: true }), 1)).toBe(
+      "\x1b[67;6u",
+    );
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "P", ctrlKey: true, shiftKey: true }), 7)).toBe(
+      "\x1b[80;6u",
+    );
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "i", ctrlKey: true, shiftKey: true }), 1)).toBeNull();
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "v", ctrlKey: true, shiftKey: true }), 1)).toBeNull();
+    expect(textareaKeyboardEventOutput(keyEvent({ key: "C", ctrlKey: true, shiftKey: true }), 0)).toBeNull();
+    expect(
+      textareaKeyboardEventOutput(keyEvent({ key: "C", ctrlKey: true, shiftKey: true, altKey: true }), 1),
+    ).toBeNull();
+  });
+});
+
 describe("terminal selection copy shortcuts", () => {
   it("consumes Windows/Linux Ctrl+C when canonical terminal selection text exists", () => {
     const terminal = terminalInput("selected terminal text");
@@ -140,6 +212,7 @@ function keyEvent(overrides: Partial<KeyboardEvent> = {}) {
     code: "KeyC",
     ctrlKey: false,
     isComposing: false,
+    getModifierState: () => false,
     key: "c",
     keyCode: 67,
     metaKey: false,

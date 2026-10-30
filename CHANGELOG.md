@@ -107,6 +107,8 @@
 
 ### Changed
 
+- The top tab bar shows the Herdr tab name before the pane title when available.
+- Sidebar agent rows show workspace, tab and available branch above the pane title, with tab and state beneath.
 - Pi Side Panel: place quick actions in one compact icon row with hover labels and a Kitty-compatible Alt+C chat-log shortcut; move commands and skills below and remember recently selected entries in browser storage.
 - Composer helpers: every menu row shows an icon beside its unchanged label.
 - Pi question cards can collapse to a top-left icon button to reveal the terminal without losing unfinished answers.
@@ -135,7 +137,9 @@
   while tracking is on.
 - Let focused terminal input receive shortcuts instead of intercepting them for pane navigation or
   Pi Composer, and preserve Alt shortcuts such as Alt+C, including applications that negotiate the
-  Kitty keyboard protocol. Open the Composer with its button while the
+  Kitty keyboard protocol. Modified keys such as Ctrl+Shift+C, Alt+Enter and Alt+arrows now reach
+  the application in the protocol it negotiated instead of collapsing onto a control byte. Open the
+  Composer with its button while the
   terminal has focus. The Composer forwards supported shortcuts without changing its draft, while
   retaining common browser shortcuts and blocking Ctrl+D and Ctrl+Z from reaching Pi.
 - Pi panes keep the terminal at full pane size while the side panel, Composer, key bar and dialog

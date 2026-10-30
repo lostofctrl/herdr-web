@@ -255,6 +255,7 @@ export class GhosttyRenderer implements TerminalRenderer {
     terminal.renderer?.getCanvas().style.setProperty("background-color", "#11111b");
     terminal.renderer?.getCanvas().style.setProperty("image-rendering", "auto");
     this.#terminal = terminal;
+    applyEncoderKittyFlags(terminal, this.#kittyFlags);
     this.#fitAddon = fitAddon;
     this.#installAccessibleScreenPublisher();
     this.#mouseHandler = installTerminalMouse(
@@ -316,6 +317,7 @@ export class GhosttyRenderer implements TerminalRenderer {
   // forms the application actually parses.
   setTerminalKeyboardFlags(kittyFlags: number) {
     this.#kittyFlags = Number.isFinite(kittyFlags) ? kittyFlags : 0;
+    applyEncoderKittyFlags(this.#terminal, this.#kittyFlags);
   }
 
   onMouse(callback: (frame: TerminalMouseFrame) => void) {
@@ -1763,22 +1765,67 @@ function isTerminalSelectionCopyShortcut(
 
 export function textareaKeyboardEventOutput(event: KeyboardEvent, kittyFlags = 0) {
   if (isImeComposingKeyEvent(event)) return null;
-  if (event.altKey && !event.ctrlKey && !event.metaKey && !event.getModifierState("AltGraph") &&
-      /^[\x21-\x7e]$/.test(event.key) &&
-      (event.shiftKey || !["d", "e", "f"].includes(event.key.toLowerCase()))) {
-    if (kittyFlags > 0) {
-      // Kitty keyboard mode ignores the legacy ESC-prefixed form, so Alt+key
-      // must use the CSI u encoding: codepoint ; modifiers (1 + shift + 2*alt).
+  const printable = /^[\x21-\x7e]$/.test(event.key);
+  const altOnly =
+    event.altKey && !event.ctrlKey && !event.metaKey && !event.getModifierState("AltGraph") &&
+    printable && (event.shiftKey || !["d", "e", "f"].includes(event.key.toLowerCase()));
+  if (usesKittyDisambiguatedKeys(kittyFlags)) {
+    // Kitty keyboard mode ignores the legacy ESC-prefixed and control-byte forms,
+    // so modified printable keys must use CSI u: codepoint ; modifiers
+    // (1 + shift + 2*alt + 4*ctrl). Ctrl+Shift is only reachable this way too,
+    // because its legacy encoding collapses onto the plain control byte.
+    const ctrlShiftOnly =
+      event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && printable &&
+      !["i", "v"].includes(event.key.toLowerCase());
+    if (altOnly || ctrlShiftOnly) {
       const codepoint = event.key.codePointAt(0) ?? 0;
-      const modifiers = 1 + (event.shiftKey ? 1 : 0) + 2;
+      const modifiers =
+        1 + (event.shiftKey ? 1 : 0) + (event.altKey ? 2 : 0) + (event.ctrlKey ? 4 : 0);
       return `\x1b[${codepoint};${modifiers}u`;
     }
+  }
+  if (altOnly) {
     return `\x1b${event.key}`;
   }
   if (event.key !== "Tab" || event.ctrlKey || event.altKey || event.metaKey) {
     return customKeyboardEventOutput(event);
   }
   return event.shiftKey ? "\x1B[Z" : "\t";
+}
+
+// Kitty encodes a modified printable key as `CSI codepoint;modifiers u` only when
+// the application asked for disambiguated escape codes (1) or for every key to be
+// reported as an escape code (8). Other flags (event types, alternate keys,
+// associated text) leave the legacy ESC-prefixed form in place.
+const KITTY_DISAMBIGUATE_KEYS = 0b0001;
+const KITTY_REPORT_ALL_KEYS = 0b1000;
+
+interface EncoderWithKittyFlags {
+  setKittyFlags(flags: number): void;
+}
+
+/**
+ * ghostty-web builds the escape sequence for every key with a private KeyEncoder
+ * whose Kitty flags stay at legacy. Without this the encoder collapses ambiguous
+ * combinations (Ctrl+Shift+C, Alt+arrow, ...) into legacy control bytes, so the
+ * application never sees the key it negotiated the protocol for.
+ */
+export function applyEncoderKittyFlags(terminal: unknown, kittyFlags: number) {
+  const encoder = (
+    terminal as { inputHandler?: { encoder?: Partial<EncoderWithKittyFlags> } } | null
+  )?.inputHandler?.encoder;
+  if (typeof encoder?.setKittyFlags !== "function") return;
+  try {
+    encoder.setKittyFlags(kittyFlags);
+  } catch {
+    // A ghostty-web upgrade may drop the private encoder. The textarea path
+    // still encodes Alt shortcuts itself; other modified keys fall back to the
+    // legacy behaviour instead of breaking input.
+  }
+}
+
+export function usesKittyDisambiguatedKeys(kittyFlags: number) {
+  return (kittyFlags & (KITTY_DISAMBIGUATE_KEYS | KITTY_REPORT_ALL_KEYS)) !== 0;
 }
 
 function touchCellPosition(terminal: Terminal, clientX: number, clientY: number): TerminalCellPosition {

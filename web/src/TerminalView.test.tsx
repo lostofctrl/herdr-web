@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CommandDraftContext, createCommandDraftStore } from "./commandDrafts";
 import type { TerminalRenderer, TerminalSize } from "./terminalRenderer";
+import type { TerminalMouseFrame } from "./terminalMouse";
 import { TerminalView } from "./TerminalView";
 import type { PaneInfo } from "./types";
 
@@ -16,6 +17,8 @@ const REFRESHED_TERMINAL_SIZE: TerminalSize = { cols: 120, rows: 48 };
 class FakeTerminalRenderer implements TerminalRenderer {
   readonly refreshedSizes: TerminalSize[] = [];
   private pendingMountCompletion: (() => void) | null = null;
+  mouseCapture = false;
+  mouseCallback: ((frame: TerminalMouseFrame) => void) | null = null;
 
   mount() {
     return new Promise<TerminalSize>((resolve) => {
@@ -42,6 +45,17 @@ class FakeTerminalRenderer implements TerminalRenderer {
 
   onScroll() {
     return () => {};
+  }
+
+  setMouseCapture(enabled: boolean) { this.mouseCapture = enabled; }
+
+  keyboardFlags: number | null = null;
+
+  setTerminalKeyboardFlags(kittyFlags: number) { this.keyboardFlags = kittyFlags; }
+
+  onMouse(callback: (frame: TerminalMouseFrame) => void) {
+    this.mouseCallback = callback;
+    return () => { this.mouseCallback = null; };
   }
 
   setTapFocusHandler() {}
@@ -82,6 +96,7 @@ class FakeWebSocket extends EventTarget {
   readonly sent: string[] = [];
   readonly url: string;
   binaryType: BinaryType = "blob";
+  bufferedAmount = 0;
   readyState = FakeWebSocket.CONNECTING;
 
   constructor(url: string) {
@@ -154,6 +169,33 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+describe("TerminalView mouse capture", () => {
+  it("forwards mouse frames only to the current open socket and resets capture on disconnect", async () => {
+    await renderTerminalView(testPane("terminal-1"), createCommandDraftStore());
+    const renderer = terminalRenderers[0];
+    await act(async () => { renderer.completeMount(); await Promise.resolve(); });
+    const socket = FakeWebSocket.instances[0];
+    await act(async () => { socket.open(); });
+    socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ type: "mouse_capture", enabled: true }) }));
+    expect(renderer.mouseCapture).toBe(true);
+    const frame: TerminalMouseFrame = { type: "mouse", kind: "down", button: "left", column: 3, row: 4, modifiers: 2, lines: 1 };
+    renderer.mouseCallback?.(frame);
+    expect(socket.sent.at(-1)).toBe(JSON.stringify(frame));
+    socket.bufferedAmount = 65537;
+    renderer.mouseCallback?.({ ...frame, kind: "drag" });
+    expect(socket.sent.at(-1)).toBe(JSON.stringify(frame));
+    renderer.mouseCallback?.({ ...frame, kind: "up" });
+    expect(JSON.parse(socket.sent.at(-1)!).kind).toBe("up");
+    await act(async () => { socket.close(); });
+    expect(renderer.mouseCapture).toBe(false);
+    const sentCount = socket.sent.length;
+    renderer.mouseCallback?.(frame);
+    expect(socket.sent).toHaveLength(sentCount);
+    socket.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ type: "mouse_capture", enabled: true }) }));
+    expect(renderer.mouseCapture).toBe(false);
+  });
 });
 
 describe("TerminalView mobile refitting", () => {
