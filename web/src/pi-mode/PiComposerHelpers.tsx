@@ -12,6 +12,8 @@ export type PiComposerHelper = "slash" | "file" | "shell";
 type Props = {
   api: PiBridgeApi | null;
   tools?: ReactNode;
+  onAttach?: () => void;
+  onHistory: () => void;
   onQuickAction: PiComposerProps["onSend"];
   actionRecovery: boolean;
   actionPending: boolean;
@@ -28,7 +30,7 @@ type Props = {
 };
 
 /** One popup owner for authoring helpers and explicit Pi actions. */
-export function PiComposerHelpers({ api, tools, onQuickAction, actionRecovery, actionPending, actionError, authoringBlocked, onInsertCatalog, open, disabled, online, filesAvailable, onOpen, onClose, onPick }: Props) {
+export function PiComposerHelpers({ api, tools, onAttach, onHistory, onQuickAction, actionRecovery, actionPending, actionError, authoringBlocked, onInsertCatalog, open, disabled, online, filesAvailable, onOpen, onClose, onPick }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -155,6 +157,8 @@ export function PiComposerHelpers({ api, tools, onQuickAction, actionRecovery, a
           <button key={kind} type="button" role="menuitem" tabIndex={-1} data-helper={kind}
             disabled={authoringBlocked} onClick={() => onPick(kind)}>{label}</button>
         ))}
+        {onAttach ? <button type="button" role="menuitem" tabIndex={-1} aria-label="Attach image" disabled={disabled} onClick={onAttach}>Attach image</button> : null}
+        <button type="button" role="menuitem" tabIndex={-1} aria-label="Open prompt history" disabled={disabled} onClick={onHistory}>History</button>
         <button type="button" role="menuitem" tabIndex={-1} aria-label="Browse commands and skills"
           disabled={authoringBlocked || !online || !api?.catalog} onClick={() => { returnFocusRef.current = "Browse commands and skills"; setView("catalog"); }}>Browse commands and skills</button>
         <button type="button" role="menuitem" tabIndex={-1} aria-label="Choose Pi model"

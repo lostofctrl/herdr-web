@@ -235,7 +235,7 @@ screen-reader mirror stay mounted and connected but hidden/inert while composing
 terminal is explicit: closing the keyboard, rotating, or backgrounding does not collapse it, and
 returning never sends Esc or clears the draft. Stop alone sends Pi's existing Esc. The Key Bar,
 Chord Composer, busy Steer/Queue and Reader Sheet are reached through ⋯ → Terminal keys and Reader;
-History and image attachment remain beside the editor. Native Cards remain outside the hidden
+History and image attachment are available in the same helpers menu. Native Cards remain outside the hidden
 terminal; terminal-only/custom dialogs are reached with Return to terminal. Desktop stays terminal-first,
 opens the Composer with Ctrl+Space and sends with Ctrl+Enter. On a phone Enter inserts a newline and the large
 Send button sends. Delivery is one bracketed paste plus Enter, so Pi itself decides whether the text

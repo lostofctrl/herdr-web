@@ -97,10 +97,12 @@
 
 ### Changed
 
+- Mobile Pi Composer now uses the approved B context strip and working sheet, formatted assistant replies, labeled action rail, and helpers menu for history and image attachment.
+
 - Pi mode: redesigned the Key Bar, Composer actions and Side Panel toggle for touch and
   keyboard use. Key Bar keys are at least 44px, name their symbol (`/ Slash`, `@ File`, `⌃O Output`),
   and wrap instead of scrolling out of sight; on a phone the Composer gives the prompt its own row
-  with labelled `/ Slash` and `@ File` actions, an Attach icon and a prominent Send. On desktop, a collapsed Side
+  with a Composer helpers menu (slash, file, attach, history) and a prominent Send. On desktop, a collapsed Side
   Panel shows an offline dot, present only while the bridge is offline, instead of a wrapped
   "Bridge Offline" sentence. Question-card options,
   Cancel and Submit, and the Reader Close and Copy buttons are now at least 44px.

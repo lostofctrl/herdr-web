@@ -71,7 +71,7 @@ function CodeBlock({ node, children, ...props }: ComponentPropsWithoutRef<"pre">
 }
 
 /** Formatted Markdown for the Reader Sheet, sharing the app's safe URL rules. */
-export function ReaderMarkdown({ text }: { text: string }) {
+export function ReaderMarkdown({ text, copyCode = true }: { text: string; copyCode?: boolean }) {
   return (
     <ReactMarkdown
       disallowedElements={["img"]}
@@ -88,7 +88,7 @@ export function ReaderMarkdown({ text }: { text: string }) {
             <span>{children}</span>
           );
         },
-        pre: CodeBlock,
+        pre: copyCode ? CodeBlock : ({ node, ...props }) => { void node; return <pre {...props} />; },
       }}
     >
       {text}

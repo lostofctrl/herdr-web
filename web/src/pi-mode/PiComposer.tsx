@@ -81,7 +81,7 @@ export type PiComposerProps = {
    */
   onUploadImages?: (files: UploadCandidate[]) => Promise<UploadedFile[]>;
   /** Optional pane-owned context rendered above the open editor. */
-  conversationContext?: ReactNode;
+  conversationContext?: (editor: ReactNode) => ReactNode;
   /** Existing Key Bar / Reader surfaces, reached from the single mobile menu. */
   mobileTools?: ReactNode;
   onExpandedChange?: (expanded: boolean) => void;
@@ -819,16 +819,8 @@ export function PiComposer({
     addImageFiles(files);
   };
 
+  const attachmentInput = onUploadImages ? <input ref={fileInputRef} className="pi-attachment-input" type="file" accept="image/*" multiple onChange={onFileInputChange} /> : null;
   const attachmentControl = onUploadImages ? (
-    <>
-      <input
-        ref={fileInputRef}
-        className="pi-attachment-input"
-        type="file"
-        accept="image/*"
-        multiple
-        onChange={onFileInputChange}
-      />
       <button
         className="term-key pi-composer-attach"
         type="button"
@@ -839,7 +831,6 @@ export function PiComposer({
       >
         <ImagePlus size={16} aria-hidden="true" />
       </button>
-    </>
         ) : null;
 
   const helpers = mobile ? (
@@ -847,6 +838,8 @@ export function PiComposer({
       key={piComposerDraftKey(bridgeId, paneId)}
       api={piBridge}
       tools={mobileTools}
+      onAttach={onUploadImages ? () => { setHelpersOpen(false); fileInputRef.current?.click(); } : undefined}
+      onHistory={toggleHistory}
       onQuickAction={sendQuickAction}
       actionRecovery={actionRecovery && !manualInput}
       actionPending={deliveryPending || manualInput}
@@ -888,8 +881,7 @@ export function PiComposer({
           title="Open Composer (Ctrl+Space)"
           onClick={openComposer}
         >
-          <TextCursorInput size={16} aria-hidden="true" />
-          <span>Open Composer</span>
+          {mobile ? <span aria-hidden="true">+</span> : <><TextCursorInput size={16} aria-hidden="true" /><span>Open Composer</span></>}
         </button>
       </div>
     );
@@ -911,7 +903,8 @@ export function PiComposer({
         className="terminal-command-controls pi-composer"
         data-mobile-controls={mobile ? "true" : "false"}
         data-expanded={open ? "true" : "false"}
-        data-short={viewport.height < 360 ? "true" : "false"}
+        data-compact={viewport.height <= 600 ? "true" : "false"}
+        data-short={viewport.height <= 450 ? "true" : "false"}
         style={mobile ? {
           "--pi-viewport-left": `${viewport.left}px`,
           "--pi-viewport-top": `${viewport.top}px`,
@@ -1021,8 +1014,8 @@ export function PiComposer({
           Prompt text reached Pi without Enter. Send submits it without pasting again.
         </p>
       ) : null}
+      {attachmentInput}
       <div className="pi-composer-meta">
-        {mobile ? attachmentControl : null}
         <PiModelPicker
           api={piBridge}
           disabled={disabled}
@@ -1037,7 +1030,7 @@ export function PiComposer({
             setModelOpen(next);
           }}
         />
-        <button
+        {!mobile ? <button
           className="term-key pi-composer-history-trigger"
           type="button"
           aria-label="Open prompt history"
@@ -1049,7 +1042,7 @@ export function PiComposer({
         >
           <History size={16} aria-hidden="true" />
           <span className="pi-composer-action-label">History</span>
-        </button>
+        </button> : null}
         {!mobile ? <>
         <button
           className="term-key pi-composer-suggest-trigger"
@@ -1078,8 +1071,7 @@ export function PiComposer({
         </> : null}
       </div>
       {piBridge?.state?.busy === "dialog" ? <p className="pi-composer-dialog-status" role="status">Pi needs an answer. Use the Native Card or Return to terminal for terminal-only dialogs.</p> : null}
-      {conversationContext}
-      <form
+      {(mobile && conversationContext ? conversationContext : (editor: ReactNode) => editor)(<form
         className="term-input-row pi-composer-row"
         data-expanding="true"
         onSubmit={(event) => {
@@ -1087,7 +1079,9 @@ export function PiComposer({
           submit();
         }}
       >
+        {mobile ? <label className="pi-composer-followup" htmlFor={suggestionId + "-prompt"}>Follow up</label> : null}
         <textarea
+          id={suggestionId + "-prompt"}
           ref={setFieldNode}
           className="term-native-input mono pi-composer-input"
           rows={1}
@@ -1153,17 +1147,17 @@ export function PiComposer({
           title={awaitingSubmit && !manualInput ? "Submit the pasted prompt" : "Send (Ctrl+Enter)"}
         >
           <Send size={16} />
-          <span className="pi-composer-send-label">Send</span>
+          <span className="pi-composer-send-label">{awaitingSubmit && !manualInput ? "Submit" : "Send"}</span>
         </button>
         {mobile ? <button className="term-key pi-composer-stop" type="button" aria-label="Stop Pi"
           disabled={disabled || !active || sending || deliveryPending || awaitingSubmit || actionRecovery || piBridge?.state?.busy === "idle"}
           onPointerDown={(event) => event.preventDefault()}
           onClick={() => onSend(["\u001b"], () => {})}>
-          <Square size={16} aria-hidden="true" />
+          <Square size={16} aria-hidden="true" /><span>Stop</span>
         </button> : null}
         {mobile ? (
           <button className="term-key pi-composer-terminal" type="button" aria-label="Return to terminal" onClick={closeComposer}>
-            <Terminal size={16} aria-hidden="true" />
+            <Terminal size={16} aria-hidden="true" /><span>Terminal</span>
           </button>
         ) : (
           <button
@@ -1177,7 +1171,7 @@ export function PiComposer({
           </button>
         )}
         </div>
-      </form>
+      </form>)}
       </div>
     </>
   );

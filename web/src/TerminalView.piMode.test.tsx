@@ -455,7 +455,6 @@ describe("TerminalView Pi Composer (Seam 3)", () => {
     await clickButton(container, "Composer helpers");
     await clickButton(container, "Terminal keys and Reader");
     expect(container.querySelector('[aria-label="Pi keys"]')).toBeTruthy();
-    expect(container.querySelector('button[aria-label="Attach image"]')).toBeTruthy();
     // Pi mode must not also render a generic command row or Stage button.
     expect(container.querySelector('button[aria-label="Send command"]')).toBeNull();
     expect(container.querySelector('button[aria-label="Send enter"]')).toBeNull();
@@ -464,13 +463,13 @@ describe("TerminalView Pi Composer (Seam 3)", () => {
     ).toBeNull();
     expect(container.querySelectorAll("textarea, input.term-native-input").length).toBe(1);
 
-    // Mobile helpers share one trigger; model and history remain available.
+    // Mobile helpers share one trigger; attach and history live in its root menu, the model trigger stays.
     const meta = container.querySelector(".pi-composer-meta");
-    expect(meta?.querySelectorAll("button")).toHaveLength(3);
     expect(meta?.querySelector(".pi-model-picker-trigger")).not.toBeNull();
+    expect(meta?.querySelector('button[aria-label="Attach image"]')).toBeNull();
+    expect(meta?.querySelector('button[aria-label="Open prompt history"]')).toBeNull();
     expect(container.querySelector('.pi-composer-thumbrail button[aria-label="Composer helpers"]')).not.toBeNull();
     expect(meta?.querySelector('button[aria-label="Open file suggestions"]')).toBeNull();
-    expect(meta?.querySelector('button[aria-label="Open prompt history"]')).not.toBeNull();
     // The Composer owns `/`, so the Key Bar no longer duplicates it there.
     expect(container.querySelector('button[aria-label="Slash command"]')).toBeNull();
     // A Key Bar key still reaches the terminal socket.
@@ -481,6 +480,9 @@ describe("TerminalView Pi Composer (Seam 3)", () => {
     // The Key Bar chord composer still opens for any chord.
     await clickButton(container, "Compose any key");
     expect(container.querySelector('[aria-label="Pi key composer"]')).toBeTruthy();
+    await clickButton(container, "Back to Composer helpers");
+    expect(container.querySelector('[role="menu"] [aria-label="Attach image"]')).not.toBeNull();
+    expect(container.querySelector('[role="menu"] [aria-label="Open prompt history"]')).not.toBeNull();
   });
 
   it("does not send a whitespace-only draft on desktop Ctrl+Enter", async () => {
@@ -1477,6 +1479,7 @@ describe("Pi Composer prompt history panel (Seam 3)", () => {
     return Array.from(container.querySelectorAll<HTMLButtonElement>("[data-pi-history-entry]"));
   }
   async function openHistory(container: HTMLElement) {
+    await clickButton(container, "Composer helpers");
     await clickButton(container, "Open prompt history");
   }
 
