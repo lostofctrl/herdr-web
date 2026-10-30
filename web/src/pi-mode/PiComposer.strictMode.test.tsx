@@ -143,6 +143,33 @@ async function typePrompt(container: HTMLElement, text: string) {
 }
 
 describe("PiComposer under StrictMode", () => {
+  it.each([true, false])("clears the persisted draft on Ctrl+C without a selection, preserving copy and IME input (mobile=%s)", async (mobile) => {
+    const onShortcut = vi.fn<(data: string) => boolean>(() => true);
+    const { container } = await renderUnderStrictMode({ onShortcut, mobile });
+    if (!mobile) await act(async () => container.querySelector<HTMLButtonElement>("button.pi-composer-open")?.click());
+    await typePrompt(container, "unsent draft");
+    const field = promptField(container);
+    await act(async () => { field.focus(); field.setSelectionRange(0, 6); });
+    const key = (options: KeyboardEventInit = {}) => {
+      const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "c", ctrlKey: true, ...options });
+      field.dispatchEvent(event);
+      return event;
+    };
+    await act(async () => {
+      expect(key().defaultPrevented).toBe(false);
+      field.setSelectionRange(0, 0);
+      expect(key({ isComposing: true }).defaultPrevented).toBe(false);
+      expect(key({ shiftKey: true }).defaultPrevented).toBe(false);
+    });
+    expect(field.value).toBe("unsent draft");
+    let prevented = false;
+    await act(async () => { prevented = key().defaultPrevented; });
+    expect(prevented).toBe(true);
+    expect(field.value).toBe("");
+    expect(window.localStorage.getItem(piComposerDraftKey("bridge-1", "pane-a"))).toBeNull();
+    expect(onShortcut).not.toHaveBeenCalled();
+  });
+
   it("forwards modified Pi shortcuts without changing the Composer draft or forwarding dangerous and clipboard keys", async () => {
     const onShortcut = vi.fn<(data: string) => boolean>(() => true);
     const { container } = await renderUnderStrictMode({ onShortcut });

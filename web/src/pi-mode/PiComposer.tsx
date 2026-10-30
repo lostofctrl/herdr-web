@@ -750,6 +750,15 @@ export function PiComposer({
     if (composingRef.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
       return;
     }
+    if (
+      event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey &&
+      event.key.toLowerCase() === "c" && event.currentTarget.selectionStart === event.currentTarget.selectionEnd && value
+    ) {
+      event.preventDefault();
+      setAuthoredValue("");
+      setCursor(0);
+      return;
+    }
     const shortcut = composerShortcut(event);
     if (shortcut !== null && onShortcut) {
       event.preventDefault();

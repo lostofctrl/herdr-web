@@ -247,7 +247,7 @@ export class GhosttyRenderer implements TerminalRenderer {
       );
     }
     terminal.attachCustomKeyEventHandler((event) =>
-      handleTerminalCustomKeyEvent(event, terminal),
+      handleTerminalCustomKeyEvent(event, terminal, undefined, this.#kittyFlags),
     );
     terminal.textarea?.blur();
     container.blur();
@@ -268,6 +268,9 @@ export class GhosttyRenderer implements TerminalRenderer {
       () => this.focus(),
       (frame) => this.#mouseCallback?.(frame),
       (event) => normalizeWheelLines(event, terminal.rows, this.#scrollSensitivity),
+      (event) => event.ctrlKey && Boolean(terminalUrlTapTarget(
+        terminalLinkAt(terminal, touchCellPosition(terminal, event.clientX, event.clientY)), false,
+      )),
     );
     this.#installScrollHandlers();
     this.#installMobileInputBridge();
@@ -994,11 +997,11 @@ export class GhosttyRenderer implements TerminalRenderer {
     };
     const mouseLinkText = (event: MouseEvent) => {
       const mouseTracking = this.#hasMouseTracking(terminal);
-      if (mouseTracking) {
+      if (mouseTracking && !event.ctrlKey) {
         return null;
       }
       const position = touchCellPosition(terminal, event.clientX, event.clientY);
-      return terminalUrlTapTarget(terminalLinkAt(terminal, position), mouseTracking);
+      return terminalUrlTapTarget(terminalLinkAt(terminal, position), false);
     };
     const redirectTapFocus = (event: TouchEvent | MouseEvent) => {
       const terminalHadFocusOrGrace =
@@ -1724,6 +1727,7 @@ export function handleTerminalCustomKeyEvent(
   event: KeyboardEvent,
   terminal: Pick<Terminal, "getSelection" | "input">,
   platform = typeof navigator === "undefined" ? "" : navigator.platform,
+  kittyFlags = 0,
 ) {
   if (isImeComposingKeyEvent(event)) {
     return false;
@@ -1732,7 +1736,14 @@ export function handleTerminalCustomKeyEvent(
   // desktop copy shortcut here so its input handler cannot also emit ^C.
   const consumesSelectionCopy =
     isTerminalSelectionCopyShortcut(event, platform) && terminal.getSelection().length > 0;
-  const output = customKeyboardEventOutput(event);
+  // ghostty-web's encoder drops Ctrl+C when Kitty keyboard flags are enabled.
+  const kittyCtrlC = kittyFlags !== 0 && event.code === "KeyC" && event.ctrlKey &&
+    !event.altKey && !event.metaKey && !event.shiftKey;
+  const output = !consumesSelectionCopy && kittyCtrlC
+    ? usesKittyDisambiguatedKeys(kittyFlags)
+      ? `\x1b[99;5${event.repeat && (kittyFlags & 2) ? ":2" : ""}u`
+      : "\x03"
+    : customKeyboardEventOutput(event);
   if (!consumesSelectionCopy && !output) {
     return false;
   }
@@ -2016,9 +2027,11 @@ function terminalLinkAt(terminal: Terminal, position: TerminalCellPosition) {
   }
 
   const cell = line.getCell(position.col);
-  const hyperlinkId = cell?.getHyperlinkId() ?? 0;
-  if (hyperlinkId > 0) {
-    return terminal.wasmTerm?.getHyperlinkUri(hyperlinkId) ?? null;
+  if ((cell?.getHyperlinkId() ?? 0) > 0) {
+    const scrollbackLength = terminal.getScrollbackLength();
+    return row < scrollbackLength
+      ? terminal.wasmTerm?.getScrollbackHyperlinkUri(row, position.col) ?? null
+      : terminal.wasmTerm?.getHyperlinkUri(row - scrollbackLength, position.col) ?? null;
   }
 
   const { text, columns } = terminalBufferLineText(line);
