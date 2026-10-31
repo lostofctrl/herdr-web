@@ -127,6 +127,10 @@
 
 ### Fixed
 
+- Allow empty and whitespace-only Pi input answers as in the terminal, and cancel focused
+  native dialog and question cards with Escape without interrupting IME composition.
+- Restore Pi quick-action icons and show terminal guidance for session, tree and settings controls;
+  when `/btw` is available, explain that its side conversation remains terminal-only.
 - Keep workspace tabs in Herdr's order after tabs are moved.
 - Keep this browser's own tab selection when another client on the same Herdr session (for example
   the TUI in a terminal) changes its focused tab in shared navigation mode. A browser that has not

@@ -63,6 +63,15 @@ export function PiSidePanelContent({ bridgeId, paneId, disabled, onSend, content
           onClick={() => onSend(["\x1b[99;3u"])}><MessageSquareText size={18} aria-hidden="true" /></button>
       </section>
       {error ? <p role="alert">{error}</p> : null}
+      <p aria-label="Terminal-only Pi controls" role="note">
+        For Pi&apos;s session picker, tree, and other settings, use <code>/resume</code>, <code>/tree</code>,
+        or <code>/settings</code> in the terminal. Native session and tree pickers and other settings controls are not available.
+      </p>
+      {online && bridge?.catalog?.commands.some((command) => command.name === "btw") ? (
+        <p aria-label="BTW terminal guidance" role="note">
+          Use <code>/btw</code> in the terminal for side conversations. A browser BTW dialog is not available.
+        </p>
+      ) : null}
       {online && bridge?.catalog ? (
         <section aria-label="Commands and skills" className="pi-side-panel-catalog">
           <label>Commands and skills

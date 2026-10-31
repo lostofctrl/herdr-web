@@ -253,7 +253,11 @@ command/skill browser (names, descriptions and sources). Catalog selection inser
 the live draft without sending. Explicit Abort, Compact, New session and Resume actions preserve
 unsent text and attachments; they use the existing PTY Esc or command paste plus Enter, not a new
 send API. Model, thinking and session actions require an online, idle Pi Bridge; Abort still works
-through the attached terminal while Bridge Offline. Failed requests show errors without discarding
+through the attached terminal while Bridge Offline. For Pi's full session selector, tree, and other
+settings, use `/resume`, `/tree`, and `/settings` in the terminal. If the `pi-btw` extension is
+installed, its `/btw` side conversation also remains in the terminal; a browser BTW dialog is not
+available. The Side Panel provides this terminal guidance without injecting these commands
+automatically. Failed requests show errors without discarding
 the draft. If a quick action reaches Pi without Enter, reopen ⋯ and choose Submit pending action;
 ordinary prompt delivery and helper/catalog insertion are blocked until that Enter-only recovery
 finishes. Key Bar/Chord keys and direct typing/paste cannot interleave with automatic delivery or

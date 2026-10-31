@@ -251,6 +251,34 @@ describe("PiQuestionCards (Seam 3)", () => {
     expect(answer).toMatchObject({ dialog_id: "tool-1", cancel: true });
   });
 
+  it("cancels with Escape inside the question card only once while pending", async () => {
+    const { container, pi } = await renderCards();
+    await openQuestion(pi);
+    const field = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Free-text answer for Layout"]')!;
+    const escape = () => new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    const first = escape();
+    await act(async () => {
+      field.dispatchEvent(first);
+      field.dispatchEvent(escape());
+    });
+    const answers = sentRecords(pi).filter((record) => record.type === "dialog_answer");
+    expect(first.defaultPrevented).toBe(true);
+    expect(answers).toHaveLength(1);
+    expect(answers[0]).toMatchObject({ dialog_id: "tool-1", cancel: true });
+  });
+
+  it("does not cancel for an IME composition Escape or an outside Escape", async () => {
+    const { container, pi } = await renderCards();
+    await openQuestion(pi);
+    const field = container.querySelector<HTMLTextAreaElement>("textarea")!;
+    const composing = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, isComposing: true });
+    await act(async () => {
+      field.dispatchEvent(composing);
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(sentRecords(pi).filter((record) => record.type === "dialog_answer")).toHaveLength(0);
+  });
+
   it("keeps the card usable and reports Bridge Offline when an answer cannot be sent", async () => {
     const { container, pi } = await renderCards();
     await openQuestion(pi);

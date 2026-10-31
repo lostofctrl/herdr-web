@@ -62,6 +62,36 @@ function labels(container: HTMLElement) {
     .sort();
 }
 
+it("explains terminal-only session, tree and settings access without sending input", async () => {
+  const send = vi.fn(() => true);
+  const content = await render(<PiSidePanelContent bridgeId="bridge" paneId="pane" disabled={false} onSend={send} />);
+  const guidance = content.querySelector('[aria-label="Terminal-only Pi controls"]');
+  expect(guidance?.textContent).toContain("/resume");
+  expect(guidance?.textContent).toContain("/tree");
+  expect(guidance?.textContent).toContain("/settings");
+  expect(guidance?.textContent).toMatch(/terminal/i);
+  expect(send).not.toHaveBeenCalled();
+});
+
+it("directs BTW conversations to the terminal when the command is available", async () => {
+  const send = vi.fn(() => true);
+  bridge.current = {
+    ...api,
+    catalog: { ...api.catalog, commands: [...api.catalog.commands, { name: "btw", description: "Side conversation", source: "extension" }] },
+  };
+  const content = await render(<PiSidePanelContent bridgeId="bridge" paneId="pane" disabled={false} onSend={send} />);
+  const guidance = content.querySelector('[aria-label="BTW terminal guidance"]');
+  expect(guidance?.textContent).toMatch(/\/btw/);
+  expect(guidance?.textContent).toMatch(/terminal/i);
+  expect(guidance?.textContent).toMatch(/browser.+not available/i);
+  expect(send).not.toHaveBeenCalled();
+});
+
+it("does not advertise BTW when it is absent from the command catalog", async () => {
+  const content = await render(<PiSidePanelContent bridgeId="bridge" paneId="pane" disabled={false} onSend={() => true} />);
+  expect(content.querySelector('[aria-label="BTW terminal guidance"]')).toBeNull();
+});
+
 it("renders the same Side Panel controls in the terminal aside and the Composer panel", async () => {
   const send = vi.fn(() => true);
   const aside = await render(<PiSidePanel bridgeId="bridge" paneId="pane" disabled={false} onSend={send} />);

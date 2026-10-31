@@ -106,7 +106,13 @@ sent, and `null` when Pi set no timeout.
 dialog, `value` is `{answers:[{questionIndex, optionIndexes?, text?}], globalNote?}` with
 every question answered exactly once, or `cancel: true` to decline like Esc. For a generic
 dialog, `value` is the selected option label for `select`, a boolean for `confirm`, and
-the entered string for `input`; `cancel: true` settles it as `undefined`/`false` like Esc. `list_files`
+the entered string for `input` (including an empty string); `cancel: true` settles it as
+`undefined`/`false` like Esc. For generic dialogs, `accepted: true` claims the answer; it
+does not guarantee that a subsequent action succeeded or that terminal selector teardown
+has completed. A native tree picker is not advertised: in Pi 1.4.0, no-summary tree
+navigation can apply a previously selected target after a `session_before_tree` hook
+awaits and the leaf has changed. The extension cannot revalidate atomically at that
+commit point; use Pi's terminal `/tree` instead. `list_files`
 answers from tracked files in Pi's `cwd`, filters by `query`, and caps at `limit`, which the
 client limits to 200 (default 50). Its `result` is `{files: [{path}]}`.
 

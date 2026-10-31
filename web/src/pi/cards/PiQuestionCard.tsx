@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import type { PiBridgeApi } from "../PiBridgeContext";
 import type { PiDialog, PiQuestion } from "../piProtocol";
@@ -33,6 +33,7 @@ export function PiQuestionCard({ dialog, answerDialog }: QuestionCardProps) {
   const questions = useMemo(() => dialog.questions ?? [], [dialog.questions]);
   const [answers, setAnswers] = useState<AnswerState[]>(() => initialAnswers(questions));
   const [sending, setSending] = useState<"answer" | "cancel" | null>(null);
+  const sendingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const complete = questions.length > 0 && questions.every((question, index) => answerIsComplete(question, answers[index]));
 
@@ -62,9 +63,10 @@ export function PiQuestionCard({ dialog, answerDialog }: QuestionCardProps) {
   }
 
   async function settle(kind: "answer" | "cancel") {
-    if (sending) {
+    if (sendingRef.current) {
       return;
     }
+    sendingRef.current = true;
     setError(null);
     setSending(kind);
     try {
@@ -101,12 +103,20 @@ export function PiQuestionCard({ dialog, answerDialog }: QuestionCardProps) {
           : message,
       );
     } finally {
+      sendingRef.current = false;
       setSending(null);
     }
   }
 
   return (
-    <section className="pi-question-card" data-pi-question-card="true" aria-label="Pi question">
+    <section className="pi-question-card" data-pi-question-card="true" aria-label="Pi question"
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !event.nativeEvent.isComposing) {
+          event.preventDefault();
+          event.stopPropagation();
+          void settle("cancel");
+        }
+      }}>
       <div className="pi-question-card-head">
         <h2 className="pi-question-card-title">Pi is asking</h2>
         <span className="pi-question-card-count">
