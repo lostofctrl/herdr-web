@@ -141,10 +141,10 @@ export class PiBridgeClient {
       this.conversationRequestId = null;
       this.rejectPending(new Error(reason || "Pi Bridge connection closed"));
       if (code === 4501) {
-        this.patch({ status: "unknown-pane", lastError: reason || "unknown_pane", conversation: null });
+        this.patch({ status: "unknown-pane", lastError: reason || "unknown_pane", conversation: null, treePickers: [] });
         return;
       }
-      this.patch({ status: "offline", lastError: reason || `relay_closed_${code}`, conversation: null });
+      this.patch({ status: "offline", lastError: reason || `relay_closed_${code}`, conversation: null, treePickers: [] });
       this.scheduleReconnect();
     };
 

@@ -281,6 +281,12 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
     };
   }
 
+  function sendTreePickerSnapshot(send: RecordSender): void {
+    for (const picker of treePicker.snapshot()) {
+      send({ type: "tree_picker_open", picker });
+    }
+  }
+
   function sendSnapshot(send: RecordSender): void {
     send({ type: "hello", protocol_version: PROTOCOL_VERSION, capabilities: capabilities(), conversation_epoch: conversationEpoch });
     send({ type: "state", ...statePayload() });
@@ -291,9 +297,7 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
     for (const dialog of openDialogs()) {
       send({ type: "dialog_open", dialog });
     }
-    for (const picker of treePicker.snapshot()) {
-      send({ type: "tree_picker_open", picker });
-    }
+    sendTreePickerSnapshot(send);
   }
 
   function broadcastState(): void {
@@ -340,6 +344,7 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
             assistant_message: latestAssistant,
           }),
         );
+        sendTreePickerSnapshot(reply);
         return;
       }
       case "set_model": {

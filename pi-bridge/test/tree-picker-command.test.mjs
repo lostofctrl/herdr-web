@@ -140,6 +140,52 @@ test("refuses while Pi is busy, has queued messages, or holds a draft", async ()
   }
 });
 
+test("sends the waiting picker on a fresh connection", async () => {
+  const started = await startBridge();
+  let second;
+  try {
+    const { ctx } = commandContext(started.fake);
+    const running = started.fake.runCommand("herdr-tree", "", ctx);
+    const open = await started.connection.next((record) => record.type === "tree_picker_open");
+    second = await connect(path.join(started.runtimeDir, "pi-bridge", `${PANE_ID}.sock`));
+    assert.deepEqual(await second.next((record) => record.type === "tree_picker_open"), open);
+    await second.send({ type: "tree_picker_cancel", id: "cancel-fresh", picker_id: open.picker.id });
+    assert.deepEqual((await second.next((record) => record.id === "cancel-fresh")).result, { accepted: true });
+    await running;
+  } finally {
+    await second?.close();
+    await started.stop();
+  }
+});
+
+test("resends an open picker after a snapshot and omits it after closure", async () => {
+  const started = await startBridge();
+  try {
+    const { ctx } = commandContext(started.fake);
+    const running = started.fake.runCommand("herdr-tree", "", ctx);
+    const open = await started.connection.next((record) => record.type === "tree_picker_open");
+
+    await started.connection.send({ type: "get_snapshot", id: "snapshot-open" });
+    const response = await started.connection.next((record) =>
+      record.id === "snapshot-open" || (record.type === "tree_picker_open" && record !== open));
+    assert.equal(response.id, "snapshot-open");
+    assert.equal(response.ok, true);
+    assert.equal("tree_picker" in response.result, false);
+    const replay = await started.connection.next((record) => record.type === "tree_picker_open" && record !== open);
+    assert.deepEqual(replay, open);
+
+    await started.connection.send({ type: "tree_picker_cancel", id: "cancel", picker_id: open.picker.id });
+    await started.connection.next((record) => record.id === "cancel");
+    await running;
+    await started.connection.next((record) => record.type === "tree_picker_closed");
+    await started.connection.send({ type: "get_snapshot", id: "snapshot-closed" });
+    await started.connection.next((record) => record.id === "snapshot-closed");
+    await expectNoRecord(started.connection, (record) => record.type === "tree_picker_open" && record !== open && record !== replay);
+  } finally {
+    await started.stop();
+  }
+});
+
 test("publishes the session tree and navigates to the entry chosen on the phone", async () => {
   const started = await startBridge();
   try {

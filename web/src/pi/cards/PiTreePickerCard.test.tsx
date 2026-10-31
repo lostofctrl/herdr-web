@@ -371,6 +371,30 @@ describe("PiTreePickerCards", () => {
     );
   });
 
+  it("reports a refused answer even when Pi closes the card before replying", async () => {
+    const { container, pi } = await renderPicker();
+    await send({ type: "tree_picker_open", picker: PICKER });
+    await click(button(container, (label) => label.startsWith("user:")));
+    const request = sentRecords(pi).at(-1);
+
+    await send({ type: "tree_picker_closed", outcome: "cancelled" });
+    expect(container.querySelector("[data-pi-tree-picker]")).toBeNull();
+    await send({ type: "response", id: request?.id, ok: true, result: { accepted: false } });
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Pi is no longer waiting for this picker.");
+  });
+
+  it("does not revive an old refusal after a newer picker closes", async () => {
+    const { container, pi } = await renderPicker();
+    await send({ type: "tree_picker_open", picker: PICKER });
+    await click(button(container, (label) => label.startsWith("user:")));
+    const request = sentRecords(pi).at(-1);
+    await send({ type: "response", id: request?.id, ok: true, result: { accepted: false } });
+    await send({ type: "tree_picker_open", picker: { ...PICKER, id: "tree-2" } });
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    await send({ type: "tree_picker_closed", outcome: "cancelled" });
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it("sends one request when the same entry is tapped twice", async () => {
     const { container, pi } = await renderPicker();
     await send({ type: "tree_picker_open", picker: PICKER });
@@ -395,6 +419,91 @@ describe("PiTreePickerCards", () => {
     });
     await respondAccepted(pi);
     await send({ type: "tree_picker_closed", outcome: "answered" });
+    expect(container.querySelector("[data-pi-tree-picker]")).toBeNull();
+  });
+
+  it("restores the same picker in a fresh page without creating duplicate cards", async () => {
+    const first = await renderPicker();
+    await send({ type: "tree_picker_open", picker: PICKER });
+    await act(async () => roots.pop()!.unmount());
+    first.container.remove();
+
+    const { container, pi } = await renderPicker();
+    await send({ type: "tree_picker_open", picker: PICKER });
+    await send({ type: "tree_picker_open", picker: PICKER });
+    expect(container.querySelectorAll("[data-pi-tree-picker]")).toHaveLength(1);
+    await click(button(container, (label) => label.startsWith("user:")));
+    expect(sentRecords(pi).at(-1)).toMatchObject({
+      type: "tree_picker_answer", picker_id: "tree-1", entry_id: "entry-1",
+    });
+  });
+
+  it("keeps an in-flight answer disabled when resync replays the open picker", async () => {
+    const { container, pi } = await renderPicker();
+    await send({ type: "tree_picker_open", picker: PICKER });
+    const entry = button(container, (label) => label.startsWith("user:"));
+    await click(entry);
+    const answer = sentRecords(pi).at(-1);
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    const snapshotRequest = sentRecords(pi).filter((record) => record.type === "get_snapshot").at(-1);
+    await send({ type: "response", id: snapshotRequest?.id, ok: true, result: SNAPSHOT });
+    await send({ type: "tree_picker_open", picker: PICKER });
+    expect(container.querySelectorAll("[data-pi-tree-picker]")).toHaveLength(1);
+    expect(entry.disabled).toBe(true);
+    await click(entry);
+    expect(sentRecords(pi).filter((record) => record.type === "tree_picker_answer")).toHaveLength(1);
+    await send({ type: "response", id: answer?.id, ok: true, result: { accepted: false } });
+    expect(container.textContent).toContain("Pi is no longer waiting for this picker.");
+  });
+
+  it("clears the old card while offline and restores one card for the same picker on reconnect", async () => {
+    const { container, pi } = await renderPicker();
+    await send({ type: "tree_picker_open", picker: PICKER });
+    await act(async () => pi.dispatchEvent(new CloseEvent("close", { code: 1006 })));
+    expect(container.querySelector("[data-pi-tree-picker]")).toBeNull();
+
+    await act(async () => vi.advanceTimersByTime(500));
+    const reconnected = socket();
+    await act(async () => reconnected.dispatchEvent(new Event("open")));
+    await send({ type: "hello", protocol_version: 1, capabilities: { session_tree_picker: true } });
+    await send({ type: "tree_picker_open", picker: PICKER });
+    const snapshotRequest = sentRecords(reconnected).find((record) => record.type === "get_snapshot");
+    await send({ type: "response", id: snapshotRequest?.id, ok: true, result: SNAPSHOT });
+    await send({ type: "tree_picker_open", picker: PICKER });
+
+    expect(container.querySelectorAll("[data-pi-tree-picker]")).toHaveLength(1);
+    expect(sentRecords(reconnected).filter((record) => record.type === "tree_picker_answer")).toHaveLength(0);
+    await click(button(container, (label) => label.startsWith("user:")));
+    expect(sentRecords(reconnected).at(-1)).toMatchObject({
+      type: "tree_picker_answer", picker_id: "tree-1", entry_id: "entry-1",
+    });
+  });
+
+  it("does not resend an in-flight answer when the connection is lost", async () => {
+    const { container, pi } = await renderPicker();
+    await send({ type: "tree_picker_open", picker: PICKER });
+    await click(button(container, (label) => label.startsWith("user:")));
+    expect(sentRecords(pi).filter((record) => record.type === "tree_picker_answer")).toHaveLength(1);
+    await act(async () => pi.dispatchEvent(new CloseEvent("close", { code: 1006 })));
+    await act(async () => vi.advanceTimersByTime(500));
+    const reconnected = socket();
+    await act(async () => reconnected.dispatchEvent(new Event("open")));
+    await send({ type: "hello", protocol_version: 1, capabilities: { session_tree_picker: true } });
+    await send({ type: "tree_picker_open", picker: PICKER });
+    expect(container.querySelectorAll("[data-pi-tree-picker]")).toHaveLength(1);
+    expect(sentRecords(reconnected).filter((record) => record.type === "tree_picker_answer")).toHaveLength(0);
+  });
+
+  it("does not restore a picker closed while disconnected", async () => {
+    const { container, pi } = await renderPicker();
+    await send({ type: "tree_picker_open", picker: PICKER });
+    await act(async () => pi.dispatchEvent(new CloseEvent("close", { code: 1006 })));
+    await act(async () => vi.advanceTimersByTime(500));
+    const reconnected = socket();
+    await act(async () => reconnected.dispatchEvent(new Event("open")));
+    await send({ type: "hello", protocol_version: 1, capabilities: { session_tree_picker: true } });
+    const request = sentRecords(reconnected).find((record) => record.type === "get_snapshot");
+    await send({ type: "response", id: request?.id, ok: true, result: SNAPSHOT });
     expect(container.querySelector("[data-pi-tree-picker]")).toBeNull();
   });
 

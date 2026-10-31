@@ -151,6 +151,9 @@
 
 ### Fixed
 
+- Restore an open Session Tree Card after reconnect or resync and report refused stale answers,
+  including when the card closes before the response. The Pi Bridge now replays the open picker
+  after `get_snapshot` as already documented.
 - Keep the current Pi session-tree entry visible beyond the 200-row cutoff, while accurately
   counting entries available only in the terminal picker. Older bridges keep their previous behavior.
 - Allow Ctrl-clicking terminal links, including Pi `/code` links, while Herdr captures mouse input.

@@ -8,6 +8,7 @@ type PiTreePickerCardProps = {
   picker: PiTreePicker;
   answerTreePicker: PiBridgeApi["answerTreePicker"];
   cancelTreePicker: PiBridgeApi["cancelTreePicker"];
+  onRefused: (pickerId: string) => void;
 };
 
 function pickerError(caught: unknown): string {
@@ -22,7 +23,7 @@ function pickerError(caught: unknown): string {
  * ids for this picker only; the card cannot navigate anything else, and the
  * terminal stays in control of the session.
  */
-export function PiTreePickerCard({ picker, answerTreePicker, cancelTreePicker }: PiTreePickerCardProps) {
+export function PiTreePickerCard({ picker, answerTreePicker, cancelTreePicker, onRefused }: PiTreePickerCardProps) {
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +50,7 @@ export function PiTreePickerCard({ picker, answerTreePicker, cancelTreePicker }:
           ? await cancelTreePicker(picker.id)
           : await answerTreePicker(picker.id, action.entryId);
       if (!result.accepted) {
-        setError("Pi is no longer waiting for this picker.");
+        onRefused(picker.id);
       }
     } catch (caught) {
       setError(pickerError(caught));
@@ -173,9 +174,15 @@ export function PiTreePickerCard({ picker, answerTreePicker, cancelTreePicker }:
 /** The single tree-picker card for one Pi pane, shown only when one is waiting. */
 export function PiTreePickerCards({ paneId }: { paneId: string }) {
   const bridge = usePiBridge(paneId);
-  if (!bridge || bridge.treePickers.length === 0) {
-    return null;
+  const [refusedPickerId, setRefusedPickerId] = useState<string | null>(null);
+  if (!bridge) return null;
+  if (refusedPickerId !== null && bridge.treePickers.length > 0 &&
+      !bridge.treePickers.some((picker) => picker.id === refusedPickerId)) {
+    setRefusedPickerId(null);
   }
+  const showRefusal = refusedPickerId !== null &&
+    (bridge.treePickers.length === 0 || bridge.treePickers.some((picker) => picker.id === refusedPickerId));
+  if (bridge.treePickers.length === 0 && !showRefusal) return null;
   return (
     <div className="pi-dialog-cards" data-pi-tree-picker-cards="true">
       {bridge.treePickers.map((picker) => (
@@ -184,8 +191,10 @@ export function PiTreePickerCards({ paneId }: { paneId: string }) {
           picker={picker}
           answerTreePicker={bridge.answerTreePicker}
           cancelTreePicker={bridge.cancelTreePicker}
+          onRefused={setRefusedPickerId}
         />
       ))}
+      {showRefusal ? <p className="pi-dialog-error" role="alert">Pi is no longer waiting for this picker.</p> : null}
     </div>
   );
 }
