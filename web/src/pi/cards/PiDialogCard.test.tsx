@@ -182,6 +182,19 @@ describe("PiDialogCards (Seam 3)", () => {
     expect(container.querySelector("[data-pi-question-card]")).not.toBeNull();
   });
 
+  it("sends at most one answer when two choices are activated in the same tick", async () => {
+    const { container, pi } = await renderCards();
+    await send({ type: "dialog_open", dialog: SELECT });
+    await act(async () => {
+      button(container, "Safe").click();
+      button(container, "Fast").click();
+    });
+    expect(sentRecords(pi).filter((record) => record.type === "dialog_answer")).toHaveLength(1);
+    expect(sentRecords(pi).find((record) => record.type === "dialog_answer")).toMatchObject({
+      dialog_id: SELECT.id, value: "Safe",
+    });
+  });
+
   it("answers a confirm with a boolean and an input with the typed text", async () => {
     const { container, pi } = await renderCards();
     await send({
@@ -213,6 +226,37 @@ describe("PiDialogCards (Seam 3)", () => {
       dialog_id: "input-1",
       value: "Alice",
     });
+  });
+
+  it("allows empty and whitespace input just like Pi's terminal input", async () => {
+    const { container, pi } = await renderCards();
+    await send({ type: "dialog_open", dialog: { id: "empty-input", kind: "input", title: "Input" } });
+    await click(button(container, "Send"));
+    expect(sentRecords(pi).filter((record) => record.type === "dialog_answer").at(-1)).toMatchObject({ dialog_id: "empty-input", value: "" });
+    await send({ type: "dialog_closed", id: "empty-input", resolution: "answered" });
+    await send({ type: "dialog_open", dialog: { id: "space-input", kind: "input", title: "Input" } });
+    await type(container.querySelector("input")!, "  ");
+    await click(button(container, "Send"));
+    expect(sentRecords(pi).filter((record) => record.type === "dialog_answer").at(-1)).toMatchObject({ dialog_id: "space-input", value: "  " });
+  });
+
+  it("cancels a focused card with Escape", async () => {
+    const { container, pi } = await renderCards();
+    await send({ type: "dialog_open", dialog: { id: "escape-input", kind: "input", title: "Input" } });
+    const field = container.querySelector("input")!;
+    field.focus();
+    await act(async () => { field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(sentRecords(pi).find((record) => record.type === "dialog_answer")).toMatchObject({ dialog_id: "escape-input", cancel: true });
+  });
+
+  it("does not cancel an input card when Escape dismisses IME composition", async () => {
+    const { container, pi } = await renderCards();
+    await send({ type: "dialog_open", dialog: { id: "composing-input", kind: "input", title: "Input" } });
+    const field = container.querySelector("input")!;
+    await act(async () => {
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, isComposing: true }));
+    });
+    expect(sentRecords(pi).filter((record) => record.type === "dialog_answer")).toHaveLength(0);
   });
 
   it("cancels like Esc and reports when another surface won", async () => {

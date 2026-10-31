@@ -143,6 +143,10 @@
 - Allow Ctrl-clicking terminal links, including Pi `/code` links, while Herdr captures mouse input.
 - Pi Composer: Ctrl+C clears the text draft when nothing is selected, while keeping normal copy behavior for selected text.
 - Fix terminal Ctrl+C being lost when Kitty keyboard protocol flags are enabled.
+- Allow empty and whitespace-only Pi input answers as in the terminal, and cancel focused
+  native dialog and question cards with Escape without interrupting IME composition.
+- Restore Pi quick-action icons and show terminal guidance for session, tree and settings controls;
+  when `/btw` is available, explain that its side conversation remains terminal-only.
 - Keep workspace tabs in Herdr's order after tabs are moved.
 - Keep this browser's own tab selection when another client on the same Herdr session (for example
   the TUI in a terminal) changes its focused tab in shared navigation mode. A browser that has not

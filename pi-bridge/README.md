@@ -53,6 +53,11 @@ Implemented as `docs/pi-mode-protocol.md` version 1:
   descriptions, previews, multi-select), `dialog_answer` becomes
   `rpiv:ask-user:answer`, and `rpiv:ask-user:blocked {active:false}` or an accepted
   answer emits `dialog_closed`. First answer wins across phone, desktop and terminal.
+- For wrapped generic dialogs, a browser answer claims the result and requests terminal
+  prompt cancellation. An accepted answer is not an acknowledgement of completed prompt
+  teardown or of any later action succeeding.
+- General settings and the full session tree remain available through Pi's terminal
+  `/settings` and `/tree` commands; the bridge does not write Pi settings files.
 - `state.busy` is `idle`, `busy` or `dialog`. It follows `agent_start` /
   `agent_end` and `ui_prompt_start` / `ui_prompt_end`.
 - `get_snapshot.dialogs` lists open question and generic dialogs.

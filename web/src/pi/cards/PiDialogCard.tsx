@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { usePiBridge, type PiBridgeApi } from "../PiBridgeContext";
 import type { PiDialog } from "../piProtocol";
@@ -40,6 +40,7 @@ function answerError(caught: unknown): string {
  */
 export function PiDialogCard({ dialog, answerDialog }: PiDialogCardProps) {
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [remaining, setRemaining] = useState(() => secondsRemaining(dialog.timeout_ms));
@@ -60,9 +61,10 @@ export function PiDialogCard({ dialog, answerDialog }: PiDialogCardProps) {
   }, [remaining]);
 
   async function settle(answer: { value: string | boolean } | { cancel: true }) {
-    if (sending) {
+    if (sendingRef.current) {
       return;
     }
+    sendingRef.current = true;
     setError(null);
     setSending(true);
     try {
@@ -73,6 +75,7 @@ export function PiDialogCard({ dialog, answerDialog }: PiDialogCardProps) {
     } catch (caught) {
       setError(answerError(caught));
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   }
@@ -85,6 +88,13 @@ export function PiDialogCard({ dialog, answerDialog }: PiDialogCardProps) {
       data-pi-dialog-card="true"
       data-kind={dialog.kind}
       aria-label={title}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !event.nativeEvent.isComposing) {
+          event.preventDefault();
+          event.stopPropagation();
+          void settle({ cancel: true });
+        }
+      }}
     >
       <div className="pi-dialog-card-head">
         <h2 className="pi-dialog-card-title">{title}</h2>
@@ -149,9 +159,7 @@ export function PiDialogCard({ dialog, answerDialog }: PiDialogCardProps) {
           className="pi-dialog-card-input"
           onSubmit={(event) => {
             event.preventDefault();
-            if (text.trim().length > 0) {
-              void settle({ value: text });
-            }
+            void settle({ value: text });
           }}
         >
           <input
@@ -165,7 +173,7 @@ export function PiDialogCard({ dialog, answerDialog }: PiDialogCardProps) {
           <button
             className="pi-dialog-card-primary"
             type="submit"
-            disabled={sending || text.length === 0}
+            disabled={sending}
           >
             Send
           </button>
