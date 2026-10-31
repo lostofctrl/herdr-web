@@ -169,15 +169,36 @@ describe("Composer Side Panel", () => {
     expect(container.querySelector('[role="dialog"][aria-label="Pi Side Panel"]')).toBeNull();
   });
 
+  it("does not dismiss the floating panel for events inside a portaled button manager", async () => {
+    const { container } = await renderComposer();
+    const floating = await openPanel(container);
+    const backdrop = document.createElement("div");
+    backdrop.className = "pi-button-manager-backdrop";
+    const dialog = document.createElement("div");
+    dialog.className = "pi-button-manager-dialog";
+    backdrop.append(dialog);
+    document.body.append(backdrop);
+    try {
+      await act(async () => dialog.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+      await act(async () => dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+      expect(container.contains(floating)).toBe(true);
+    } finally {
+      backdrop.remove();
+    }
+  });
+
   it("closes the nested button manager before the floating panel on Escape", async () => {
     const { container } = await renderComposer();
     const floating = await openPanel(container);
-    const trigger = floating.querySelector<HTMLButtonElement>('[aria-label="Manage Pi buttons"]')!;
+    const trigger = floating.querySelector<HTMLButtonElement>('[aria-label="More Pi buttons"]')!;
     await act(async () => trigger.click());
-    const dialog = floating.querySelector<HTMLElement>('[role="dialog"][aria-label="Manage Pi buttons"]')!;
+    const manage = [...floating.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === "Manage Pi buttons")!;
+    await act(async () => manage.click());
+    const dialog = document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="Manage Pi buttons"]')!;
     expect(dialog).not.toBeNull();
+    expect(floating.contains(dialog)).toBe(false);
     await act(async () => dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
-    expect(floating.querySelector('[role="dialog"][aria-label="Manage Pi buttons"]')).toBeNull();
+    expect(document.body.querySelector('[role="dialog"][aria-label="Manage Pi buttons"]')).toBeNull();
     expect(container.contains(floating)).toBe(true);
     expect(document.activeElement).toBe(trigger);
   });

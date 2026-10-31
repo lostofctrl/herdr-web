@@ -75,7 +75,7 @@ export function PiComposerSidePanel({
   useEffect(() => {
     const outside = (event: Event) => {
       const target = event.target as Element | null;
-      if (rootRef.current?.contains(target as Node)) return;
+      if (rootRef.current?.contains(target as Node) || target?.closest(".pi-button-manager-backdrop")) return;
       // The trigger owns its own toggle; dismissing here would close and reopen.
       if (anchorRef.current?.contains(target as Node)) return;
       onClose();
@@ -86,7 +86,7 @@ export function PiComposerSidePanel({
       if (event.key !== "Escape" || event.defaultPrevented) return;
       const target = event.target as Element | null;
       // The model picker inside the panel owns Escape while it is open.
-      if (target?.closest('.pi-model-picker[data-open="true"]') || rootRef.current?.querySelector(".pi-button-manager-dialog")) return;
+      if (target?.closest('.pi-model-picker[data-open="true"], .pi-button-manager-backdrop') || rootRef.current?.querySelector(".pi-button-menu")) return;
       event.preventDefault();
       event.stopPropagation();
       onClose();

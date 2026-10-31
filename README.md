@@ -275,13 +275,13 @@ Desktop retains its `/` and `@` buttons, and the Pi Side Panel remains available
 
 ### Configure Pi Side Panel buttons
 
-Open the Pi Side Panel and choose **Manage Pi buttons** (⋯). Abort, Compact, New session,
-Resume, and Open chat log are pinned initially; all remain available in the menu even when
-unpinned. Add a custom button for one of those actions or for prompt text, choose a Lucide icon
-or a short text/emoji glyph, and pin it if you want it alongside the controls. A live command or
-skill can be inserted into a prompt while editing it, but the saved prompt is literal text, so it
-also works when that catalog entry or the Pi Bridge is unavailable. Custom buttons can be edited
-or deleted; deletion asks for confirmation.
+Open the Pi Side Panel and choose ⋯ to see unpinned actions or open **Manage Pi buttons**.
+Abort, Compact, New session, Resume, and Open chat log are pinned initially; the management dialog
+lists all buttons so you can pin or unpin them. Add a custom button for one of those actions or for
+prompt text, choose a Lucide icon or a short text/emoji glyph, and pin it if you want it alongside
+the controls. Search the live command and skill catalog to insert a trigger while editing a prompt.
+The saved prompt is literal text, so it also works when that catalog entry or the Pi Bridge is
+unavailable. Custom buttons can be edited or deleted; deletion asks for confirmation.
 
 A prompt button can **Insert** into the Composer draft or **Send** immediately. Insert appends
 without submitting and preserves attachments. Send uses bracketed paste and a separate Enter on the

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Archive, Bookmark, CircleStop, Code, History, MessageSquareText, Play, Plus, Send, Star, Terminal, Zap, type LucideIcon } from "lucide-react";
 import type { PiCatalog } from "../piProtocol";
 import { piCatalogTrigger, piSidePanelEntries } from "./piSidePanelCatalog";
@@ -49,11 +50,22 @@ function Icon({ icon }: { icon: ButtonManagerButton["icon"] }) {
 
 export function PiSidePanelButtonManager({ model, status, error, catalog, skillsEnabled, onMutate, onActivate, canActivate = () => true, conflictContent }: PiSidePanelButtonManagerProps) {
   const [open, setOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [iconsOpen, setIconsOpen] = useState(false);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogQuery, setCatalogQuery] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [deleting, setDeleting] = useState<ButtonManagerButton | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const iconTriggerRef = useRef<HTMLButtonElement>(null);
+  const catalogInputRef = useRef<HTMLInputElement>(null);
+  const catalogListRef = useRef<HTMLDivElement>(null);
+  const pendingCatalogFocus = useRef(false);
+  const suppressCatalogFocus = useRef(false);
+  const catalogListId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const returnRef = useRef<string | null>(null);
   const editingRevision = useRef<number | null>(null);
@@ -61,6 +73,18 @@ export function PiSidePanelButtonManager({ model, status, error, catalog, skills
   const entries = [...builtins, ...(model?.buttons ?? [])];
   const available = status === "ready" && model !== null && !busy;
   const subdialog = draft !== null || deleting !== null;
+  const catalogEntries = catalog ? piSidePanelEntries(catalog, skillsEnabled, "").filter((entry) =>
+    `${entry.name} ${entry.description} ${entry.source} ${piCatalogTrigger(entry, entry.kind)}`.toLowerCase().includes(catalogQuery.trim().toLowerCase())) : [];
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    menuRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    function outside(event: PointerEvent) {
+      if (!menuRef.current?.contains(event.target as Node) && !triggerRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    }
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [menuOpen]);
 
   useEffect(() => {
     if (!open) return;
@@ -71,16 +95,37 @@ export function PiSidePanelButtonManager({ model, status, error, catalog, skills
     wasSubdialog.current = subdialog;
   }, [open, subdialog]);
 
-  function close() { setOpen(false); setDraft(null); setDeleting(null); setLocalError(null); wasSubdialog.current = false; triggerRef.current?.focus(); }
-  function back() { setDraft(null); setDeleting(null); setLocalError(null); }
+  useEffect(() => {
+    if (!catalogOpen || !pendingCatalogFocus.current) return;
+    pendingCatalogFocus.current = false;
+    catalogListRef.current?.querySelector<HTMLButtonElement>('button[role="option"]')?.focus();
+  }, [catalogOpen]);
+
+  function focusCatalogInput() {
+    if (catalogInputRef.current && document.activeElement !== catalogInputRef.current) {
+      suppressCatalogFocus.current = true;
+      catalogInputRef.current.focus();
+    }
+  }
+  function close() { setOpen(false); setDraft(null); setDeleting(null); setIconsOpen(false); setCatalogOpen(false); setLocalError(null); wasSubdialog.current = false; triggerRef.current?.focus(); }
+  function back() { setDraft(null); setDeleting(null); setIconsOpen(false); setCatalogOpen(false); setLocalError(null); }
   function keyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); if (!busy) { if (subdialog) back(); else close(); } return; }
+    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); if (iconsOpen) { setIconsOpen(false); iconTriggerRef.current?.focus(); } else if (catalogOpen) { setCatalogOpen(false); focusCatalogInput(); } else if (!busy) { if (subdialog) back(); else close(); } return; }
     if (event.key !== "Tab") return;
     const focusable = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]')];
     if (!focusable.length) { event.preventDefault(); return; }
     const first = focusable[0], last = focusable[focusable.length - 1];
     if (event.shiftKey && (document.activeElement === first || document.activeElement === event.currentTarget)) { event.preventDefault(); last.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
+  function catalogKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const options = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="option"]')];
+    if (!options.length) return;
+    event.preventDefault();
+    const index = options.indexOf(document.activeElement as HTMLButtonElement);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
+    options[next].focus();
   }
   async function change(next: ButtonManagerModel): Promise<boolean> {
     setBusy(true); setLocalError(null);
@@ -94,7 +139,7 @@ export function PiSidePanelButtonManager({ model, status, error, catalog, skills
   }
   function edit(button: ButtonManagerButton | null, source: HTMLElement) {
     returnRef.current = source.dataset.returnFocus ?? null; editingRevision.current = model?.revision ?? null;
-    setLocalError(null); setDraft(button ? draftFrom(button) : newDraft());
+    setLocalError(null); setCatalogQuery(""); setCatalogOpen(false); setIconsOpen(false); setDraft(button ? draftFrom(button) : newDraft());
   }
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -131,12 +176,24 @@ export function PiSidePanelButtonManager({ model, status, error, catalog, skills
         const button = entries.find((entry) => entry.id === id);
         return button ? <button key={id} type="button" aria-label={button.title} title={button.title} disabled={(status !== "ready" && button.id.startsWith("custom-")) || !canActivate(button.action)} onClick={() => onActivate(button.action, button.id)}><Icon icon={button.icon} /></button> : null;
       })}
-      <button ref={triggerRef} type="button" aria-label="Manage Pi buttons" title="Manage Pi buttons" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>⋯</button>
+      <button ref={triggerRef} type="button" aria-label="More Pi buttons" title="More Pi buttons" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}>⋯</button>
     </div>
+      {menuOpen ? <div className="pi-button-menu" role="menu" ref={menuRef} onKeyDown={(event) => {
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setMenuOpen(false); triggerRef.current?.focus(); }
+        else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+          const index = items.indexOf(document.activeElement as HTMLButtonElement);
+          items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
+        } else if (event.key === "Tab") { triggerRef.current?.focus(); setMenuOpen(false); }
+      }}>
+        {entries.filter((entry) => !model?.pinned.includes(entry.id) && (status === "ready" || !entry.id.startsWith("custom-"))).map((entry) => <button key={entry.id} type="button" role="menuitem" aria-label={entry.title} disabled={!canActivate(entry.action)} onClick={() => { setMenuOpen(false); onActivate(entry.action, entry.id); triggerRef.current?.focus(); }}><Icon icon={entry.icon} />{entry.title}</button>)}
+        <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setOpen(true); }}>Manage Pi buttons</button>
+      </div> : null}
     {status === "loading" ? <p role="status">Loading buttons…</p> : null}
     {status === "unsupported" ? <p role="status">Custom buttons are not supported by this bridge.</p> : null}
     {error && !open ? <p role="alert">{error}</p> : null}
-    {open ? <div className="pi-button-manager-dialog" role="dialog" aria-modal="true" aria-label={draft ? (draft.id ? "Edit button" : "Add button") : deleting ? "Delete button" : "Manage Pi buttons"} tabIndex={-1} ref={dialogRef} onKeyDown={keyDown}>
+    {open ? createPortal(<div className="pi-button-manager-backdrop" onClick={(event) => { if (event.target === event.currentTarget && !busy && !subdialog) close(); }}><div className="pi-button-manager-dialog" role="dialog" aria-modal="true" aria-label={draft ? (draft.id ? "Edit button" : "Add button") : deleting ? "Delete button" : "Manage Pi buttons"} tabIndex={-1} ref={dialogRef} onKeyDown={keyDown}>
       <h3>{draft ? (draft.id ? "Edit button" : "Add button") : deleting ? "Delete button" : "Manage Pi buttons"}</h3>
       <p>The terminal editor may contain unseen typed text. Prompt actions can insert or send text into it. Shared storage is not secret; do not store sensitive information.</p>
       {error ? <p role="alert">{error}</p> : null}
@@ -145,10 +202,10 @@ export function PiSidePanelButtonManager({ model, status, error, catalog, skills
       {draft ? <form onSubmit={(event) => void save(event)} className="pi-button-manager-form">
         <label>Title<input aria-label="Title" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
         <label>Icon type<select aria-label="Icon type" value={draft.iconType} onChange={(event) => setDraft({ ...draft, iconType: event.target.value as Draft["iconType"] })}><option value="lucide">Lucide icon</option><option value="glyph">Text glyph</option></select></label>
-        {draft.iconType === "lucide" ? <label>Icon<select aria-label="Icon" value={draft.iconName} onChange={(event) => setDraft({ ...draft, iconName: event.target.value as ButtonManagerIconName })}>{Object.keys(icons).map((name) => <option key={name} value={name}>{name}</option>)}</select></label> : <label>Glyph<input aria-label="Glyph" value={draft.glyph} onChange={(event) => setDraft({ ...draft, glyph: event.target.value })} /></label>}
+        {draft.iconType === "lucide" ? <div className="pi-icon-picker"><span>Icon</span><button ref={iconTriggerRef} type="button" aria-label="Icon" aria-expanded={iconsOpen} onClick={() => setIconsOpen((value) => !value)}><Icon icon={{ type: "lucide", name: draft.iconName }} />{draft.iconName}</button>{iconsOpen ? <div className="pi-icon-picker-options" aria-label="Lucide icons">{(Object.keys(icons) as ButtonManagerIconName[]).map((name) => <button key={name} type="button" aria-label={name} aria-pressed={draft.iconName === name} onClick={() => { setDraft({ ...draft, iconName: name }); setIconsOpen(false); iconTriggerRef.current?.focus(); }}><Icon icon={{ type: "lucide", name }} />{name}</button>)}</div> : null}</div> : <label>Glyph<input aria-label="Glyph" value={draft.glyph} onChange={(event) => setDraft({ ...draft, glyph: event.target.value })} /></label>}
         <label>Action<select aria-label="Action" value={draft.actionType} onChange={(event) => setDraft({ ...draft, actionType: event.target.value as Draft["actionType"] })}><option value="builtin">Built-in action</option><option value="prompt">Prompt</option></select></label>
         {draft.actionType === "builtin" ? <label>Built-in action<select aria-label="Built-in action" value={draft.builtin} onChange={(event) => setDraft({ ...draft, builtin: event.target.value as ButtonManagerBuiltinId })}>{builtins.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label> : <>
-          <label>Command or skill<select aria-label="Command or skill" value="" onChange={(event) => { if (event.target.value) setDraft({ ...draft, prompt: event.target.value + (draft.prompt ? ` ${draft.prompt}` : "") }); }}><option value="">Choose from live catalog</option>{catalog ? piSidePanelEntries(catalog, skillsEnabled, "").map((entry, index) => { const trigger = piCatalogTrigger(entry, entry.kind); return <option key={`${entry.kind}:${entry.name}:${index}`} value={trigger}>{trigger} — {entry.description}</option>; }) : null}</select></label>
+          <div className="pi-trigger-picker"><label>Command or skill<input ref={catalogInputRef} role="combobox" aria-label="Command or skill" aria-autocomplete="list" aria-expanded={catalogOpen} aria-controls={catalogListId} value={catalogQuery} onFocus={() => { if (suppressCatalogFocus.current) suppressCatalogFocus.current = false; else setCatalogOpen(true); }} onChange={(event) => { setCatalogQuery(event.target.value); setCatalogOpen(true); }} onKeyDown={(event) => { if (event.key === "ArrowDown") { event.preventDefault(); if (catalogOpen) catalogListRef.current?.querySelector<HTMLButtonElement>('button[role="option"]')?.focus(); else { pendingCatalogFocus.current = true; setCatalogOpen(true); } } }} placeholder="Search live catalog" /></label>{catalogOpen ? <div id={catalogListId} ref={catalogListRef} className="pi-trigger-picker-options" role="listbox" aria-label="Commands and skills" onKeyDown={catalogKeyDown}>{!catalog ? <span>Live catalog unavailable</span> : catalogEntries.length === 0 ? <span>No matching commands or skills</span> : catalogEntries.map((entry, index) => { const trigger = piCatalogTrigger(entry, entry.kind); return <button key={`${entry.kind}:${entry.name}:${index}`} type="button" role="option" aria-selected="false" aria-label={trigger} onClick={() => { setDraft({ ...draft, prompt: trigger + (draft.prompt ? ` ${draft.prompt}` : "") }); setCatalogQuery(""); setCatalogOpen(false); focusCatalogInput(); }}>{trigger} — {entry.description}</button>; })}</div> : null}</div>
           <label>Prompt<textarea aria-label="Prompt" value={draft.prompt} onChange={(event) => setDraft({ ...draft, prompt: event.target.value })} /></label>
           <label>Delivery<select aria-label="Delivery" value={draft.delivery} onChange={(event) => setDraft({ ...draft, delivery: event.target.value as Draft["delivery"] })}><option value="insert">Insert</option><option value="send">Send</option></select></label>
         </>}
@@ -157,6 +214,6 @@ export function PiSidePanelButtonManager({ model, status, error, catalog, skills
         <ul className="pi-button-manager-list">{entries.map((button, index) => <li key={button.id}><button type="button" className="pi-button-manager-name" aria-label={`Run ${button.title}`} disabled={(status !== "ready" && button.id.startsWith("custom-")) || !canActivate(button.action)} onClick={() => onActivate(button.action, button.id)}><Icon icon={button.icon} />{button.title}</button><div className="pi-button-manager-controls"><button type="button" disabled={!available} aria-label={`${model?.pinned.includes(button.id) ? "Unpin" : "Pin"} ${button.title}`} onClick={() => toggle(button.id)}>{model?.pinned.includes(button.id) ? "Unpin" : "Pin"}</button>{index >= builtins.length ? <><button type="button" disabled={!available} aria-label={`Edit ${button.title}`} data-return-focus={`edit:${button.id}`} onClick={(event) => edit(button, event.currentTarget)}>Edit</button><button type="button" disabled={!available} aria-label={`Delete ${button.title}`} data-return-focus={`delete:${button.id}`} onClick={(event) => { returnRef.current = event.currentTarget.dataset.returnFocus ?? null; editingRevision.current = model?.revision ?? null; setDeleting(button); setLocalError(null); }}>Delete</button></> : null}</div></li>)}</ul>
         <div className="pi-button-manager-controls"><button type="button" disabled={!available || (model?.buttons.length ?? 0) >= 64} data-return-focus="add" onClick={(event) => edit(null, event.currentTarget)}>Add button</button><button type="button" onClick={close}>Close</button></div>
       </>}
-    </div> : null}
+    </div></div>, document.body) : null}
   </section>;
 }

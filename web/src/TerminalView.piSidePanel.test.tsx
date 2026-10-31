@@ -845,7 +845,7 @@ describe("TerminalView Pi Side Panel (Seam 3)", () => {
     for (const button of actions.querySelectorAll("button")) {
       expect(button.getAttribute("aria-label")).toBeTruthy();
       expect(button.title).toBeTruthy();
-      if (button.getAttribute("aria-label") === "Manage Pi buttons") {
+      if (button.getAttribute("aria-label") === "More Pi buttons") {
         expect(button.textContent).toBe("⋯");
       } else {
         expect(button.querySelector("svg")).not.toBeNull();
