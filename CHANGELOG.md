@@ -6,14 +6,13 @@
 
 ### Added
 
-- Session Tree Cards with at least 12 published entries offer a filter and keyboard navigation;
-  long lists scroll within the card, and filtering does not search omitted entries.
-
-- Pi panes can open Pi's session tree from the phone: `/herdr-tree` in the terminal publishes
-  the current tree and the resulting card navigates the session when an entry is chosen. It is
-  bounded and summary-free — no summaries, no queued-message restoration, and it refuses to open
-  while Pi is busy, has queued messages, or holds an editor draft. `/tree` in the terminal stays
-  the full picker. Older Pi Bridges do not advertise the command, so the card stays hidden.
+- Pi mode: run `/herdr-tree` in the terminal to open a Session Tree Card for touch or keyboard
+  navigation. Readable, indented rows mark the current entry, distinguish repeated labels and show
+  how many entries were omitted. The Pi Bridge publishes at most 200 entries, pinning the current entry
+  even beyond the cutoff. Above 12 published rows, a filter searches only those rows; arrow keys and
+  Enter select, and long lists scroll within the card. The picker is summary-free and refuses to open
+  while Pi is busy, has queued messages, or holds an editor draft. Older Pi Bridges without the
+  picker capability leave the card hidden and keep their existing behavior.
 
 - Back and forward controls in the tab bar navigate recently visited tabs across spaces and bridges; history is saved in the browser.
 
@@ -129,12 +128,10 @@
 
 ### Changed
 
-- Pi Side Panel and documentation consistently explain terminal-only session, settings, full tree,
-  and BTW actions alongside the Native Cards and summary-free Session Tree Card available on a phone.
-- Pi Side Panel clarifies that `/btw` live transcripts and controls remain in the terminal;
-  the protocol documents the audited upstream limitation and re-check criteria.
-- Session Tree Card rows show readable model, thinking, summary and label entries; repeated labels
-  include a short entry-id prefix without changing navigation ids.
+- Pi Side Panel and documentation clarify the terminal-only options: `/resume` for sessions,
+  `/tree` for the full picker with summaries and queued-message restoration, `/settings` for Pi
+  settings, and `/btw` for side conversations when installed. The `/btw` audit found no supported
+  browser interface for its live transcript and controls, which remain in the terminal.
 - The top tab bar shows the Herdr tab name before the pane title when available.
 - Sidebar agent rows show workspace, tab and available branch above the pane title, with tab and state beneath.
 - Pi Side Panel: place quick actions in one compact icon row with hover labels and a Kitty-compatible Alt+C chat-log shortcut; move commands and skills below and remember recently selected entries in browser storage.
@@ -155,18 +152,15 @@
 
 ### Fixed
 
-- Restore an open Session Tree Card after reconnect or resync and report refused stale answers,
-  including when the card closes before the response. The Pi Bridge now replays the open picker
-  after `get_snapshot` as already documented.
-- Keep the current Pi session-tree entry visible beyond the 200-row cutoff, while accurately
-  counting entries available only in the terminal picker. Older bridges keep their previous behavior.
+- Restore a pending Session Tree Card after reload, reconnect or resync, and report refused stale
+  answers even if the card closes before the response. The Pi Bridge replays the open picker after
+  `get_snapshot`; older bridges retain their previous behavior.
 - Allow Ctrl-clicking terminal links, including Pi `/code` links, while Herdr captures mouse input.
 - Pi Composer: Ctrl+C clears the text draft when nothing is selected, while keeping normal copy behavior for selected text.
 - Fix terminal Ctrl+C being lost when Kitty keyboard protocol flags are enabled.
 - Allow empty and whitespace-only Pi input answers as in the terminal, and cancel focused
   native dialog and question cards with Escape without interrupting IME composition.
-- Restore Pi quick-action icons and show terminal guidance for session, tree and settings controls;
-  when `/btw` is available, explain that its side conversation remains terminal-only.
+- Restore Pi quick-action icons.
 - Keep workspace tabs in Herdr's order after tabs are moved.
 - Keep this browser's own tab selection when another client on the same Herdr session (for example
   the TUI in a terminal) changes its focused tab in shared navigation mode. A browser that has not
