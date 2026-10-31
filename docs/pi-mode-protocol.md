@@ -44,11 +44,13 @@ Every message is an object with a `type`.
 | `catalog` | `commands`, `skills` |
 | `dialog_open` | `dialog` |
 | `dialog_closed` | `id`, `resolution` |
+| `tree_picker_open` | `picker` |
+| `tree_picker_closed` | `outcome` |
 | `assistant_message` | `text` |
 | `response` | `id`, `ok`, and `result` or `error` |
 
 `capabilities` is an object of booleans: `generic_dialogs`, `assistant_message`,
-`list_files`, `skills_catalog`. A client hides a feature whose capability is `false` or
+`list_files`, `skills_catalog`, `session_tree_picker`. A client hides a feature whose capability is `false` or
 absent. `generic_dialogs` covers wrapped `ctx.ui` dialogs only (ADR 0002); a
 `dialog_open` with `kind: "question"` is delivered whenever the installed
 `ask_user_question` extension emits its prompt, regardless of that capability.
@@ -96,10 +98,12 @@ Every request carries a client-chosen `id` (string), echoed on its `response`.
 | `set_model` | `id`, `provider`, `model` |
 | `set_thinking_level` | `id`, `level` |
 | `list_files` | `id`, `query`, `limit` |
+| `tree_picker_answer` | `id`, `picker_id`, `entry_id` |
+| `tree_picker_cancel` | `id`, `picker_id` |
 
-`get_snapshot` responds with `{state, catalog, dialogs, assistant_message}` in `result`;
-`dialogs` lists every open question or generic dialog so a reconnecting client can render
-it again. Generic dialogs report `timeout_ms` as the time remaining when the snapshot is
+`get_snapshot` responds with `{state, catalog, dialogs, assistant_message}` in `result`,
+and an open `tree_picker_open` follows it; `dialogs` lists every open question or generic
+dialog so a reconnecting client can render it again. Generic dialogs report `timeout_ms` as the time remaining when the snapshot is
 sent, and `null` when Pi set no timeout.
 `dialog_answer` responds with `{accepted}`; answering an already settled dialog is
 `ok: true` with `accepted: false` because another surface won the race. For a question
@@ -109,10 +113,7 @@ dialog, `value` is the selected option label for `select`, a boolean for `confir
 the entered string for `input` (including an empty string); `cancel: true` settles it as
 `undefined`/`false` like Esc. For generic dialogs, `accepted: true` claims the answer; it
 does not guarantee that a subsequent action succeeded or that terminal selector teardown
-has completed. A native tree picker is not advertised: in Pi 1.4.0, no-summary tree
-navigation can apply a previously selected target after a `session_before_tree` hook
-awaits and the leaf has changed. The extension cannot revalidate atomically at that
-commit point; use Pi's terminal `/tree` instead. `list_files`
+has completed. `list_files`
 answers from tracked files in Pi's `cwd`, filters by `query`, and caps at `limit`, which the
 client limits to 200 (default 50). Its `result` is `{files: [{path}]}`.
 
@@ -136,6 +137,35 @@ matching `ask_user_question` tool arguments captured on Pi's `tool_execution_sta
 event (`dist/core/extensions/types.d.ts:853-859`). Answer validation stays with the
 extension: it accepts only a complete, in-range answer set, so a malformed
 `dialog_answer` gets `accepted:false` and the card stays open.
+
+## `herdr-tree` session picker
+
+`/herdr-tree` is a Pi command the Bridge registers, so the terminal starts every picker:
+nothing in the browser can ask Pi to open one. It notifies the terminal, publishes the
+current session tree, and waits while Pi keeps its normal editor; answering or cancelling
+the card settles it, and starting any new Pi run cancels it. `session_tree_picker` is
+`true` only when Pi exposed `registerCommand`.
+
+`picker` is `{id, session_id, leaf_id, title, nodes, omitted}`; each node is
+`{entry_id, label, depth, current}` in depth-first order, labels are `user: …`,
+`assistant: …`, `[tool] <name>` or `[label] <label>`, and `omitted` counts entries left
+out beyond 200. `tree_picker_answer` responds with `{accepted}`; only an `entry_id`
+published for that `picker_id` while that picker is the open one is accepted, so a stale
+card cannot move a session that has moved on. `tree_picker_cancel` dismisses it without
+navigating. Either way the command settles and `tree_picker_closed` reports `answered` or
+`cancelled`.
+
+This picker deliberately has no summaries, and it navigates with
+`ctx.navigateTree(entryId, {summarize: false})`. The command refuses to open while Pi is
+not idle, while messages are queued, or while the editor holds a draft, because Pi's
+built-in `/tree` stops streaming and restores those and the command API cannot. It
+re-checks the session id and leaf immediately before navigating and cancels on
+`session_before_switch`, `session_before_fork`, `session_before_tree`,
+`session_before_compact` and `agent_start`. Residual limit: that re-check cannot cover a
+`session_before_tree` hook that awaits inside `navigateTree`, so a Pi extension that
+pauses that hook while the leaf changes can still reach Pi's commit with a stale target.
+Use the terminal `/tree` for summaries or queue restoration, or when an extension owns
+that hook.
 
 ## Rules both sides rely on
 

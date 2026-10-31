@@ -61,6 +61,25 @@ export type PiDialog = {
   timeout_ms?: number | null;
 };
 
+/** One entry the bridge published for the open `/herdr-tree` picker. */
+export type PiTreePickerNode = {
+  entry_id: string;
+  label: string;
+  depth: number;
+  current: boolean;
+};
+
+/** The `/herdr-tree` picker currently waiting in Pi's terminal. */
+export type PiTreePicker = {
+  id: string;
+  session_id: string;
+  leaf_id: string | null;
+  title: string;
+  nodes: PiTreePickerNode[];
+  /** Entries the bridge left out to keep the card bounded. */
+  omitted: number;
+};
+
 export type PiSnapshotResult = {
   state: PiState;
   catalog: PiCatalog;

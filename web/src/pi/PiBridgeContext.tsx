@@ -22,6 +22,10 @@ export type PiBridgeApi = PiBridgeState & {
     dialogId: string,
     answer: { value?: unknown } | { cancel: true },
   ) => Promise<{ accepted: boolean }>;
+  /** Choose one published `/herdr-tree` entry; the terminal command navigates. */
+  answerTreePicker: (pickerId: string, entryId: string) => Promise<{ accepted: boolean }>;
+  /** Dismiss the picker without navigating. */
+  cancelTreePicker: (pickerId: string) => Promise<{ accepted: boolean }>;
   /** Ask Pi for tracked files under its cwd. The limit is capped at 200. */
   listFiles: (query: string, limit?: number) => Promise<{ path: string }[]>;
   setModel: (provider: string, model: string) => Promise<void>;
@@ -120,6 +124,13 @@ export function PiBridgeProvider({
           : { dialog_id: dialogId, value: answer.value };
         return client.request<{ accepted: boolean }>("dialog_answer", payload);
       },
+      answerTreePicker: (pickerId, entryId) =>
+        client.request<{ accepted: boolean }>("tree_picker_answer", {
+          picker_id: pickerId,
+          entry_id: entryId,
+        }),
+      cancelTreePicker: (pickerId) =>
+        client.request<{ accepted: boolean }>("tree_picker_cancel", { picker_id: pickerId }),
       listFiles: async (query, limit = 50) => {
         const result = await client.request<{ files?: { path: string }[] }>("list_files", {
           query,

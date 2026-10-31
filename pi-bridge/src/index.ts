@@ -24,6 +24,7 @@ import {
 } from "./ask-user.ts";
 import { createGenericDialogs } from "./dialogs.ts";
 import { listTrackedFiles, type ExecLike } from "./files.ts";
+import { createTreePicker, type TreePickerView } from "./tree-picker.ts";
 import { resolveSocketPath } from "./pane.ts";
 import {
   MAX_RECORD_BYTES,
@@ -78,6 +79,7 @@ interface EventBusLike {
 interface ExtensionApiLike {
   on(event: string, handler: (event: any, ctx: any) => unknown): () => void;
   events?: EventBusLike;
+  registerCommand?: (name: string, options: { description?: string; handler: (args: string, ctx: any) => unknown }) => void;
   getCommands?: () => { name: string; description?: string; source: string }[];
   getThinkingLevel?: () => string;
   setModel?: (model: ModelLike) => Promise<boolean> | boolean;
@@ -183,6 +185,15 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
   let answerSequence = 0;
   let genericDialogsAvailable = false;
   let wrapWarningShown = false;
+  let treePickerCommandRegistered = false;
+  const treePicker = createTreePicker((view, outcome) => {
+    if (view) {
+      server?.broadcast({ type: "tree_picker_open", picker: view });
+    } else {
+      server?.broadcast({ type: "tree_picker_closed", outcome });
+    }
+    broadcastState();
+  });
   const genericDialogs = createGenericDialogs(
     (dialog) => { server?.broadcast({ type: "dialog_open", dialog }); broadcastState(); },
     (id, resolution) => { broadcastDialogClosed(id, resolution); broadcastState(); },
@@ -197,7 +208,7 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
   const eventDisposers: (() => void)[] = [];
 
   function busyState(): BridgeBusy {
-    if (openQuestions.size > 0 || genericDialogs.snapshot().length > 0 || uiPromptActive) {
+    if (openQuestions.size > 0 || genericDialogs.snapshot().length > 0 || treePicker.isOpen() || uiPromptActive) {
       return "dialog";
     }
     return busy;
@@ -266,6 +277,7 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
       list_files: exec !== null,
       skills_catalog: readCommands() !== null,
       conversation_snapshot: supportsConversation(context),
+      session_tree_picker: treePickerCommandRegistered,
     };
   }
 
@@ -278,6 +290,9 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
     }
     for (const dialog of openDialogs()) {
       send({ type: "dialog_open", dialog });
+    }
+    for (const picker of treePicker.snapshot()) {
+      send({ type: "tree_picker_open", picker });
     }
   }
 
@@ -341,6 +356,19 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
       }
       case "dialog_answer": {
         handleDialogAnswer(id, message as { dialog_id?: unknown; value?: unknown; cancel?: unknown }, reply);
+        return;
+      }
+      case "tree_picker_answer": {
+        handleTreePickerAnswer(id, message as { picker_id?: unknown; entry_id?: unknown }, reply);
+        return;
+      }
+      case "tree_picker_cancel": {
+        const pickerId = (message as { picker_id?: unknown }).picker_id;
+        reply(
+          okResponse(id, {
+            accepted: typeof pickerId === "string" ? treePicker.cancel(pickerId) : false,
+          }),
+        );
         return;
       }
       default: {
@@ -428,6 +456,20 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
     } catch (error) {
       reply(errorResponse(id, `file listing failed: ${error instanceof Error ? error.message : String(error)}`));
     }
+  }
+
+  function handleTreePickerAnswer(
+    id: string,
+    request: { picker_id?: unknown; entry_id?: unknown },
+    reply: RecordSender,
+  ): void {
+    const pickerId = typeof request.picker_id === "string" ? request.picker_id : null;
+    const entryId = typeof request.entry_id === "string" ? request.entry_id : null;
+    if (!pickerId || !entryId) {
+      reply(errorResponse(id, "tree_picker_answer requires picker_id and entry_id"));
+      return;
+    }
+    reply(okResponse(id, { accepted: treePicker.answer({ pickerId, entryId }) }));
   }
 
   function handleDialogAnswer(
@@ -611,7 +653,11 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
   });
 
   for (const event of ["session_before_switch", "session_before_fork", "session_before_tree", "session_before_compact"]) {
-    bind(event, () => invalidateConversation("selection_changing", event === "session_before_tree" || event === "session_before_compact"));
+    bind(event, () => {
+      // A picker cannot survive the tree it was rendered from.
+      treePicker.cancelAll();
+      return invalidateConversation("selection_changing", event === "session_before_tree" || event === "session_before_compact");
+    });
   }
   for (const event of ["session_tree", "session_compact", "session_compact_failed"]) {
     bind(event, () => {
@@ -624,10 +670,12 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
   bind("session_shutdown", async () => {
     invalidateConversation("authority_lost");
     genericDialogs.stop();
+    treePicker.stop();
     await stopServer();
   });
 
   bind("agent_start", () => {
+    treePicker.cancelAll();
     busy = "busy";
     broadcastState();
     refreshConversation(true);
@@ -693,11 +741,115 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
     server?.broadcast({ type: "assistant_message", text: latestAssistant });
   });
 
+  const TREE_PICKER_COMMAND = "herdr-tree";
+
+  /**
+   * Refuses to start or finish a picker unless the terminal is in the same state
+   * Pi's own /tree requires. `expected` re-checks the session right before the
+   * navigation, which is the last moment this extension controls.
+   */
+  function treePickerRefusal(
+    ctx: any,
+    expected?: { sessionId: string; leafId: string | null },
+  ): string | null {
+    if (ctx?.mode !== "tui") {
+      return "The tree picker needs interactive Pi in a Herdr pane. Use /tree in the terminal.";
+    }
+    if (typeof ctx.navigateTree !== "function") {
+      return "This Pi version does not let extensions navigate the session tree. Use /tree in the terminal.";
+    }
+    if (typeof ctx.isIdle === "function" && !ctx.isIdle()) {
+      return "Wait for Pi to finish its current run or compaction, then run /herdr-tree again.";
+    }
+    if (typeof ctx.hasPendingMessages === "function" && ctx.hasPendingMessages()) {
+      return "Clear the queued messages first; the tree picker does not restore them the way /tree does.";
+    }
+    const draft = typeof ctx.ui?.getEditorText === "function" ? ctx.ui.getEditorText() : "";
+    if (typeof draft === "string" && draft.trim().length > 0) {
+      return "Clear the editor draft first; the tree picker needs an empty editor.";
+    }
+    if (expected) {
+      const sessionId = String(ctx.sessionManager?.getSessionId?.() ?? "");
+      if (sessionId !== expected.sessionId) {
+        return "The Pi session changed since the picker opened. Run /herdr-tree again.";
+      }
+      const leafId = ctx.sessionManager?.getLeafId?.() ?? null;
+      if (leafId !== expected.leafId) {
+        return "The Pi session moved since the picker opened. Run /herdr-tree again.";
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Waits for the phone answer. The terminal keeps Pi's normal editor, and any
+   * new run (a typed prompt, a tool, a slash command) cancels the picker through
+   * the `agent_start` handler, so a stale picker can never outlive the tree it
+   * was rendered from.
+   */
+  function waitForTreePickerChoice(ctx: any, pickerId: string): Promise<{ entryId: string } | null> {
+    ctx?.ui?.notify?.(
+      `Tree picker is open in herdr-web. Any new Pi run cancels it; /tree stays available in the terminal.`,
+      "info",
+    );
+    return treePicker.wait(pickerId);
+  }
+
+  function registerTreePickerCommand(): void {
+    if (typeof pi.registerCommand !== "function") {
+      return;
+    }
+    pi.registerCommand(TREE_PICKER_COMMAND, {
+      description: "Pick a Pi session tree entry in herdr-web (no summaries)",
+      handler: async (_args: string, ctx: any) => {
+        const refusal = treePickerRefusal(ctx);
+        if (refusal) {
+          ctx?.ui?.notify?.(refusal, "warning");
+          return;
+        }
+        const sessionId = String(ctx.sessionManager?.getSessionId?.() ?? "");
+        const leafId = ctx.sessionManager?.getLeafId?.() ?? null;
+        const view: TreePickerView | null = treePicker.open({
+          sessionId,
+          leafId,
+          tree: ctx.sessionManager?.getTree?.() ?? [],
+        });
+        if (!view) {
+          ctx?.ui?.notify?.("The session tree has no entries to show. Use /tree in the terminal.", "warning");
+          return;
+        }
+        const choice = await waitForTreePickerChoice(ctx, view.id);
+        if (!choice) {
+          ctx?.ui?.notify?.("Tree picker cancelled. Use /tree for the picker with summaries.", "info");
+          return;
+        }
+        const answerRefusal = treePickerRefusal(ctx, { sessionId, leafId });
+        if (answerRefusal) {
+          ctx?.ui?.notify?.(answerRefusal, "warning");
+          return;
+        }
+        try {
+          const result = await ctx.navigateTree(choice.entryId, { summarize: false });
+          if (result?.cancelled) {
+            ctx?.ui?.notify?.("Pi cancelled the tree navigation.", "warning");
+          }
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          ctx?.ui?.notify?.(`Pi could not navigate the tree: ${detail}`, "warning");
+        }
+      },
+    });
+    treePickerCommandRegistered = true;
+  }
+
+  registerTreePickerCommand();
+
   return {
     socketPath,
     isRunning: () => Boolean(initialized && server?.isRunning()),
     stop: async () => {
       genericDialogs.stop();
+      treePicker.stop();
       for (const dispose of eventDisposers.splice(0)) {
         dispose();
       }

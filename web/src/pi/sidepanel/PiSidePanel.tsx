@@ -117,8 +117,9 @@ export function PiSidePanelContent({ bridgeId, paneId, disabled, httpUrl, onSend
       {error ? <p role="alert">{error}</p> : null}
       {deliveryStatus ? <p role="status">{deliveryStatus}</p> : null}
       <p aria-label="Terminal-only Pi controls" role="note">
-        For Pi&apos;s session picker, tree, and other settings, use <code>/resume</code>, <code>/tree</code>,
-        or <code>/settings</code> in the terminal. Native session and tree pickers and other settings controls are not available.
+        Use <code>/resume</code> or <code>/settings</code> in the terminal; their browser controls are not
+        available. Tree cards need <code>/herdr-tree</code> in the terminal; <code>/tree</code> keeps Pi&apos;s
+        summaries and queued-message handling.
       </p>
       {online && bridge?.catalog?.commands.some((command) => command.name === "btw") ? (
         <p aria-label="BTW terminal guidance" role="note">

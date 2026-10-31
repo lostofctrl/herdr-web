@@ -72,6 +72,8 @@ export interface BridgeCapabilities {
   list_files: boolean;
   skills_catalog: boolean;
   conversation_snapshot: boolean;
+  /** True when the `/herdr-tree` command is registered and can publish a picker. */
+  session_tree_picker: boolean;
 }
 
 export interface BridgeError {

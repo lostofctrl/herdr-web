@@ -31,6 +31,7 @@ import { PiComposer, type PiComposerInputOwner } from "./pi-mode/PiComposer";
 import { ConversationContext } from "./pi/conversation/ConversationContext";
 import { piControlsStackHeight } from "./pi-mode/piControlsHeight";
 import { PiDialogCards } from "./pi/cards/PiDialogCard";
+import { PiTreePickerCards } from "./pi/cards/PiTreePickerCard";
 import { PiSidePanel } from "./pi/sidepanel/PiSidePanel";
 import { isPiPane } from "./pi-mode/piPane";
 import { PiBridgeProvider } from "./pi/PiBridgeContext";
@@ -1650,6 +1651,7 @@ export function TerminalView({
         </button>
       ) : null}
       {pane && piPane ? <PiDialogCards paneId={pane.pane_id} /> : null}
+      {pane && piPane ? <PiTreePickerCards paneId={pane.pane_id} /> : null}
       {!mobileControls && showCommandControls && pane && piPane ? (
         <PiKeyBar
           key={JSON.stringify(["keybar", bridgeId, pane.pane_id])}

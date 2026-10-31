@@ -4,6 +4,7 @@ import type {
   PiCatalog,
   PiDialog,
   PiSnapshotResult,
+  PiTreePicker,
   PiState,
 } from "./piProtocol";
 
@@ -15,6 +16,7 @@ export type PiBridgeState = {
   state: PiState | null;
   catalog: PiCatalog | null;
   dialogs: PiDialog[];
+  treePickers: PiTreePicker[];
   assistantMessage: string | null;
   conversation: PiConversation | null;
   lastError: string | null;
@@ -26,6 +28,7 @@ export const INITIAL_PI_BRIDGE_STATE: PiBridgeState = {
   state: null,
   catalog: null,
   dialogs: [],
+  treePickers: [],
   assistantMessage: null,
   conversation: null,
   lastError: null,
@@ -263,6 +266,18 @@ export class PiBridgeClient {
         this.patch({
           dialogs: this.state.dialogs.filter((dialog) => dialog.id !== record.id),
         });
+        return;
+      case "tree_picker_open": {
+        const picker = record.picker as PiTreePicker | undefined;
+        if (!picker || typeof picker.id !== "string") {
+          return;
+        }
+        // Pi shows one tree picker at a time; a newer one replaces the stale card.
+        this.patch({ treePickers: [picker] });
+        return;
+      }
+      case "tree_picker_closed":
+        this.patch({ treePickers: [] });
         return;
       case "assistant_message":
         this.patch({

@@ -109,6 +109,7 @@ it("explains terminal-only session, tree and settings access without sending inp
   expect(guidance?.textContent).toContain("/resume");
   expect(guidance?.textContent).toContain("/tree");
   expect(guidance?.textContent).toContain("/settings");
+  expect(guidance?.textContent).toContain("/herdr-tree");
   expect(guidance?.textContent).toMatch(/terminal/i);
   expect(send).not.toHaveBeenCalled();
 });

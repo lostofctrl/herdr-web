@@ -81,6 +81,7 @@ test("hello advertises protocol version 1 and capabilities, then sends the snaps
     list_files: true,
     skills_catalog: true,
     conversation_snapshot: false,
+    session_tree_picker: true,
   });
 
   const state = await connection.next((record) => record.type === "state");

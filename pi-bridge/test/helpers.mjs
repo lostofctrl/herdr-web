@@ -85,9 +85,13 @@ export function createFakeExtension(options = {}) {
       confirm: async () => false,
       input: async () => undefined,
       notify: () => {},
+      ...(options.uiExtras ?? {}),
     },
+    ...(options.contextExtras ?? {}),
     isIdle: () => true,
   };
+
+  const commandsRegistered = new Map();
 
   const pi = {
     on(event, handler) {
@@ -98,6 +102,13 @@ export function createFakeExtension(options = {}) {
       return () => {};
     },
     ...(options.commands === null ? {} : { getCommands: () => commands }),
+    ...(options.registerCommand === false
+      ? {}
+      : {
+          registerCommand(name, commandOptions) {
+            commandsRegistered.set(name, commandOptions);
+          },
+        }),
     getThinkingLevel: () => currentThinking,
     async setModel(model) {
       calls.setModel.push(model);
@@ -142,7 +153,16 @@ export function createFakeExtension(options = {}) {
     }
   }
 
-  return { pi, ctx, calls, registered, emit };
+  /** Runs a command this extension registered, with the fake terminal context. */
+  async function runCommand(name, args = "", commandCtx = ctx) {
+    const command = commandsRegistered.get(name);
+    if (!command) {
+      throw new Error(`command ${name} is not registered`);
+    }
+    return command.handler(args, commandCtx);
+  }
+
+  return { pi, ctx, calls, registered, emit, runCommand, commands: commandsRegistered };
 }
 
 /** Minimal JSONL client for the per-pane Unix socket. */

@@ -100,6 +100,22 @@ strips the `skill:` prefix in `catalog.skills` and keeps those entries out of
 an empty list. Only a host without that method reports `skills_catalog: false` with a
 `skills_note`, and clients then show commands only.
 
+## Session tree picker
+
+`/herdr-tree` is an opt-in command the extension registers. Running it in the
+terminal publishes the current session tree to herdr-web (`tree_picker_open`,
+up to 200 entries, ids only) and waits; the card can answer with one of those
+ids (`tree_picker_answer`) or dismiss the picker (`tree_picker_cancel`). The
+command navigates with `ctx.navigateTree(id, { summarize: false })`, so it
+refuses to start or finish unless Pi is in interactive mode, is idle, has no
+queued messages, holds no editor draft, and its session id and leaf are
+unchanged. A new run or a session/tree/compaction change cancels the picker.
+
+Summaries and Pi's queued-message restoration stay in the terminal `/tree`
+picker, and an extension that awaits inside its own `session_before_tree` hook
+can still commit a stale target, so `/tree` remains the safe full picker.
+`session_tree_picker` in `hello` says whether the command is registered.
+
 ## Tests
 
 Seam 1: a fake extension API/context drives the real extension, and tests speak

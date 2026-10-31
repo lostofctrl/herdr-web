@@ -1,0 +1,118 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { createTreePicker, treePickerNodes, TREE_PICKER_LIMIT } from "../src/tree-picker.ts";
+
+function recordPublishes() {
+  const published = [];
+  return { published, publish: (view, outcome) => published.push({ view, outcome }) };
+}
+
+function node(entryId, role, text, children = [], extra = {}) {
+  return {
+    entry: {
+      type: "message",
+      id: entryId,
+      message: { role, content: text, ...extra },
+    },
+    children,
+  };
+}
+
+test("builds depth-first previews for message and non-message entries", () => {
+  const tree = [
+    node("a", "user", "first question", [
+      node("b", "assistant", "first answer", [node("c", "toolResult", "", [], { toolName: "read" })]),
+    ]),
+    { entry: { type: "label", id: "d" }, children: [] },
+  ];
+  const { nodes, omitted } = treePickerNodes(tree, { leafId: "b" });
+  assert.equal(omitted, 0);
+  assert.deepEqual(
+    nodes.map((entry) => [entry.entry_id, entry.depth, entry.current, entry.label]),
+    [
+      ["a", 0, false, "user: first question"],
+      ["b", 1, true, "assistant: first answer"],
+      ["c", 2, false, "[tool] read"],
+      ["d", 0, false, "[label]"],
+    ],
+  );
+});
+
+test("collapses whitespace and shortens long previews", () => {
+  const long = "line one\n\nline two ".repeat(20);
+  const tree = [node("a", "user", long)];
+  const [entry] = treePickerNodes(tree).nodes;
+  assert.equal(entry.label.includes("\n"), false);
+  assert.equal(entry.label.startsWith("user: line one line two"), true);
+  assert.equal(entry.label.length <= 100, true);
+});
+
+test("caps the published tree and reports how many entries were dropped", () => {
+  const tree = Array.from({ length: TREE_PICKER_LIMIT + 5 }, (_, index) => node(`n${index}`, "user", `m${index}`));
+  const { nodes, omitted } = treePickerNodes(tree);
+  assert.equal(nodes.length, TREE_PICKER_LIMIT);
+  assert.equal(omitted, 5);
+});
+
+test("publishes an open view and resolves only the matching answer", async () => {
+  const { published, publish } = recordPublishes();
+  const picker = createTreePicker(publish, { createId: () => "picker-1" });
+  const view = picker.open({ sessionId: "s1", leafId: "a", tree: [node("a", "user", "hi")] });
+  assert.equal(view?.id, "picker-1");
+  assert.equal(published.length, 1);
+  assert.equal(published[0].view.id, "picker-1");
+  assert.equal(picker.isOpen(), true);
+
+  const answer = picker.wait("picker-1");
+  assert.equal(picker.answer({ pickerId: "picker-1", entryId: "missing" }), false);
+  assert.equal(picker.answer({ pickerId: "other", entryId: "a" }), false);
+  assert.equal(picker.isOpen(), true);
+  assert.equal(picker.answer({ pickerId: "picker-1", entryId: "a" }), true);
+  assert.deepEqual(await answer, { entryId: "a" });
+  assert.equal(picker.isOpen(), false);
+  assert.deepEqual(published.at(-1), { view: null, outcome: "answered" });
+});
+
+test("ignores a second answer and a late cancel for the same picker", async () => {
+  const { publish } = recordPublishes();
+  const picker = createTreePicker(publish, { createId: () => "picker-2" });
+  picker.open({ sessionId: "s1", leafId: null, tree: [node("a", "user", "hi"), node("b", "user", "there")] });
+  const answer = picker.wait("picker-2");
+  assert.equal(picker.answer({ pickerId: "picker-2", entryId: "a" }), true);
+  assert.equal(picker.answer({ pickerId: "picker-2", entryId: "b" }), false);
+  assert.equal(picker.cancel("picker-2"), false);
+  assert.deepEqual(await answer, { entryId: "a" });
+});
+
+test("resolves a cancelled picker with null and closes it", async () => {
+  const { published, publish } = recordPublishes();
+  const picker = createTreePicker(publish, { createId: () => "picker-3" });
+  picker.open({ sessionId: "s1", leafId: null, tree: [node("a", "user", "hi")] });
+  const answer = picker.wait("picker-3");
+  assert.equal(picker.cancel("picker-3"), true);
+  assert.equal(await answer, null);
+  assert.deepEqual(published.at(-1), { view: null, outcome: "cancelled" });
+  assert.equal(picker.isOpen(), false);
+});
+
+test("refuses a second picker until the first is answered or cancelled", () => {
+  const { publish } = recordPublishes();
+  const picker = createTreePicker(publish, { createId: () => "picker-4" });
+  assert.ok(picker.open({ sessionId: "s1", leafId: null, tree: [node("a", "user", "hi")] }));
+  assert.equal(picker.open({ sessionId: "s1", leafId: null, tree: [node("a", "user", "hi")] }), null);
+  picker.cancel("picker-4");
+  assert.ok(picker.open({ sessionId: "s1", leafId: null, tree: [node("a", "user", "hi")] }));
+});
+
+test("stop cancels every pending picker once", async () => {
+  const { published, publish } = recordPublishes();
+  const picker = createTreePicker(publish, { createId: () => "picker-5" });
+  picker.open({ sessionId: "s1", leafId: null, tree: [node("a", "user", "hi")] });
+  const answer = picker.wait("picker-5");
+  picker.stop();
+  assert.equal(await answer, null);
+  assert.deepEqual(published.at(-1), { view: null, outcome: "cancelled" });
+  picker.stop();
+  assert.equal(published.filter((entry) => entry.view === null).length, 1);
+});

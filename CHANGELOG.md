@@ -6,6 +6,12 @@
 
 ### Added
 
+- Pi panes can open Pi's session tree from the phone: `/herdr-tree` in the terminal publishes
+  the current tree and the resulting card navigates the session when an entry is chosen. It is
+  bounded and summary-free — no summaries, no queued-message restoration, and it refuses to open
+  while Pi is busy, has queued messages, or holds an editor draft. `/tree` in the terminal stays
+  the full picker. Older Pi Bridges do not advertise the command, so the card stays hidden.
+
 - Back and forward controls in the tab bar navigate recently visited tabs across spaces and bridges; history is saved in the browser.
 
 - Pi Side Panel buttons can be pinned and customized with built-in actions or literal prompts,
