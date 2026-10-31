@@ -16,7 +16,7 @@ it("sends the Kitty-compatible Alt+C key sequence for chat log", async () => {
     await act(async () => root.render(<PiSidePanel bridgeId="bridge" paneId="pane" disabled={false} onSend={send} />));
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Toggle Pi Side Panel"]')!.click());
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Open chat log"]')!.click());
-    expect(send).toHaveBeenCalledWith(["\x1b[99;3u"]);
+    expect(send).toHaveBeenCalledWith(["\x1b[99;3u"], expect.any(Function));
   } finally {
     await act(async () => root.unmount());
     container.remove();

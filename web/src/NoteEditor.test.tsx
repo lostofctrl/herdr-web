@@ -391,6 +391,57 @@ describe("NoteEditor autosave conflicts", () => {
 });
 
 describe("NoteEditor actions", () => {
+  it("pastes an image into the owning bridge and autosaves its reference", async () => {
+    const onSave = vi.fn(() => Promise.resolve(6));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "image-1.png" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { container, render } = createEditorHarness(onSave);
+    await render(noteEntry({ revision: 5, body: "Text" }));
+    const file = new File(["image"], "image.png", { type: "image/png" });
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", { value: { items: [], files: [file] } });
+    await act(async () => {
+      noteBodyInput(container).dispatchEvent(event);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(event.defaultPrevented).toBe(true);
+    expect(fetchMock.mock.calls[0][0]).toBe("http://bridge-a/api/note-images");
+    expect(noteBodyInput(container).value).toBe("Text\n![Image](/api/note-images/image-1.png)\n");
+    await act(async () => { await vi.advanceTimersByTimeAsync(700); });
+    expect(onSave).toHaveBeenCalledWith(expect.anything(), "Server title", "Text\n![Image](/api/note-images/image-1.png)\n", 5);
+  });
+
+  it("preserves the note and reports when image storage is full", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("", { status: 507 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { container, render } = createEditorHarness(vi.fn(() => Promise.resolve(6)));
+    await render(noteEntry({ revision: 5, body: "Keep this text" }));
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(fileInput, "files", { value: [new File(["a"], "a.png", { type: "image/png" }), new File(["b"], "b.png", { type: "image/png" })] });
+    await act(async () => {
+      fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(noteBodyInput(container).value).toBe("Keep this text");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("storage is full");
+  });
+
+  it("does not insert an upload into a different note after switching", async () => {
+    let resolveUpload!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { resolveUpload = resolve; })));
+    const { container, render } = createEditorHarness(vi.fn(() => Promise.resolve(6)));
+    await render(noteEntry({ noteId: "first", revision: 5, body: "first" }));
+    const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(fileInput, "files", { value: [new File(["a"], "a.png", { type: "image/png" })] });
+    await act(async () => fileInput.dispatchEvent(new Event("change", { bubbles: true })));
+    await render(noteEntry({ noteId: "second", revision: 5, body: "second" }));
+    await act(async () => { resolveUpload(new Response(JSON.stringify({ id: "image-1.png" }), { status: 200 })); });
+    expect(noteBodyInput(container).value).toBe("second");
+  });
+
   it("renders markdown preview and persists the selected editor mode", async () => {
     const onSave = vi.fn(() => Promise.resolve(6));
     const { container, render } = createEditorHarness(onSave);
@@ -617,6 +668,7 @@ function noteEntry({
     bridgeIndex: 0,
     bridgeLabel: "Bridge A",
     bridgeColor: "#89b4fa",
+    httpUrl: (path) => `http://bridge-a${path}`,
     snapshot: null,
     note: {
       note_id: noteId,

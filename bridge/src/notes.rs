@@ -210,6 +210,10 @@ enum GenerationConfidence {
 }
 
 impl NotesManager {
+    pub(crate) fn note_images_dir(&self) -> PathBuf {
+        self.notes_path.parent().expect("notes path has a parent").join("note-images")
+    }
+
     pub fn new() -> io::Result<Self> {
         let notes_dir = default_notes_dir();
         ensure_private_dir(&notes_dir)?;

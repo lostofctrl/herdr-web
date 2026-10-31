@@ -1,5 +1,8 @@
 import type { ReactNode } from "react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  AtSign, Blocks, Brain, ChevronLeft, CornerDownLeft, Cpu, History, ImagePlus, Keyboard, SquareSlash, SquareTerminal,
+} from "lucide-react";
 import { PI_QUICK_ACTIONS, piQuickActionParts } from "../pi/sidepanel/piQuickActions";
 import { PiModelPicker } from "./PiModelPicker";
 import type { PiComposerProps } from "./PiComposer";
@@ -153,36 +156,36 @@ export function PiComposerHelpers({ api, tools, onAttach, onHistory, onQuickActi
           if (next !== null) { event.preventDefault(); buttons[next]?.focus(); }
         }}>
         {view === "root" ? <>
-        {([ ["slash", "/ Commands and skills"], ["file", "@ Files and paths"], ["shell", "! Shell command"] ] as const).map(([kind, label]) => (
+        {([ ["slash", "/ Commands and skills", SquareSlash], ["file", "@ Files and paths", AtSign], ["shell", "! Shell command", SquareTerminal] ] as const).map(([kind, label, Icon]) => (
           <button key={kind} type="button" role="menuitem" tabIndex={-1} data-helper={kind}
-            disabled={authoringBlocked} onClick={() => onPick(kind)}>{label}</button>
+            disabled={authoringBlocked} onClick={() => onPick(kind)}><Icon size={16} aria-hidden="true" />{label}</button>
         ))}
-        {onAttach ? <button type="button" role="menuitem" tabIndex={-1} aria-label="Attach image" disabled={disabled} onClick={onAttach}>Attach image</button> : null}
-        <button type="button" role="menuitem" tabIndex={-1} aria-label="Open prompt history" disabled={disabled} onClick={onHistory}>History</button>
+        {onAttach ? <button type="button" role="menuitem" tabIndex={-1} aria-label="Attach image" disabled={disabled} onClick={onAttach}><ImagePlus size={16} aria-hidden="true" />Attach image</button> : null}
+        <button type="button" role="menuitem" tabIndex={-1} aria-label="Open prompt history" disabled={disabled} onClick={onHistory}><History size={16} aria-hidden="true" />History</button>
         <button type="button" role="menuitem" tabIndex={-1} aria-label="Browse commands and skills"
-          disabled={authoringBlocked || !online || !api?.catalog} onClick={() => { returnFocusRef.current = "Browse commands and skills"; setView("catalog"); }}>Browse commands and skills</button>
+          disabled={authoringBlocked || !online || !api?.catalog} onClick={() => { returnFocusRef.current = "Browse commands and skills"; setView("catalog"); }}><Blocks size={16} aria-hidden="true" />Browse commands and skills</button>
         <button type="button" role="menuitem" tabIndex={-1} aria-label="Choose Pi model"
-          disabled={authoringBlocked || !online || !api?.state || api.state.busy !== "idle"} onClick={() => { returnFocusRef.current = "Choose Pi model"; setView("model"); }}>Model</button>
+          disabled={authoringBlocked || !online || !api?.state || api.state.busy !== "idle"} onClick={() => { returnFocusRef.current = "Choose Pi model"; setView("model"); }}><Cpu size={16} aria-hidden="true" />Model</button>
         <button type="button" role="menuitem" tabIndex={-1} aria-label="Choose Pi thinking level"
           disabled={authoringBlocked || !online || !api?.state?.thinking_levels.length || api.state.busy !== "idle"}
-          onClick={() => { returnFocusRef.current = "Choose Pi thinking level"; setView("thinking"); }}>Thinking level</button>
-        {PI_QUICK_ACTIONS.map(({ label, title, command }) => <button key={label} type="button" role="menuitem" tabIndex={-1}
+          onClick={() => { returnFocusRef.current = "Choose Pi thinking level"; setView("thinking"); }}><Brain size={16} aria-hidden="true" />Thinking level</button>
+        {PI_QUICK_ACTIONS.map(({ label, title, command, icon: Icon }) => <button key={label} type="button" role="menuitem" tabIndex={-1}
           aria-label={label} disabled={disabled || authoringBlocked || (command !== null && (!online || api?.state?.busy !== "idle"))}
-          onClick={() => quickAction(piQuickActionParts(command))}>{title}</button>)}
+          onClick={() => quickAction(piQuickActionParts(command))}><Icon size={16} aria-hidden="true" />{title}</button>)}
         {tools ? <button type="button" role="menuitem" tabIndex={-1} aria-label="Terminal keys and Reader"
-          onClick={() => { returnFocusRef.current = "Terminal keys and Reader"; setView("tools"); }}>Terminal keys and Reader</button> : null}
+          onClick={() => { returnFocusRef.current = "Terminal keys and Reader"; setView("tools"); }}><Keyboard size={16} aria-hidden="true" />Terminal keys and Reader</button> : null}
         {actionRecovery ? <button type="button" role="menuitem" tabIndex={-1} aria-label="Submit pending Pi action"
-          disabled={disabled || actionPending} onClick={() => quickAction(["\r"])}>Submit pending action</button> : null}
+          disabled={disabled || actionPending} onClick={() => quickAction(["\r"])}><CornerDownLeft size={16} aria-hidden="true" />Submit pending action</button> : null}
         {actionPending ? <p role="status">Sending Pi action…</p> : null}
         </> : view === "tools" ? <>
-          <button type="button" aria-label="Back to Composer helpers" onClick={() => setView("root")}>Back</button>
+          <button type="button" aria-label="Back to Composer helpers" onClick={() => setView("root")}><ChevronLeft size={16} aria-hidden="true" />Back</button>
           {tools}
         </> : view === "model" ? <>
-          <button type="button" aria-label="Back to Composer helpers" onClick={() => setView("root")}>Back</button>
+          <button type="button" aria-label="Back to Composer helpers" onClick={() => setView("root")}><ChevronLeft size={16} aria-hidden="true" />Back</button>
           <PiModelPicker api={api} disabled={disabled || api?.state?.busy !== "idle"} embedded open
             onOpenChange={(next) => { if (!next) closeAndFocus(); }} />
         </> : view === "thinking" ? <>
-          <button type="button" aria-label="Back to Composer helpers" onClick={() => setView("root")}>Back</button>
+          <button type="button" aria-label="Back to Composer helpers" onClick={() => setView("root")}><ChevronLeft size={16} aria-hidden="true" />Back</button>
           {api?.state?.thinking_levels.map((level) => <button type="button" key={level}
             aria-label={`Use thinking level ${level}`} aria-pressed={api.state?.thinking_level === level}
             disabled={pending || !online || disabled || api.state?.busy !== "idle"}
@@ -203,7 +206,7 @@ export function PiComposerHelpers({ api, tools, onAttach, onHistory, onQuickActi
             }}>{level}</button>)}
           {pending ? <p role="status">Changing thinking level…</p> : null}
         </> : <>
-          <button type="button" aria-label="Back to Composer helpers" onClick={() => setView("root")}>Back</button>
+          <button type="button" aria-label="Back to Composer helpers" onClick={() => setView("root")}><ChevronLeft size={16} aria-hidden="true" />Back</button>
           <input type="search" aria-label="Search commands and skills" placeholder="Search name, description, source"
             value={query} onChange={(event) => setQuery(event.target.value)} />
           {api?.catalog?.skills_note ? <p role="note">{api.catalog.skills_note}</p> : api?.capabilities.skills_catalog !== true ? <p role="note">Skills are unavailable on this Pi Bridge; commands remain available.</p> : null}

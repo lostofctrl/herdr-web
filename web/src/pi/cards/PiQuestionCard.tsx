@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { PiBridgeApi } from "../PiBridgeContext";
@@ -32,6 +33,7 @@ function questionLabel(question: PiQuestion): string {
 export function PiQuestionCard({ dialog, answerDialog }: QuestionCardProps) {
   const questions = useMemo(() => dialog.questions ?? [], [dialog.questions]);
   const [answers, setAnswers] = useState<AnswerState[]>(() => initialAnswers(questions));
+  const [collapsed, setCollapsed] = useState(false);
   const [sending, setSending] = useState<"answer" | "cancel" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const complete = questions.length > 0 && questions.every((question, index) => answerIsComplete(question, answers[index]));
@@ -106,8 +108,19 @@ export function PiQuestionCard({ dialog, answerDialog }: QuestionCardProps) {
   }
 
   return (
-    <section className="pi-question-card" data-pi-question-card="true" aria-label="Pi question">
+    <section className="pi-question-card" data-pi-question-card="true" data-collapsed={collapsed} aria-label="Pi question">
       <div className="pi-question-card-head">
+        <button
+          className="pi-question-collapse"
+          type="button"
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? "Show question" : "Collapse question"}
+          title={collapsed ? "Show question" : "Collapse question"}
+          onClick={() => setCollapsed((current) => !current)}
+        >
+          {collapsed ? <ChevronDown size={18} aria-hidden="true" /> : <ChevronUp size={18} aria-hidden="true" />}
+        </button>
+        {!collapsed ? <>
         <h2 className="pi-question-card-title">Pi is asking</h2>
         <span className="pi-question-card-count">
           {questions.length} {questions.length === 1 ? "question" : "questions"}
@@ -120,7 +133,9 @@ export function PiQuestionCard({ dialog, answerDialog }: QuestionCardProps) {
         >
           Cancel
         </button>
+        </> : null}
       </div>
+      {!collapsed ? <>
       {questions.map((question, questionIndex) => {
         const answer = answers[questionIndex];
         return (
@@ -175,6 +190,7 @@ export function PiQuestionCard({ dialog, answerDialog }: QuestionCardProps) {
           Send answer
         </button>
       </div>
+      </> : null}
     </section>
   );
 }

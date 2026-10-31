@@ -15,6 +15,11 @@
   box-shadow: 0 8px 24px #0006;
 }
 
+.pi-dialog-cards:has(.pi-question-card:only-child[data-collapsed="true"]) {
+  width: max-content;
+  max-width: calc(100% - 16px);
+}
+
 .pi-dialog-notice {
   position: absolute;
   z-index: 9;
@@ -31,6 +36,19 @@
   flex-direction: column;
   gap: 10px;
   padding: 10px max(10px, env(safe-area-inset-right)) 12px max(10px, env(safe-area-inset-left));
+}
+
+.pi-question-card[data-collapsed="true"] {
+  padding: 0;
+}
+
+.pi-question-collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
 }
 
 .pi-question-card-head {

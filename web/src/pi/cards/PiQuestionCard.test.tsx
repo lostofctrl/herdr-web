@@ -178,6 +178,33 @@ async function type(element: Element, value: string) {
 }
 
 describe("PiQuestionCards (Seam 3)", () => {
+  it("collapses without answering and restores the unfinished answers", async () => {
+    const { container, pi } = await renderCards();
+    await openQuestion(pi);
+    await click(button(container, "Stack"));
+    const field = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Free-text answer for Surfaces"]')!;
+    await type(field, "Tablet");
+
+    const collapse = container.querySelector<HTMLButtonElement>('button[aria-label="Collapse question"]')!;
+    expect(collapse.getAttribute("aria-expanded")).toBe("true");
+    expect(collapse.querySelector("svg")).not.toBeNull();
+    await click(collapse);
+    expect(container.textContent).not.toContain("Which layout should the card use?");
+    expect(sentRecords(pi).filter((record) => record.type === "dialog_answer")).toHaveLength(0);
+    const expand = container.querySelector<HTMLButtonElement>('button[aria-label="Show question"]')!;
+    expect(expand.getAttribute("aria-expanded")).toBe("false");
+    expect(expand.querySelector("svg")).not.toBeNull();
+
+    await click(expand);
+    expect(button(container, "Stack").getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Free-text answer for Surfaces"]')?.value).toBe("Tablet");
+    await click(button(container, "Send answer"));
+    expect(sentRecords(pi).find((record) => record.type === "dialog_answer")).toMatchObject({
+      dialog_id: "tool-1",
+      value: { answers: [{ questionIndex: 0, optionIndexes: [0] }, { questionIndex: 1, text: "Tablet" }] },
+    });
+  });
+
   it("renders questions, descriptions, previews and sends a single-select answer", async () => {
     const { container, pi } = await renderCards();
     await openQuestion(pi);
