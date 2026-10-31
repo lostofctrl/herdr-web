@@ -34,6 +34,10 @@ _Avoid_: Key picker
 A touch-native rendering of a blocking Pi question or dialog that the user can answer instead of driving the terminal dialog.
 _Avoid_: Popup, modal, toast
 
+**Session Tree Card**:
+The touch-native rendering of a pending session tree picker in a Pi Pane.
+_Avoid_: Tree popup, session browser
+
 **Reader Sheet**:
 A pull-up view showing the latest assistant message as selectable, copyable text.
 _Avoid_: Transcript, chat view
@@ -43,6 +47,10 @@ The collapsible surface holding the model and thinking picker, the command and s
 _Avoid_: Sidebar (already means the Herdr workspace list)
 
 ### Pi integration
+
+**Published Tree**:
+The bounded set of session tree rows carried by a pending picker.
+_Avoid_: Full session history, complete tree
 
 **Pi Bridge**:
 The extension running inside a Pi Pane's Pi process that publishes Pi State and accepts actions and dialog answers from herdr-web.

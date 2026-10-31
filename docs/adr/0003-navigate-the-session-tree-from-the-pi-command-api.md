@@ -1,5 +1,9 @@
 # Navigate the session tree from the Pi command API, guarded, and keep `/tree` as the full picker
 
+Status: accepted
+
+Spec: [Session Tree Card (#22)](https://github.com/lostofctrl/herdr-web/issues/22)
+
 A Session Tree Card must let the phone choose a Pi session-tree entry while the terminal stays
 authoritative. Pi's built-in `/tree` picker cannot be driven from outside: it owns its own rendering,
 its summary flow and its queued-message restoration, and no extension API opens it.
