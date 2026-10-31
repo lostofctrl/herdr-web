@@ -40,8 +40,14 @@ type ProbeResult = Option<GitStatus>;
 type Receiver = watch::Receiver<Option<ProbeResult>>;
 
 enum Entry {
-    Pending { receiver: Receiver, previous: Option<(ProbeResult, Instant)> },
-    Ready { value: ProbeResult, expires: Instant },
+    Pending {
+        receiver: Receiver,
+        previous: Option<(ProbeResult, Instant)>,
+    },
+    Ready {
+        value: ProbeResult,
+        expires: Instant,
+    },
 }
 
 #[derive(Clone)]
@@ -62,14 +68,27 @@ impl Default for GitStatusCache {
 impl GitStatusCache {
     /// Return a recent cached result immediately and schedule a refresh if needed.
     pub(crate) fn cached_or_refresh(&self, path: &Path) -> ProbeResult {
-        let cached = self.entries.lock().ok().and_then(|entries| match entries.get(path) {
-            Some(Entry::Ready { value, expires }) if *expires + Duration::from_secs(30) > Instant::now() => value.clone(),
-            Some(Entry::Pending { previous: Some((value, stale_until)), .. }) if *stale_until > Instant::now() => value.clone(),
-            _ => None,
-        });
+        let cached = self
+            .entries
+            .lock()
+            .ok()
+            .and_then(|entries| match entries.get(path) {
+                Some(Entry::Ready { value, expires })
+                    if *expires + Duration::from_secs(30) > Instant::now() =>
+                {
+                    value.clone()
+                }
+                Some(Entry::Pending {
+                    previous: Some((value, stale_until)),
+                    ..
+                }) if *stale_until > Instant::now() => value.clone(),
+                _ => None,
+            });
         let cache = self.clone();
         let path = path.to_owned();
-        tokio::spawn(async move { let _ = cache.get(&path).await; });
+        tokio::spawn(async move {
+            let _ = cache.get(&path).await;
+        });
         cached
     }
 
@@ -88,7 +107,9 @@ impl GitStatusCache {
                 Some(Entry::Pending { receiver, .. }) => receiver.clone(),
                 existing => {
                     let previous = match existing {
-                        Some(Entry::Ready { value, expires }) => Some((value.clone(), *expires + Duration::from_secs(30))),
+                        Some(Entry::Ready { value, expires }) => {
+                            Some((value.clone(), *expires + Duration::from_secs(30)))
+                        }
                         _ => None,
                     };
                     if previous.is_none() && entries.len() >= MAX_ENTRIES {
@@ -96,7 +117,13 @@ impl GitStatusCache {
                     }
                     let permit = self.permits.clone().try_acquire_owned().ok()?;
                     let (sender, receiver) = watch::channel(None);
-                    entries.insert(path.to_owned(), Entry::Pending { receiver: receiver.clone(), previous });
+                    entries.insert(
+                        path.to_owned(),
+                        Entry::Pending {
+                            receiver: receiver.clone(),
+                            previous,
+                        },
+                    );
                     let path = path.to_owned();
                     let cache = self.clone();
                     tokio::spawn(async move {
@@ -105,13 +132,20 @@ impl GitStatusCache {
                             // Keep the permit until the blocking worker really exits.
                             let _permit = permit;
                             probe(&probe_path)
-                        }).await.ok().flatten();
+                        })
+                        .await
+                        .ok()
+                        .flatten();
                         if let Ok(mut entries) = cache.entries.lock() {
                             // Do not retain a sender in the map: receivers must wake even
                             // if the task fails before publishing a result.
-                            entries.insert(path, Entry::Ready {
-                                value: result.clone(), expires: Instant::now() + CACHE_TTL,
-                            });
+                            entries.insert(
+                                path,
+                                Entry::Ready {
+                                    value: result.clone(),
+                                    expires: Instant::now() + CACHE_TTL,
+                                },
+                            );
                         }
                         let _ = sender.send(Some(result));
                     });
@@ -136,40 +170,76 @@ fn probe(path: &Path) -> ProbeResult {
     if !status.success() || output.trim() != "true" {
         return None;
     }
-    let (status, output) = git(path, &["symbolic-ref", "--quiet", "--short", "HEAD"], deadline)?;
+    let (status, output) = git(
+        path,
+        &["symbolic-ref", "--quiet", "--short", "HEAD"],
+        deadline,
+    )?;
     let branch = if status.success() {
         let name = output.trim_end_matches('\n');
-        if name.is_empty() { return None; }
+        if name.is_empty() {
+            return None;
+        }
         Some(name.to_owned())
     } else if status.code() == Some(1) {
         None
     } else {
         return None;
-    }; 
+    };
     let ahead_behind = if branch.is_some() {
-        git(path, &["rev-list", "--left-right", "--count", "HEAD...@{upstream}"], deadline)
-            .and_then(|(status, output)| {
-                if !status.success() { return None; }
-                let mut parts = output.split_whitespace();
-                let ahead = parts.next()?.parse().ok()?;
-                let behind = parts.next()?.parse().ok()?;
-                if parts.next().is_some() { return None; }
-                Some((ahead, behind))
-            })
-    } else { None };
-    Some(GitStatus { branch, ahead_behind })
+        git(
+            path,
+            &["rev-list", "--left-right", "--count", "HEAD...@{upstream}"],
+            deadline,
+        )
+        .and_then(|(status, output)| {
+            if !status.success() {
+                return None;
+            }
+            let mut parts = output.split_whitespace();
+            let ahead = parts.next()?.parse().ok()?;
+            let behind = parts.next()?.parse().ok()?;
+            if parts.next().is_some() {
+                return None;
+            }
+            Some((ahead, behind))
+        })
+    } else {
+        None
+    };
+    Some(GitStatus {
+        branch,
+        ahead_behind,
+    })
 }
 
-fn git(path: &Path, args: &[&str], deadline: Instant) -> Option<(std::process::ExitStatus, String)> {
-    if Instant::now() >= deadline { return None; }
+fn git(
+    path: &Path,
+    args: &[&str],
+    deadline: Instant,
+) -> Option<(std::process::ExitStatus, String)> {
+    if Instant::now() >= deadline {
+        return None;
+    }
     let mut command = Command::new("git");
-    command.args(args).current_dir(path).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    command
+        .args(args)
+        .current_dir(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
     // Do not allow inherited GIT_DIR, GIT_WORK_TREE, config injection, etc. to
     // redirect this request away from its supplied directory.
     for (key, _) in std::env::vars_os() {
-        if key.to_string_lossy().starts_with("GIT_") { command.env_remove(key); }
+        if key.to_string_lossy().starts_with("GIT_") {
+            command.env_remove(key);
+        }
     }
-    command.env("GIT_OPTIONAL_LOCKS", "0").env("GIT_TERMINAL_PROMPT", "0").env("GIT_PAGER", "cat").env("LC_ALL", "C");
+    command
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_PAGER", "cat")
+        .env("LC_ALL", "C");
     let mut child = command.spawn().ok()?;
     loop {
         match child.try_wait() {
@@ -200,7 +270,10 @@ mod tests {
             let path = std::env::temp_dir().join(format!(
                 "herdr-git-status-{}-{}-{}",
                 std::process::id(),
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos(),
                 NEXT.fetch_add(1, Ordering::Relaxed),
             ));
             std::fs::create_dir(&path).unwrap();
@@ -214,31 +287,53 @@ mod tests {
         fn git(&self, args: &[&str]) {
             let mut command = Command::new("git");
             for (key, _) in std::env::vars_os() {
-                if key.to_string_lossy().starts_with("GIT_") { command.env_remove(key); }
+                if key.to_string_lossy().starts_with("GIT_") {
+                    command.env_remove(key);
+                }
             }
-            let output = command.args(args).current_dir(&self.0)
+            let output = command
+                .args(args)
+                .current_dir(&self.0)
                 .env("GIT_CONFIG_NOSYSTEM", "1")
                 .env("GIT_CONFIG_GLOBAL", self.0.join("no-global-config"))
                 .env("GIT_TERMINAL_PROMPT", "0")
-                .output().unwrap();
-            assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
-        fn commit(&self) { self.git(&["commit", "--allow-empty", "-m", "test"]); }
+        fn commit(&self) {
+            self.git(&["commit", "--allow-empty", "-m", "test"]);
+        }
     }
     impl Drop for Repo {
-        fn drop(&mut self) { std::fs::remove_dir_all(&self.0).unwrap(); }
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).unwrap();
+        }
     }
 
     #[tokio::test]
     async fn expired_entry_remains_visible_while_refresh_is_pending() {
         let cache = GitStatusCache::default();
         let path = PathBuf::from("/temporary-git-cache-test");
-        let status = GitStatus { branch: Some("main".into()), ahead_behind: None };
+        let status = GitStatus {
+            branch: Some("main".into()),
+            ahead_behind: None,
+        };
         let (_sender, receiver) = watch::channel(None);
-        cache.entries.lock().unwrap().insert(path.clone(), Entry::Pending {
-            receiver,
-            previous: Some((Some(status.clone()), Instant::now() + Duration::from_secs(10))),
-        });
+        cache.entries.lock().unwrap().insert(
+            path.clone(),
+            Entry::Pending {
+                receiver,
+                previous: Some((
+                    Some(status.clone()),
+                    Instant::now() + Duration::from_secs(10),
+                )),
+            },
+        );
         assert_eq!(cache.cached_or_refresh(&path), Some(status));
     }
 
@@ -246,11 +341,23 @@ mod tests {
     async fn refreshing_another_path_does_not_evict_stale_status() {
         let cache = GitStatusCache::default();
         let path = PathBuf::from("/temporary-stale-git-status");
-        let status = GitStatus { branch: Some("main".into()), ahead_behind: None };
-        cache.entries.lock().unwrap().insert(path.clone(), Entry::Ready {
-            value: Some(status.clone()), expires: Instant::now() - Duration::from_secs(1),
-        });
-        let _permits = cache.permits.clone().acquire_many_owned(MAX_PROBES as u32).await.unwrap();
+        let status = GitStatus {
+            branch: Some("main".into()),
+            ahead_behind: None,
+        };
+        cache.entries.lock().unwrap().insert(
+            path.clone(),
+            Entry::Ready {
+                value: Some(status.clone()),
+                expires: Instant::now() - Duration::from_secs(1),
+            },
+        );
+        let _permits = cache
+            .permits
+            .clone()
+            .acquire_many_owned(MAX_PROBES as u32)
+            .await
+            .unwrap();
         assert_eq!(cache.get(Path::new("/another-git-path")).await, None);
         assert_eq!(cache.cached_or_refresh(&path), Some(status));
     }
@@ -259,7 +366,13 @@ mod tests {
     async fn branch_upstream_detached_and_cache() {
         let repo = Repo::new();
         let cache = GitStatusCache::default();
-        assert_eq!(cache.get(&repo.0).await, Some(GitStatus { branch: Some("main".into()), ahead_behind: None }));
+        assert_eq!(
+            cache.get(&repo.0).await,
+            Some(GitStatus {
+                branch: Some("main".into()),
+                ahead_behind: None
+            })
+        );
         repo.commit();
         repo.git(&["branch", "upstream"]);
         repo.commit();
@@ -268,13 +381,22 @@ mod tests {
         repo.git(&["checkout", "main"]);
         repo.git(&["branch", "--set-upstream-to", "upstream"]);
         let fresh = GitStatusCache::default();
-        let expected = Some(GitStatus { branch: Some("main".into()), ahead_behind: Some((1, 1)) });
+        let expected = Some(GitStatus {
+            branch: Some("main".into()),
+            ahead_behind: Some((1, 1)),
+        });
         let (first, second) = tokio::join!(fresh.get(&repo.0), fresh.get(&repo.0));
         assert_eq!(first, expected);
         assert_eq!(second, expected);
         repo.git(&["checkout", "--detach"]);
         assert_eq!(fresh.get(&repo.0).await, expected);
-        assert_eq!(GitStatusCache::default().get(&repo.0).await, Some(GitStatus { branch: None, ahead_behind: None }));
+        assert_eq!(
+            GitStatusCache::default().get(&repo.0).await,
+            Some(GitStatus {
+                branch: None,
+                ahead_behind: None
+            })
+        );
     }
 
     #[tokio::test]
@@ -285,7 +407,13 @@ mod tests {
         let cache = GitStatusCache::default();
         assert_eq!(cache.get(Path::new("relative")).await, None);
         assert_eq!(cache.get(&repo.0.join("missing")).await, None);
-        assert_eq!(cache.get(&nested).await, Some(GitStatus { branch: Some("main".into()), ahead_behind: None }));
+        assert_eq!(
+            cache.get(&nested).await,
+            Some(GitStatus {
+                branch: Some("main".into()),
+                ahead_behind: None
+            })
+        );
         repo.git(&["init", "--bare", "bare.git"]);
         assert_eq!(cache.get(&repo.0.join("bare.git")).await, None);
     }
@@ -296,7 +424,19 @@ mod tests {
         repo.commit();
         repo.git(&["worktree", "add", "-b", "linked", "linked"]);
         let cache = GitStatusCache::default();
-        assert_eq!(cache.get(&repo.0).await, Some(GitStatus { branch: Some("main".into()), ahead_behind: None }));
-        assert_eq!(cache.get(&repo.0.join("linked")).await, Some(GitStatus { branch: Some("linked".into()), ahead_behind: None }));
+        assert_eq!(
+            cache.get(&repo.0).await,
+            Some(GitStatus {
+                branch: Some("main".into()),
+                ahead_behind: None
+            })
+        );
+        assert_eq!(
+            cache.get(&repo.0.join("linked")).await,
+            Some(GitStatus {
+                branch: Some("linked".into()),
+                ahead_behind: None
+            })
+        );
     }
 }

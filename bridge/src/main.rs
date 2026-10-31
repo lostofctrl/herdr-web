@@ -1,12 +1,12 @@
 mod agent_activity;
 mod agent_pins;
 mod git_status;
-mod sidebar_config;
 mod launcher_presets;
-mod notes;
 mod note_images;
+mod notes;
 mod pi_sidepanel_buttons;
 mod session;
+mod sidebar_config;
 mod store_util;
 mod web_bridge;
 mod websocket_heartbeat;

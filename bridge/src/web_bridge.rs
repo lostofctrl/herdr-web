@@ -3092,15 +3092,28 @@ async fn snapshot_handler(
     if let Ok(Ok(overrides)) = tokio::time::timeout(
         Duration::from_millis(200),
         tokio::task::spawn_blocking(crate::sidebar_config::load_sidebar_overrides),
-    ).await {
+    )
+    .await
+    {
         snapshot.agent_rows_by_agent = overrides.rows_by_agent;
     }
-    static GIT_CACHE: std::sync::OnceLock<crate::git_status::GitStatusCache> = std::sync::OnceLock::new();
+    static GIT_CACHE: std::sync::OnceLock<crate::git_status::GitStatusCache> =
+        std::sync::OnceLock::new();
     let cache = GIT_CACHE.get_or_init(Default::default);
     for workspace in &mut snapshot.workspaces {
         // Prefer the daemon's checkout identity; pane cwd is only an approximation.
-        let path = workspace.info.worktree.as_ref().map(|worktree| worktree.checkout_path.as_str())
-            .or_else(|| snapshot.panes.iter().find(|pane| pane.workspace_id == workspace.info.workspace_id).and_then(|pane| pane.cwd.as_deref()));
+        let path = workspace
+            .info
+            .worktree
+            .as_ref()
+            .map(|worktree| worktree.checkout_path.as_str())
+            .or_else(|| {
+                snapshot
+                    .panes
+                    .iter()
+                    .find(|pane| pane.workspace_id == workspace.info.workspace_id)
+                    .and_then(|pane| pane.cwd.as_deref())
+            });
         if let Some(path) = path {
             workspace.git_status = cache.cached_or_refresh(Path::new(path));
         }
@@ -3181,25 +3194,40 @@ async fn capabilities_handler(
 
 fn note_image_routes() -> Router<BridgeState> {
     Router::new()
-        .route("/api/note-images", post(note_image_upload).options(preflight_handler))
-        .route("/api/note-images/{id}", get(note_image_get).options(preflight_handler))
+        .route(
+            "/api/note-images",
+            post(note_image_upload).options(preflight_handler),
+        )
+        .route(
+            "/api/note-images/{id}",
+            get(note_image_get).options(preflight_handler),
+        )
 }
 
 async fn note_image_upload(State(state): State<BridgeState>, request: AxumRequest) -> Response {
     if let Err(error) = ensure_allowed_request(request.headers(), &state.request_policy) {
         return error.into_response();
     }
-    let body = match axum::body::to_bytes(request.into_body(), crate::note_images::MAX_BYTES).await {
+    let body = match axum::body::to_bytes(request.into_body(), crate::note_images::MAX_BYTES).await
+    {
         Ok(body) => body,
         Err(_) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
     };
     if crate::note_images::image_type(&body).is_none() {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "unsupported image format"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "unsupported image format"})),
+        )
+            .into_response();
     }
     let path = state.notes.note_images_dir();
     match tokio::task::spawn_blocking(move || crate::note_images::save(&path, &body)).await {
         Ok(Ok(id)) => Json(serde_json::json!({"id": id})).into_response(),
-        Ok(Err(crate::note_images::SaveError::QuotaExceeded)) => (StatusCode::INSUFFICIENT_STORAGE, Json(serde_json::json!({"error": "note image storage quota exceeded"}))).into_response(),
+        Ok(Err(crate::note_images::SaveError::QuotaExceeded)) => (
+            StatusCode::INSUFFICIENT_STORAGE,
+            Json(serde_json::json!({"error": "note image storage quota exceeded"})),
+        )
+            .into_response(),
         Ok(Err(crate::note_images::SaveError::Io(error))) => {
             warn!(%error, "failed to store note image");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
@@ -3208,17 +3236,37 @@ async fn note_image_upload(State(state): State<BridgeState>, request: AxumReques
     }
 }
 
-async fn note_image_get(State(state): State<BridgeState>, AxumPath(id): AxumPath<String>, headers: HeaderMap) -> Response {
+async fn note_image_get(
+    State(state): State<BridgeState>,
+    AxumPath(id): AxumPath<String>,
+    headers: HeaderMap,
+) -> Response {
     if let Err(error) = ensure_allowed_request(&headers, &state.request_policy) {
         return error.into_response();
     }
     let path = state.notes.note_images_dir();
     match tokio::task::spawn_blocking(move || crate::note_images::load(&path, &id)).await {
         Ok(Ok(bytes)) => {
-            let content_type = crate::note_images::image_type(&bytes).expect("loaded images are validated");
-            ([(axum::http::header::CONTENT_TYPE, content_type), (HeaderName::from_static("x-content-type-options"), "nosniff")], bytes).into_response()
+            let content_type =
+                crate::note_images::image_type(&bytes).expect("loaded images are validated");
+            (
+                [
+                    (axum::http::header::CONTENT_TYPE, content_type),
+                    (HeaderName::from_static("x-content-type-options"), "nosniff"),
+                ],
+                bytes,
+            )
+                .into_response()
         }
-        Ok(Err(error)) if error.kind() == ErrorKind::NotFound || matches!(error.raw_os_error(), Some(libc::ELOOP) | Some(libc::ENOTDIR)) => StatusCode::NOT_FOUND.into_response(),
+        Ok(Err(error))
+            if error.kind() == ErrorKind::NotFound
+                || matches!(
+                    error.raw_os_error(),
+                    Some(libc::ELOOP) | Some(libc::ENOTDIR)
+                ) =>
+        {
+            StatusCode::NOT_FOUND.into_response()
+        }
         _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
@@ -3237,35 +3285,81 @@ mod note_image_tests {
     impl Fixture {
         fn new() -> Self {
             static NEXT: AtomicUsize = AtomicUsize::new(0);
-            let path = std::env::temp_dir().join(format!("herdr-note-image-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+            let path = std::env::temp_dir().join(format!(
+                "herdr-note-image-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
             std::fs::create_dir(&path).unwrap();
             Self(path)
         }
         fn app(&self) -> Router {
             let socket = self.0.join("daemon.sock");
-            let policy = RequestPolicy { bind_host: "127.0.0.1".into(), bind_port: 8787, allowed_hosts: vec![], allow_host_any_port: false, allowed_origins: vec!["https://allowed.example".into()], allowed_connect_sources: vec![] };
+            let policy = RequestPolicy {
+                bind_host: "127.0.0.1".into(),
+                bind_port: 8787,
+                allowed_hosts: vec![],
+                allow_host_any_port: false,
+                allowed_origins: vec!["https://allowed.example".into()],
+                allowed_connect_sources: vec![],
+            };
             let state = BridgeState {
-                api: ApiClient::for_socket_path(socket.clone()), client_socket_path: socket,
-                request_policy: policy.clone(), terminal_sessions: Arc::new(Mutex::new(TerminalSessions::default())),
-                selected_pane_id: Arc::new(Mutex::new(None)), agent_activity: Arc::new(AgentActivityManager::new()),
-                agent_pins: Arc::new(AgentPinsManager::for_test(self.0.join("pins"), "test").unwrap()),
-                launcher_presets: Arc::new(LauncherPresetStore::load(None).unwrap()), pi_sidepanel_buttons: None,
+                api: ApiClient::for_socket_path(socket.clone()),
+                client_socket_path: socket,
+                request_policy: policy.clone(),
+                terminal_sessions: Arc::new(Mutex::new(TerminalSessions::default())),
+                selected_pane_id: Arc::new(Mutex::new(None)),
+                agent_activity: Arc::new(AgentActivityManager::new()),
+                agent_pins: Arc::new(
+                    AgentPinsManager::for_test(self.0.join("pins"), "test").unwrap(),
+                ),
+                launcher_presets: Arc::new(LauncherPresetStore::load(None).unwrap()),
+                pi_sidepanel_buttons: None,
                 notes: Arc::new(NotesManager::for_test(self.0.join("notes"), "test").unwrap()),
-                ui_event_tx: tokio::sync::broadcast::channel(256).0, activity_tx: tokio::sync::broadcast::channel(512).0,
+                ui_event_tx: tokio::sync::broadcast::channel(256).0,
+                activity_tx: tokio::sync::broadcast::channel(512).0,
                 upload_dir: self.0.join("uploads"),
             };
-            note_image_routes().route("/api/notes", get(notes_list_handler).options(preflight_handler)).layer(middleware::from_fn_with_state(policy, add_security_headers)).with_state(state)
+            note_image_routes()
+                .route(
+                    "/api/notes",
+                    get(notes_list_handler).options(preflight_handler),
+                )
+                .layer(middleware::from_fn_with_state(policy, add_security_headers))
+                .with_state(state)
         }
     }
-    impl Drop for Fixture { fn drop(&mut self) { std::fs::remove_dir_all(&self.0).unwrap(); } }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
 
-    async fn request(app: Router, method: &str, uri: &str, host: &str, origin: Option<&str>, body: Vec<u8>) -> (StatusCode, HeaderMap, Vec<u8>) {
-        let mut builder = Request::builder().method(method).uri(uri).header("host", host);
-        if let Some(origin) = origin { builder = builder.header("origin", origin); }
-        let response = app.oneshot(builder.body(Body::from(body)).unwrap()).await.unwrap();
+    async fn request(
+        app: Router,
+        method: &str,
+        uri: &str,
+        host: &str,
+        origin: Option<&str>,
+        body: Vec<u8>,
+    ) -> (StatusCode, HeaderMap, Vec<u8>) {
+        let mut builder = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("host", host);
+        if let Some(origin) = origin {
+            builder = builder.header("origin", origin);
+        }
+        let response = app
+            .oneshot(builder.body(Body::from(body)).unwrap())
+            .await
+            .unwrap();
         let status = response.status();
         let headers = response.headers().clone();
-        let bytes = to_bytes(response.into_body(), LIMIT + 1024).await.unwrap().to_vec();
+        let bytes = to_bytes(response.into_body(), LIMIT + 1024)
+            .await
+            .unwrap()
+            .to_vec();
         (status, headers, bytes)
     }
 
@@ -3276,13 +3370,42 @@ mod note_image_tests {
         let dir = fixture.0.join("notes/note-images");
         std::fs::create_dir_all(&dir).unwrap();
         let existing = dir.join("existing");
-        std::fs::File::create(&existing).unwrap().set_len(256 * 1024 * 1024).unwrap();
-        let (status, headers, body) = request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", Some("https://allowed.example"), PNG.to_vec()).await;
+        std::fs::File::create(&existing)
+            .unwrap()
+            .set_len(256 * 1024 * 1024)
+            .unwrap();
+        let (status, headers, body) = request(
+            app.clone(),
+            "POST",
+            "/api/note-images",
+            "127.0.0.1:8787",
+            Some("https://allowed.example"),
+            PNG.to_vec(),
+        )
+        .await;
         assert_eq!(status, StatusCode::INSUFFICIENT_STORAGE);
-        assert_eq!(headers[ACCESS_CONTROL_ALLOW_ORIGIN], "https://allowed.example");
-        assert_eq!(serde_json::from_slice::<serde_json::Value>(&body).unwrap(), serde_json::json!({"error":"note image storage quota exceeded"}));
+        assert_eq!(
+            headers[ACCESS_CONTROL_ALLOW_ORIGIN],
+            "https://allowed.example"
+        );
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::json!({"error":"note image storage quota exceeded"})
+        );
         std::fs::remove_file(existing).unwrap();
-        assert_eq!(request(app, "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await.0, StatusCode::OK);
+        assert_eq!(
+            request(
+                app,
+                "POST",
+                "/api/note-images",
+                "127.0.0.1:8787",
+                None,
+                PNG.to_vec()
+            )
+            .await
+            .0,
+            StatusCode::OK
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -3293,12 +3416,26 @@ mod note_image_tests {
         std::fs::create_dir_all(&dir).unwrap();
         let held = std::fs::File::open(&dir).unwrap();
         crate::store_util::lock_file(&held).unwrap();
-        let task = tokio::spawn(async move { request(app, "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await.0 });
+        let task = tokio::spawn(async move {
+            request(
+                app,
+                "POST",
+                "/api/note-images",
+                "127.0.0.1:8787",
+                None,
+                PNG.to_vec(),
+            )
+            .await
+            .0
+        });
         tokio::time::sleep(Duration::from_millis(300)).await;
         let blocked = !task.is_finished();
         let files_while_locked = std::fs::read_dir(&dir).unwrap().count();
         crate::store_util::unlock_file(&held).unwrap();
-        let status = tokio::time::timeout(Duration::from_secs(5), task).await.unwrap().unwrap();
+        let status = tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .unwrap()
+            .unwrap();
         assert!(blocked);
         assert_eq!(files_while_locked, 0);
         assert_eq!(status, StatusCode::OK);
@@ -3308,28 +3445,82 @@ mod note_image_tests {
     async fn note_image_upload_serves_raster_and_survives_restart() {
         let fixture = Fixture::new();
         let mut ids = std::collections::HashSet::new();
-        for (bytes, mime, extension) in [(PNG, "image/png", ".png"), (b"\xff\xd8\xffexample".as_slice(), "image/jpeg", ".jpg"), (b"GIF89aexample".as_slice(), "image/gif", ".gif"), (b"RIFF\x00\x00\x00\x00WEBPexample".as_slice(), "image/webp", ".webp")] {
-            let (status, headers, body) = request(fixture.app(), "POST", "/api/note-images", "127.0.0.1:8787", Some("https://allowed.example"), bytes.to_vec()).await;
+        for (bytes, mime, extension) in [
+            (PNG, "image/png", ".png"),
+            (b"\xff\xd8\xffexample".as_slice(), "image/jpeg", ".jpg"),
+            (b"GIF89aexample".as_slice(), "image/gif", ".gif"),
+            (
+                b"RIFF\x00\x00\x00\x00WEBPexample".as_slice(),
+                "image/webp",
+                ".webp",
+            ),
+        ] {
+            let (status, headers, body) = request(
+                fixture.app(),
+                "POST",
+                "/api/note-images",
+                "127.0.0.1:8787",
+                Some("https://allowed.example"),
+                bytes.to_vec(),
+            )
+            .await;
             assert_eq!(status, StatusCode::OK);
-            assert_eq!(headers[ACCESS_CONTROL_ALLOW_ORIGIN], "https://allowed.example");
+            assert_eq!(
+                headers[ACCESS_CONTROL_ALLOW_ORIGIN],
+                "https://allowed.example"
+            );
             let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
             assert_eq!(value.as_object().unwrap().len(), 1);
             let id = value["id"].as_str().unwrap();
             assert!(id.ends_with(extension), "id {id} must end in {extension}");
             assert!(ids.insert(id.to_string()));
-            let (status, headers, served) = request(fixture.app(), "GET", &format!("/api/note-images/{id}"), "127.0.0.1:8787", Some("https://allowed.example"), vec![]).await;
+            let (status, headers, served) = request(
+                fixture.app(),
+                "GET",
+                &format!("/api/note-images/{id}"),
+                "127.0.0.1:8787",
+                Some("https://allowed.example"),
+                vec![],
+            )
+            .await;
             assert_eq!(status, StatusCode::OK);
             assert_eq!(headers["content-type"], mime);
             assert_eq!(headers["x-content-type-options"], "nosniff");
-            assert_eq!(headers[ACCESS_CONTROL_ALLOW_ORIGIN], "https://allowed.example");
+            assert_eq!(
+                headers[ACCESS_CONTROL_ALLOW_ORIGIN],
+                "https://allowed.example"
+            );
             assert_eq!(served, bytes);
         }
-        let (status, _, body) = request(fixture.app(), "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await;
+        let (status, _, body) = request(
+            fixture.app(),
+            "POST",
+            "/api/note-images",
+            "127.0.0.1:8787",
+            None,
+            PNG.to_vec(),
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
-        let id = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"].as_str().unwrap().to_string();
+        let id = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
         assert!(ids.insert(id.clone()));
         for stored_id in ids {
-            assert_eq!(request(fixture.app(), "GET", &format!("/api/note-images/{stored_id}"), "127.0.0.1:8787", None, vec![]).await.0, StatusCode::OK);
+            assert_eq!(
+                request(
+                    fixture.app(),
+                    "GET",
+                    &format!("/api/note-images/{stored_id}"),
+                    "127.0.0.1:8787",
+                    None,
+                    vec![]
+                )
+                .await
+                .0,
+                StatusCode::OK
+            );
         }
     }
 
@@ -3337,28 +3528,158 @@ mod note_image_tests {
     async fn note_image_rejects_invalid_oversized_and_disallowed_requests() {
         let fixture = Fixture::new();
         let app = fixture.app();
-        for body in [vec![], b"<svg xmlns='http://www.w3.org/2000/svg'/ >".to_vec(), b"not an image".to_vec()] {
-            assert_eq!(request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", None, body).await.0, StatusCode::BAD_REQUEST);
+        for body in [
+            vec![],
+            b"<svg xmlns='http://www.w3.org/2000/svg'/ >".to_vec(),
+            b"not an image".to_vec(),
+        ] {
+            assert_eq!(
+                request(
+                    app.clone(),
+                    "POST",
+                    "/api/note-images",
+                    "127.0.0.1:8787",
+                    None,
+                    body
+                )
+                .await
+                .0,
+                StatusCode::BAD_REQUEST
+            );
         }
-        assert_eq!(request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", None, vec![0; LIMIT + 1]).await.0, StatusCode::PAYLOAD_TOO_LARGE);
-        assert_eq!(request(app.clone(), "POST", "/api/note-images", "evil.example", None, PNG.to_vec()).await.0, StatusCode::FORBIDDEN);
-        assert_eq!(request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", Some("https://evil.example"), PNG.to_vec()).await.0, StatusCode::FORBIDDEN);
-        assert_eq!(request(app.clone(), "GET", "/api/note-images/00000000000000000000000000000000", "evil.example", None, vec![]).await.0, StatusCode::FORBIDDEN);
-        for path in ["/api/note-images/%2e%2e%2fsecret", "/api/note-images/%2e%2e%5csecret", "/api/note-images/not-an-id"] {
-            assert_eq!(request(app.clone(), "GET", path, "127.0.0.1:8787", None, vec![]).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(
+            request(
+                app.clone(),
+                "POST",
+                "/api/note-images",
+                "127.0.0.1:8787",
+                None,
+                vec![0; LIMIT + 1]
+            )
+            .await
+            .0,
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+        assert_eq!(
+            request(
+                app.clone(),
+                "POST",
+                "/api/note-images",
+                "evil.example",
+                None,
+                PNG.to_vec()
+            )
+            .await
+            .0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            request(
+                app.clone(),
+                "POST",
+                "/api/note-images",
+                "127.0.0.1:8787",
+                Some("https://evil.example"),
+                PNG.to_vec()
+            )
+            .await
+            .0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            request(
+                app.clone(),
+                "GET",
+                "/api/note-images/00000000000000000000000000000000",
+                "evil.example",
+                None,
+                vec![]
+            )
+            .await
+            .0,
+            StatusCode::FORBIDDEN
+        );
+        for path in [
+            "/api/note-images/%2e%2e%2fsecret",
+            "/api/note-images/%2e%2e%5csecret",
+            "/api/note-images/not-an-id",
+        ] {
+            assert_eq!(
+                request(app.clone(), "GET", path, "127.0.0.1:8787", None, vec![])
+                    .await
+                    .0,
+                StatusCode::NOT_FOUND
+            );
         }
-        for path in ["/api/note-images", "/api/note-images/00000000000000000000000000000000.png"] {
-            let (status, headers, _) = request(app.clone(), "OPTIONS", path, "127.0.0.1:8787", Some("https://allowed.example"), vec![]).await;
+        for path in [
+            "/api/note-images",
+            "/api/note-images/00000000000000000000000000000000.png",
+        ] {
+            let (status, headers, _) = request(
+                app.clone(),
+                "OPTIONS",
+                path,
+                "127.0.0.1:8787",
+                Some("https://allowed.example"),
+                vec![],
+            )
+            .await;
             assert_eq!(status, StatusCode::NO_CONTENT);
-            assert_eq!(headers[ACCESS_CONTROL_ALLOW_ORIGIN], "https://allowed.example");
-            assert_eq!(request(app.clone(), "OPTIONS", path, "127.0.0.1:8787", Some("https://evil.example"), vec![]).await.0, StatusCode::FORBIDDEN);
+            assert_eq!(
+                headers[ACCESS_CONTROL_ALLOW_ORIGIN],
+                "https://allowed.example"
+            );
+            assert_eq!(
+                request(
+                    app.clone(),
+                    "OPTIONS",
+                    path,
+                    "127.0.0.1:8787",
+                    Some("https://evil.example"),
+                    vec![]
+                )
+                .await
+                .0,
+                StatusCode::FORBIDDEN
+            );
         }
         assert!(!fixture.0.join("notes/note-images").exists());
-        let (status, _, body) = request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await;
+        let (status, _, body) = request(
+            app.clone(),
+            "POST",
+            "/api/note-images",
+            "127.0.0.1:8787",
+            None,
+            PNG.to_vec(),
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
-        let id = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"].as_str().unwrap().to_string();
-        assert_eq!(request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", None, b"<svg/>".to_vec()).await.0, StatusCode::BAD_REQUEST);
-        let (status, _, body) = request(app, "GET", &format!("/api/note-images/{id}"), "127.0.0.1:8787", None, vec![]).await;
+        let id = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(
+            request(
+                app.clone(),
+                "POST",
+                "/api/note-images",
+                "127.0.0.1:8787",
+                None,
+                b"<svg/>".to_vec()
+            )
+            .await
+            .0,
+            StatusCode::BAD_REQUEST
+        );
+        let (status, _, body) = request(
+            app,
+            "GET",
+            &format!("/api/note-images/{id}"),
+            "127.0.0.1:8787",
+            None,
+            vec![],
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, PNG);
     }
@@ -3367,11 +3688,34 @@ mod note_image_tests {
     async fn note_image_preserves_notes_preflight() {
         let fixture = Fixture::new();
         let app = fixture.app();
-        let (status, headers, _) = request(app.clone(), "OPTIONS", "/api/notes", "127.0.0.1:8787", Some("https://allowed.example"), vec![]).await;
+        let (status, headers, _) = request(
+            app.clone(),
+            "OPTIONS",
+            "/api/notes",
+            "127.0.0.1:8787",
+            Some("https://allowed.example"),
+            vec![],
+        )
+        .await;
         assert_eq!(status, StatusCode::NO_CONTENT);
-        assert_eq!(headers[ACCESS_CONTROL_ALLOW_ORIGIN], "https://allowed.example");
+        assert_eq!(
+            headers[ACCESS_CONTROL_ALLOW_ORIGIN],
+            "https://allowed.example"
+        );
         assert_eq!(headers[ACCESS_CONTROL_ALLOW_METHODS], "GET, POST, OPTIONS");
-        assert_eq!(request(app, "OPTIONS", "/api/notes", "127.0.0.1:8787", Some("https://evil.example"), vec![]).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(
+            request(
+                app,
+                "OPTIONS",
+                "/api/notes",
+                "127.0.0.1:8787",
+                Some("https://evil.example"),
+                vec![]
+            )
+            .await
+            .0,
+            StatusCode::FORBIDDEN
+        );
     }
 
     #[tokio::test]
@@ -3380,12 +3724,43 @@ mod note_image_tests {
         let app = fixture.app();
         let mut body = vec![0; LIMIT];
         body[..PNG.len()].copy_from_slice(PNG);
-        let (status, _, result) = request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", None, body.clone()).await;
+        let (status, _, result) = request(
+            app.clone(),
+            "POST",
+            "/api/note-images",
+            "127.0.0.1:8787",
+            None,
+            body.clone(),
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
-        let id = serde_json::from_slice::<serde_json::Value>(&result).unwrap()["id"].as_str().unwrap().to_string();
+        let id = serde_json::from_slice::<serde_json::Value>(&result).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
         body.push(0);
-        assert_eq!(request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", None, body).await.0, StatusCode::PAYLOAD_TOO_LARGE);
-        let (status, _, saved) = request(app, "GET", &format!("/api/note-images/{id}"), "127.0.0.1:8787", None, vec![]).await;
+        assert_eq!(
+            request(
+                app.clone(),
+                "POST",
+                "/api/note-images",
+                "127.0.0.1:8787",
+                None,
+                body
+            )
+            .await
+            .0,
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+        let (status, _, saved) = request(
+            app,
+            "GET",
+            &format!("/api/note-images/{id}"),
+            "127.0.0.1:8787",
+            None,
+            vec![],
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(saved.len(), LIMIT);
         assert_eq!(&saved[..PNG.len()], PNG);
@@ -3400,17 +3775,50 @@ mod note_image_tests {
         let existing = dir.join(format!("{:032x}.png", 1));
         let file = std::fs::File::create(&existing).unwrap();
         file.set_len(256 * 1024 * 1024 - PNG.len() as u64).unwrap();
-        let (status, _, body) = request(app, "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await;
+        let (status, _, body) = request(
+            app,
+            "POST",
+            "/api/note-images",
+            "127.0.0.1:8787",
+            None,
+            PNG.to_vec(),
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
-        let id = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"].as_str().unwrap().to_string();
+        let id = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
         let restarted = fixture.app();
-        let (status, _, body) = request(restarted.clone(), "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await;
+        let (status, _, body) = request(
+            restarted.clone(),
+            "POST",
+            "/api/note-images",
+            "127.0.0.1:8787",
+            None,
+            PNG.to_vec(),
+        )
+        .await;
         assert_eq!(status, StatusCode::INSUFFICIENT_STORAGE);
-        assert_eq!(serde_json::from_slice::<serde_json::Value>(&body).unwrap(), serde_json::json!({"error":"note image storage quota exceeded"}));
-        let (status, _, saved) = request(restarted, "GET", &format!("/api/note-images/{id}"), "127.0.0.1:8787", None, vec![]).await;
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::json!({"error":"note image storage quota exceeded"})
+        );
+        let (status, _, saved) = request(
+            restarted,
+            "GET",
+            &format!("/api/note-images/{id}"),
+            "127.0.0.1:8787",
+            None,
+            vec![],
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(saved, PNG);
-        assert_eq!(file.metadata().unwrap().len(), 256 * 1024 * 1024 - PNG.len() as u64);
+        assert_eq!(
+            file.metadata().unwrap().len(),
+            256 * 1024 * 1024 - PNG.len() as u64
+        );
     }
 
     #[tokio::test]
@@ -3419,15 +3827,47 @@ mod note_image_tests {
         let app = fixture.app();
         let dir = fixture.0.join("notes/note-images");
         std::fs::create_dir(&dir).unwrap();
-        for number in 0..1023 { std::fs::File::create(dir.join(format!("{number:032x}.png"))).unwrap(); }
-        let (status, _, body) = request(app, "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await;
+        for number in 0..1023 {
+            std::fs::File::create(dir.join(format!("{number:032x}.png"))).unwrap();
+        }
+        let (status, _, body) = request(
+            app,
+            "POST",
+            "/api/note-images",
+            "127.0.0.1:8787",
+            None,
+            PNG.to_vec(),
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
-        let id = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"].as_str().unwrap().to_string();
+        let id = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
         let app = fixture.app();
-        let (status, _, body) = request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await;
+        let (status, _, body) = request(
+            app.clone(),
+            "POST",
+            "/api/note-images",
+            "127.0.0.1:8787",
+            None,
+            PNG.to_vec(),
+        )
+        .await;
         assert_eq!(status, StatusCode::INSUFFICIENT_STORAGE);
-        assert_eq!(serde_json::from_slice::<serde_json::Value>(&body).unwrap(), serde_json::json!({"error":"note image storage quota exceeded"}));
-        let (status, _, saved) = request(app, "GET", &format!("/api/note-images/{id}"), "127.0.0.1:8787", None, vec![]).await;
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+            serde_json::json!({"error":"note image storage quota exceeded"})
+        );
+        let (status, _, saved) = request(
+            app,
+            "GET",
+            &format!("/api/note-images/{id}"),
+            "127.0.0.1:8787",
+            None,
+            vec![],
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(saved, PNG);
         assert_eq!(std::fs::read_dir(dir).unwrap().count(), 1024);
@@ -3435,7 +3875,9 @@ mod note_image_tests {
 
     #[tokio::test]
     async fn note_image_quota_child() {
-        let Ok(root) = std::env::var("HERDR_NOTE_IMAGE_QUOTA_CHILD_ROOT") else { return; };
+        let Ok(root) = std::env::var("HERDR_NOTE_IMAGE_QUOTA_CHILD_ROOT") else {
+            return;
+        };
         let fixture = std::mem::ManuallyDrop::new(Fixture(PathBuf::from(root)));
         let app = fixture.app();
         if let Ok(index) = std::env::var("HERDR_NOTE_IMAGE_QUOTA_CHILD_INDEX") {
@@ -3446,7 +3888,15 @@ mod note_image_tests {
                 std::thread::sleep(Duration::from_millis(5));
             }
         }
-        let (status, _, _) = request(app, "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await;
+        let (status, _, _) = request(
+            app,
+            "POST",
+            "/api/note-images",
+            "127.0.0.1:8787",
+            None,
+            PNG.to_vec(),
+        )
+        .await;
         println!("note-quota-http-status:{}", status.as_u16());
     }
 
@@ -3458,30 +3908,66 @@ mod note_image_tests {
         let dir = fixture.0.join("notes/note-images");
         std::fs::create_dir(&dir).unwrap();
         let existing = std::fs::File::create(dir.join(format!("{:032x}.png", 1))).unwrap();
-        existing.set_len(256 * 1024 * 1024 - PNG.len() as u64).unwrap();
+        existing
+            .set_len(256 * 1024 * 1024 - PNG.len() as u64)
+            .unwrap();
         let mut children = Vec::new();
         for index in 0..2 {
-            children.push(Command::new(std::env::current_exe().unwrap()).args(["--exact", "web_bridge::note_image_tests::note_image_quota_child", "--nocapture"])
-                .env("HERDR_NOTE_IMAGE_QUOTA_CHILD_ROOT", &fixture.0).env("HERDR_NOTE_IMAGE_QUOTA_CHILD_INDEX", index.to_string())
-                .stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap());
+            children.push(
+                Command::new(std::env::current_exe().unwrap())
+                    .args([
+                        "--exact",
+                        "web_bridge::note_image_tests::note_image_quota_child",
+                        "--nocapture",
+                    ])
+                    .env("HERDR_NOTE_IMAGE_QUOTA_CHILD_ROOT", &fixture.0)
+                    .env("HERDR_NOTE_IMAGE_QUOTA_CHILD_INDEX", index.to_string())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()
+                    .unwrap(),
+            );
         }
         let deadline = std::time::Instant::now() + Duration::from_secs(20);
         while !(fixture.0.join("ready-0").exists() && fixture.0.join("ready-1").exists()) {
-            assert!(std::time::Instant::now() < deadline, "child process startup timed out");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "child process startup timed out"
+            );
             std::thread::sleep(Duration::from_millis(5));
         }
         std::fs::write(fixture.0.join("go"), b"go").unwrap();
         let mut statuses = Vec::new();
         for child in children {
             let output = child.wait_with_output().unwrap();
-            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             let stdout = String::from_utf8(output.stdout).unwrap();
-            if stdout.contains("note-quota-http-status:200") { statuses.push(200); }
-            if stdout.contains("note-quota-http-status:507") { statuses.push(507); }
+            if stdout.contains("note-quota-http-status:200") {
+                statuses.push(200);
+            }
+            if stdout.contains("note-quota-http-status:507") {
+                statuses.push(507);
+            }
         }
         statuses.sort_unstable();
         assert_eq!(statuses, vec![200, 507]);
-        assert_eq!(request(app, "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await.0, StatusCode::INSUFFICIENT_STORAGE);
+        assert_eq!(
+            request(
+                app,
+                "POST",
+                "/api/note-images",
+                "127.0.0.1:8787",
+                None,
+                PNG.to_vec()
+            )
+            .await
+            .0,
+            StatusCode::INSUFFICIENT_STORAGE
+        );
     }
 
     #[tokio::test]
@@ -3491,24 +3977,62 @@ mod note_image_tests {
         let fixture = Fixture::new();
         let app = fixture.app();
         let mut child = Command::new(std::env::current_exe().unwrap());
-        child.args(["--exact", "web_bridge::note_image_tests::note_image_quota_child", "--nocapture"])
+        child
+            .args([
+                "--exact",
+                "web_bridge::note_image_tests::note_image_quota_child",
+                "--nocapture",
+            ])
             .env("HERDR_NOTE_IMAGE_QUOTA_CHILD_ROOT", &fixture.0);
         unsafe {
             child.pre_exec(|| {
-                let limit = libc::rlimit { rlim_cur: 1, rlim_max: 1 };
-                if libc::setrlimit(libc::RLIMIT_FSIZE, &limit) != 0 { return Err(std::io::Error::last_os_error()); }
+                let limit = libc::rlimit {
+                    rlim_cur: 1,
+                    rlim_max: 1,
+                };
+                if libc::setrlimit(libc::RLIMIT_FSIZE, &limit) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
                 libc::signal(libc::SIGXFSZ, libc::SIG_IGN);
                 Ok(())
             });
         }
         let output = child.output().unwrap();
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         assert!(String::from_utf8_lossy(&output.stdout).contains("note-quota-http-status:500"));
-        assert_eq!(std::fs::read_dir(fixture.0.join("notes/note-images")).unwrap().count(), 0);
-        let (status, _, result) = request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await;
+        assert_eq!(
+            std::fs::read_dir(fixture.0.join("notes/note-images"))
+                .unwrap()
+                .count(),
+            0
+        );
+        let (status, _, result) = request(
+            app.clone(),
+            "POST",
+            "/api/note-images",
+            "127.0.0.1:8787",
+            None,
+            PNG.to_vec(),
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
-        let id = serde_json::from_slice::<serde_json::Value>(&result).unwrap()["id"].as_str().unwrap().to_string();
-        let (status, _, saved) = request(app, "GET", &format!("/api/note-images/{id}"), "127.0.0.1:8787", None, vec![]).await;
+        let id = serde_json::from_slice::<serde_json::Value>(&result).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let (status, _, saved) = request(
+            app,
+            "GET",
+            &format!("/api/note-images/{id}"),
+            "127.0.0.1:8787",
+            None,
+            vec![],
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(saved, PNG);
     }
@@ -3525,18 +4049,62 @@ mod note_image_tests {
         std::fs::create_dir(&images).unwrap();
         let id = "00000000000000000000000000000000.png";
         symlink(&secret, images.join(id)).unwrap();
-        let (status, _, body) = request(app.clone(), "GET", &format!("/api/note-images/{id}"), "127.0.0.1:8787", None, vec![]).await;
+        let (status, _, body) = request(
+            app.clone(),
+            "GET",
+            &format!("/api/note-images/{id}"),
+            "127.0.0.1:8787",
+            None,
+            vec![],
+        )
+        .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_ne!(body, PNG);
         assert_eq!(std::fs::read(&secret).unwrap(), PNG);
         let hardlink_id = "11111111111111111111111111111111.png";
         std::fs::hard_link(&secret, images.join(hardlink_id)).unwrap();
-        assert_eq!(request(app, "GET", &format!("/api/note-images/{hardlink_id}"), "127.0.0.1:8787", None, vec![]).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(
+            request(
+                app,
+                "GET",
+                &format!("/api/note-images/{hardlink_id}"),
+                "127.0.0.1:8787",
+                None,
+                vec![]
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
         let fixture2 = Fixture::new();
         let app2 = fixture2.app();
         symlink(&fixture.0, fixture2.0.join("notes/note-images")).unwrap();
-        assert_eq!(request(app2.clone(), "GET", &format!("/api/note-images/{id}"), "127.0.0.1:8787", None, vec![]).await.0, StatusCode::NOT_FOUND);
-        assert_eq!(request(app2, "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await.0, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            request(
+                app2.clone(),
+                "GET",
+                &format!("/api/note-images/{id}"),
+                "127.0.0.1:8787",
+                None,
+                vec![]
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            request(
+                app2,
+                "POST",
+                "/api/note-images",
+                "127.0.0.1:8787",
+                None,
+                PNG.to_vec()
+            )
+            .await
+            .0,
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
         assert_eq!(std::fs::read(secret).unwrap(), PNG);
     }
 }
@@ -6435,7 +7003,8 @@ mod tests {
             assert!(handle_terminal_text_frame(&tx, frame).is_err(), "{frame}");
             assert!(rx.try_recv().is_err());
         }
-        let frame = r#"{"type":"mouse","kind":"moved","column":79,"row":23,"modifiers":0,"lines":1}"#;
+        let frame =
+            r#"{"type":"mouse","kind":"moved","column":79,"row":23,"modifiers":0,"lines":1}"#;
         for _ in 0..240 {
             handle_terminal_text_frame(&tx, frame).unwrap();
         }
@@ -6453,21 +7022,38 @@ mod tests {
         let (tx, rx) = test_terminal_writer();
         tx.mouse_capture.send_replace(true);
         handle_terminal_text_frame(&tx, r#"{"type":"resize","cols":2,"rows":3}"#).unwrap();
-        assert!(matches!(rx.try_recv().unwrap(), ClientMessage::Resize { .. }));
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            ClientMessage::Resize { .. }
+        ));
         let wheel = r#"{"type":"mouse","kind":"scroll_right","column":1,"row":2,"modifiers":0,"lines":200}"#;
         handle_terminal_text_frame(&tx, wheel).unwrap();
-        assert!(matches!(rx.try_recv().unwrap(), ClientMessage::AttachMouse { lines: 200, .. }));
-        let outside = r#"{"type":"mouse","kind":"moved","column":2,"row":9,"modifiers":0,"lines":1}"#;
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            ClientMessage::AttachMouse { lines: 200, .. }
+        ));
+        let outside =
+            r#"{"type":"mouse","kind":"moved","column":2,"row":9,"modifiers":0,"lines":1}"#;
         handle_terminal_text_frame(&tx, outside).unwrap();
-        assert!(matches!(rx.try_recv().unwrap(), ClientMessage::AttachMouse {
-            position: ClientMousePosition::Cell { column: 1, row: 2 }, ..
-        }));
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            ClientMessage::AttachMouse {
+                position: ClientMousePosition::Cell { column: 1, row: 2 },
+                ..
+            }
+        ));
         handle_terminal_text_frame(&tx, r#"{"type":"resize","cols":0,"rows":3}"#).unwrap();
-        assert!(matches!(rx.try_recv().unwrap(), ClientMessage::Resize { .. }));
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            ClientMessage::Resize { .. }
+        ));
         handle_terminal_text_frame(&tx, outside).unwrap();
         assert!(rx.try_recv().is_err());
         handle_terminal_text_frame(&tx, r#"{"type":"resize","cols":2,"rows":3}"#).unwrap();
-        assert!(matches!(rx.try_recv().unwrap(), ClientMessage::Resize { .. }));
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            ClientMessage::Resize { .. }
+        ));
         drop(rx);
         let before = tx.queued_mouse_events.load(Ordering::Acquire);
         assert!(handle_terminal_text_frame(&tx, wheel).is_err());
@@ -6479,7 +7065,11 @@ mod tests {
         let (tx, rx) = test_terminal_writer();
         let frame = r#"{"type":"mouse","kind":"moved","column":1,"row":2,"modifiers":0,"lines":0}"#;
         assert!(!*tx.mouse_capture.borrow());
-        assert!(handle_terminal_text_frame(&tx, r#"{"type":"mouse","kind":"moved","column":80,"row":0,"modifiers":0,"lines":1}"#).is_ok());
+        assert!(handle_terminal_text_frame(
+            &tx,
+            r#"{"type":"mouse","kind":"moved","column":80,"row":0,"modifiers":0,"lines":1}"#
+        )
+        .is_ok());
         handle_terminal_text_frame(&tx, frame).unwrap();
         assert!(rx.try_recv().is_err());
         tx.mouse_capture.send_replace(true);
@@ -6523,7 +7113,10 @@ mod tests {
         let mut late = tx.keyboard_flags.subscribe();
         assert_eq!(*late.borrow_and_update(), 1);
         tx.keyboard_flags.send_replace(0);
-        assert_eq!(keyboard_flags_message(*tx.keyboard_flags.borrow()), keyboard_flags_message(0));
+        assert_eq!(
+            keyboard_flags_message(*tx.keyboard_flags.borrow()),
+            keyboard_flags_message(0)
+        );
         let (fresh, _) = test_terminal_writer();
         assert_eq!(*fresh.keyboard_flags.borrow(), 0);
     }
@@ -6534,7 +7127,9 @@ mod tests {
         handle_terminal_text_frame(&tx, r#"{"type":"input","data":"hi"}"#).unwrap();
         assert_eq!(
             rx.try_recv().unwrap(),
-            ClientMessage::Input { data: b"hi".to_vec() }
+            ClientMessage::Input {
+                data: b"hi".to_vec()
+            }
         );
         handle_terminal_text_frame(&tx, r#"{"type":"resize","cols":80,"rows":24}"#).unwrap();
         assert_eq!(

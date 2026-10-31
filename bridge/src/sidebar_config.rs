@@ -12,13 +12,41 @@ const MAX_ROWS: usize = 16;
 const MAX_TOKENS: usize = 16;
 const MAX_RULES: usize = 16;
 const AGENTS: &[&str] = &[
-    "pi", "claude", "codex", "gemini", "cursor", "devin", "agy", "cline", "omp",
-    "mastracode", "opencode", "copilot", "kimi", "kiro", "droid", "amp", "grok", "hermes",
-    "kilo", "qodercli", "qwen", "letta", "maki", "muse",
+    "pi",
+    "claude",
+    "codex",
+    "gemini",
+    "cursor",
+    "devin",
+    "agy",
+    "cline",
+    "omp",
+    "mastracode",
+    "opencode",
+    "copilot",
+    "kimi",
+    "kiro",
+    "droid",
+    "amp",
+    "grok",
+    "hermes",
+    "kilo",
+    "qodercli",
+    "qwen",
+    "letta",
+    "maki",
+    "muse",
 ];
 const TOKENS: &[&str] = &[
-    "state_icon", "state_text", "machine", "workspace", "tab", "pane", "agent",
-    "terminal_title", "terminal_title_stripped",
+    "state_icon",
+    "state_text",
+    "machine",
+    "workspace",
+    "tab",
+    "pane",
+    "agent",
+    "terminal_title",
+    "terminal_title_stripped",
 ];
 
 #[derive(Default, Serialize)]
@@ -108,7 +136,13 @@ fn valid_color(color: &Option<String>) -> bool {
 
 impl Rule {
     fn valid(&self) -> bool {
-        let conditions = [self.equals.is_some(), self.contains.is_some(), self.starts_with.is_some(), self.gt.is_some(), self.lt.is_some()];
+        let conditions = [
+            self.equals.is_some(),
+            self.contains.is_some(),
+            self.starts_with.is_some(),
+            self.gt.is_some(),
+            self.lt.is_some(),
+        ];
         let numeric = self.gt.is_some() || self.lt.is_some();
         conditions.into_iter().filter(|present| *present).count() == 1
             && (!numeric || self.ignore_case.is_none())
@@ -133,10 +167,14 @@ impl Token {
                 &styled.token
             }
         };
-        TOKENS.contains(&name.as_str()) || name.strip_prefix('$').is_some_and(|custom| {
-            !custom.is_empty() && custom.len() <= 32
-                && custom.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-        })
+        TOKENS.contains(&name.as_str())
+            || name.strip_prefix('$').is_some_and(|custom| {
+                !custom.is_empty()
+                    && custom.len() <= 32
+                    && custom
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+            })
     }
 }
 
@@ -144,15 +182,22 @@ fn parse(input: &str) -> Option<SidebarOverrides> {
     let config: Config = toml::from_str(input).ok()?;
     let rows_by_agent = config.ui.sidebar.agents.rows_by_agent;
     if rows_by_agent.iter().any(|(agent, rows)| {
-        !AGENTS.contains(&agent.as_str()) || rows.len() > MAX_ROWS
-            || rows.iter().any(|row| row.len() > MAX_TOKENS || !row.iter().all(Token::valid))
+        !AGENTS.contains(&agent.as_str())
+            || rows.len() > MAX_ROWS
+            || rows
+                .iter()
+                .any(|row| row.len() > MAX_TOKENS || !row.iter().all(Token::valid))
     }) {
         return None;
     }
     Some(SidebarOverrides { rows_by_agent })
 }
 
-fn config_path(explicit: Option<OsString>, xdg: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
+fn config_path(
+    explicit: Option<OsString>,
+    xdg: Option<OsString>,
+    home: Option<OsString>,
+) -> Option<PathBuf> {
     if let Some(path) = explicit {
         return Some(path.into());
     }
@@ -174,7 +219,10 @@ pub(crate) fn load_sidebar_overrides() -> SidebarOverrides {
     let Some(file) = path.and_then(|path| std::fs::File::open(path).ok()) else {
         return SidebarOverrides::default();
     };
-    if file.take(MAX_CONFIG_BYTES + 1).read_to_string(&mut input).is_err()
+    if file
+        .take(MAX_CONFIG_BYTES + 1)
+        .read_to_string(&mut input)
+        .is_err()
         || input.len() as u64 > MAX_CONFIG_BYTES
     {
         return SidebarOverrides::default();
@@ -194,10 +242,22 @@ mod tests {
     #[test]
     fn chooses_process_environment_path_in_precedence_order() {
         let v = |s: &str| Some(OsString::from(s));
-        assert_eq!(config_path(v("/explicit"), v("/xdg"), v("/home")), Some(PathBuf::from("/explicit")));
-        assert_eq!(config_path(v(""), v("/xdg"), v("/home")), Some(PathBuf::from("")));
-        assert_eq!(config_path(None, v("/xdg"), v("/home")), Some(PathBuf::from("/xdg/herdr/config.toml")));
-        assert_eq!(config_path(None, v(""), v("/home")), Some(PathBuf::from("/home/.config/herdr/config.toml")));
+        assert_eq!(
+            config_path(v("/explicit"), v("/xdg"), v("/home")),
+            Some(PathBuf::from("/explicit"))
+        );
+        assert_eq!(
+            config_path(v(""), v("/xdg"), v("/home")),
+            Some(PathBuf::from(""))
+        );
+        assert_eq!(
+            config_path(None, v("/xdg"), v("/home")),
+            Some(PathBuf::from("/xdg/herdr/config.toml"))
+        );
+        assert_eq!(
+            config_path(None, v(""), v("/home")),
+            Some(PathBuf::from("/home/.config/herdr/config.toml"))
+        );
         assert_eq!(config_path(None, None, None), None);
     }
 
@@ -212,17 +272,36 @@ row_gap = 2
 claude = []
 pi = [['state_icon', { token = '$load', fg = '#abc', bold = false, rules = [{ gt = 80, hide = true }, { starts_with = 'low', ignore_case = true, dim = true }] }]]
 "##;
-        assert_eq!(encoded(input), Some(json!({"rows_by_agent": {
-            "claude": [], "pi": [["state_icon", {"token": "$load", "fg": "#abc", "bold": false,
-                "rules": [{"gt": 80.0, "hide": true}, {"starts_with": "low", "ignore_case": true, "dim": true}]}]]
-        }})));
+        assert_eq!(
+            encoded(input),
+            Some(json!({"rows_by_agent": {
+                "claude": [], "pi": [["state_icon", {"token": "$load", "fg": "#abc", "bold": false,
+                    "rules": [{"gt": 80.0, "hide": true}, {"starts_with": "low", "ignore_case": true, "dim": true}]}]]
+            }}))
+        );
         assert_eq!(encoded(""), Some(json!({"rows_by_agent": {}})));
     }
 
     #[test]
     fn rejects_invalid_tokens_styles_rules_and_agents() {
-        for entry in ["'bad'", "'$'", "'$bad.name'", "{ token = 'agent', secret = 'hidden' }", "{ token = 'agent', fg = 'red' }", "{ token = 'state_icon', rules = [{ equals = 'x' }] }", "{ token = 'agent', rules = [{ gt = 3, ignore_case = false }] }", "{ token = 'agent', rules = [{ gt = nan }] }", "{ token = 'agent', rules = [{ equals = 'x', contains = 'x' }] }"] {
-            assert!(encoded(&format!("[ui.sidebar.agents.rows_by_agent]\npi = [[{entry}]]")).is_none(), "{entry}");
+        for entry in [
+            "'bad'",
+            "'$'",
+            "'$bad.name'",
+            "{ token = 'agent', secret = 'hidden' }",
+            "{ token = 'agent', fg = 'red' }",
+            "{ token = 'state_icon', rules = [{ equals = 'x' }] }",
+            "{ token = 'agent', rules = [{ gt = 3, ignore_case = false }] }",
+            "{ token = 'agent', rules = [{ gt = nan }] }",
+            "{ token = 'agent', rules = [{ equals = 'x', contains = 'x' }] }",
+        ] {
+            assert!(
+                encoded(&format!(
+                    "[ui.sidebar.agents.rows_by_agent]\npi = [[{entry}]]"
+                ))
+                .is_none(),
+                "{entry}"
+            );
         }
         assert!(encoded("[ui.sidebar.agents.rows_by_agent]\n'claude-code' = []").is_none());
         assert!(encoded("[ui.sidebar.agents.rows_by_agent]\npi = 'invalid'").is_none());
@@ -232,14 +311,30 @@ pi = [['state_icon', { token = '$load', fg = '#abc', bold = false, rules = [{ gt
     fn bounds_rows_tokens_rules_and_custom_names() {
         for count in [16, 17] {
             let rows = vec!["['agent']"; count].join(",");
-            assert_eq!(encoded(&format!("[ui.sidebar.agents.rows_by_agent]\npi = [{rows}]")).is_some(), count == 16);
+            assert_eq!(
+                encoded(&format!("[ui.sidebar.agents.rows_by_agent]\npi = [{rows}]")).is_some(),
+                count == 16
+            );
             let tokens = vec!["'agent'"; count].join(",");
-            assert_eq!(encoded(&format!("[ui.sidebar.agents.rows_by_agent]\npi = [[{tokens}]]")).is_some(), count == 16);
+            assert_eq!(
+                encoded(&format!(
+                    "[ui.sidebar.agents.rows_by_agent]\npi = [[{tokens}]]"
+                ))
+                .is_some(),
+                count == 16
+            );
             let rules = vec!["{ equals = 'x' }"; count].join(",");
             assert_eq!(encoded(&format!("[ui.sidebar.agents.rows_by_agent]\npi = [[{{ token = 'agent', rules = [{rules}] }}]]")).is_some(), count == 16);
         }
         for count in [32, 33] {
-            assert_eq!(encoded(&format!("[ui.sidebar.agents.rows_by_agent]\npi = [['${}']]", "x".repeat(count))).is_some(), count == 32);
+            assert_eq!(
+                encoded(&format!(
+                    "[ui.sidebar.agents.rows_by_agent]\npi = [['${}']]",
+                    "x".repeat(count)
+                ))
+                .is_some(),
+                count == 32
+            );
         }
     }
 }
