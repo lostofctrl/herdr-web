@@ -34,9 +34,7 @@ export function PiTreePickerCard({ picker, answerTreePicker, cancelTreePicker }:
   const visibleNodes = picker.nodes.filter((node) =>
     node.label.toLowerCase().includes(filter.toLowerCase()),
   );
-  const activeId = visibleNodes.some((node) => node.entry_id === selectedId)
-    ? selectedId
-    : visibleNodes[0]?.entry_id;
+  const activeId = visibleNodes.some((node) => node.entry_id === selectedId) ? selectedId : null;
 
   async function settle(action: { entryId: string } | { cancel: true }) {
     if (sendingRef.current) {
@@ -69,7 +67,7 @@ export function PiTreePickerCard({ picker, answerTreePicker, cancelTreePicker }:
       if (!visibleNodes.length) return;
       const focusedId = event.target instanceof HTMLButtonElement ? event.target.dataset.entryId : activeId;
       const currentIndex = visibleNodes.findIndex((node) => node.entry_id === focusedId);
-      const nextIndex = currentIndex < 0 ? 0 : Math.max(0, Math.min(visibleNodes.length - 1,
+      const nextIndex = currentIndex < 0 ? (event.key === "ArrowDown" ? 0 : visibleNodes.length - 1) : Math.max(0, Math.min(visibleNodes.length - 1,
         currentIndex + (event.key === "ArrowDown" ? 1 : -1)));
       const next = visibleNodes[nextIndex];
       setSelectedId(next.entry_id);
@@ -80,7 +78,7 @@ export function PiTreePickerCard({ picker, answerTreePicker, cancelTreePicker }:
       event.preventDefault();
       event.stopPropagation();
       const focusedId = event.target instanceof HTMLButtonElement ? event.target.dataset.entryId : activeId;
-      const selected = visibleNodes.find((node) => node.entry_id === focusedId) ?? visibleNodes[0];
+      const selected = visibleNodes.find((node) => node.entry_id === focusedId);
       if (selected) void settle({ entryId: selected.entry_id });
     }
   }
