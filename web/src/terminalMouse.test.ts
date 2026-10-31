@@ -30,6 +30,21 @@ describe("terminal mouse reporting", () => {
     dispose.dispose();
   });
 
+  it("leaves a Ctrl-click on a link to the browser while mouse reporting is enabled", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const send = vi.fn();
+    const handler = installTerminalMouse(host, () => true, () => ({ column: 1, row: 1 }), () => {}, send,
+      undefined, (event) => event.ctrlKey && event.button === 0);
+    const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0, ctrlKey: true });
+    const up = new MouseEvent("mouseup", { bubbles: true, cancelable: true, button: 0, ctrlKey: true });
+    host.dispatchEvent(down);
+    host.dispatchEvent(up);
+    expect([down.defaultPrevented, up.defaultPrevented]).toEqual([false, false]);
+    expect(send).not.toHaveBeenCalled();
+    handler.dispose();
+  });
+
   it("leaves a Shift-drag to terminal selection while mouse reporting is enabled", () => {
     const host = document.createElement("div");
     document.body.appendChild(host);

@@ -19,6 +19,7 @@ export function installTerminalMouse(
   focus: () => void,
   send: (frame: TerminalMouseFrame) => void,
   wheelLines: (event: WheelEvent) => number = (event) => Math.sign(event.deltaY),
+  bypassMouseDown: (event: MouseEvent) => boolean = () => false,
 ) {
   let pressed: TerminalMouseButton | undefined;
   let selecting = false;
@@ -49,7 +50,7 @@ export function installTerminalMouse(
   const onDown = (event: MouseEvent) => {
     const button = (["left", "middle", "right"] as const)[event.button];
     if (!enabled() || !button) return;
-    if (event.shiftKey && button === "left" && !pressed) {
+    if (button === "left" && !pressed && (event.shiftKey || bypassMouseDown(event))) {
       selecting = true;
       return;
     }

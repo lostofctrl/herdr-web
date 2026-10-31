@@ -1221,6 +1221,16 @@ export class GhosttyRenderer implements TerminalRenderer {
           TOUCH_SELECTION_TOLERANCE_PX;
       mouseDownX = null;
       mouseDownY = null;
+      if (event.ctrlKey || event.metaKey) {
+        const rawLink = terminalLinkAt(terminal, touchCellPosition(terminal, event.clientX, event.clientY));
+        // Ghostty's built-in link provider also handles modifier-clicks. Keep it
+        // from opening unsafe schemes or opening a link at the end of a drag.
+        if (rawLink && (moved || !terminalUrlTapTarget(rawLink, false))) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          return;
+        }
+      }
       if (moved) {
         return;
       }
