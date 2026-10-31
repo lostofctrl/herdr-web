@@ -124,7 +124,7 @@ it("directs BTW conversations to the terminal when the command is available", as
   const guidance = content.querySelector('[aria-label="BTW terminal guidance"]');
   expect(guidance?.textContent).toMatch(/\/btw/);
   expect(guidance?.textContent).toMatch(/terminal/i);
-  expect(guidance?.textContent).toMatch(/browser.+not available/i);
+  expect(guidance?.textContent).toContain("A browser BTW dialog is not available; its live transcript and controls stay in the terminal.");
   expect(send).not.toHaveBeenCalled();
 });
 

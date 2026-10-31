@@ -171,6 +171,54 @@ pauses that hook while the leaf changes can still reach Pi's commit with a stale
 Use the terminal `/tree` for summaries or queue restoration, or when an extension owns
 that hook.
 
+## `/btw` remains terminal-only
+
+**Decision:** no browser BTW card or capability. If `pi-btw` is installed, use `/btw` in the
+terminal for side conversations; a browser BTW dialog is not available, and its live transcript
+and controls stay in the terminal. The terminal itself remains usable through herdr-web. This is
+an audit of the installed versions, not a claim about all future releases.
+
+### Evidence and re-audit checklist
+
+Audited `pi-btw` **0.8.0**, package entry `extensions/btw.ts`, SHA-256
+`3e9adda6b1e9d93b8d5eb79c76745ba79a0adfd7ba8d363e9d89dfc8b902efc7`, and
+`@earendil-works/pi-coding-agent` **1.4.0**. In the paths below, `BTW` means the installed
+`~/.pi/agent/npm/node_modules/pi-btw` package and `PI` means the installed
+`@earendil-works/pi-coding-agent` package (here under the global npm root). Check package versions
+and the hash first; line numbers can change. The repo needs no copy or modification of either package.
+
+| Capability to re-audit | Current blocking evidence |
+| --- | --- |
+| Live transcript / reconnect | The extension factory owns `transcriptState` and `activeBtwSession` (`BTW/extensions/btw.ts:1741-1755`). `subscribeOverlayToActiveBtwSession` sends child events to private `handleBtwSessionEvent`, which applies them to that state (`:1865-1910`); `ensureOverlay` passes readers directly to its custom component (`:2309-2333`). The child uses `SessionManager.inMemory` (`:2132-2133`). Completed exchanges are appended to the parent only after a successful response (`:2820-2861`); `restoreThread` reads those hidden entries (`:2643-2709`). They are not a supported live transcript and do not preserve in-flight or aborted output. |
+| Live status | `overlayStatus` is factory-local (`BTW/extensions/btw.ts:1746-1748`); `setOverlayStatus` refreshes the overlay (`:1769-1772`), while `handleBtwSessionEvent` derives tool/stream status from the private child (`:1865-1898`). Neither is published as a browser-readable status contract. |
+| Submit | The overlay input invokes its supplied callback (`BTW/extensions/btw.ts:1408-1418`), which `ensureOverlay` wires to private `submitFromOverlay` (`:2316-2334`). That function routes commands or calls `runBtw` (`:2598-2621`); `executeBtw` calls the private child `session.prompt` (`:2819-2821`). Registered terminal slash commands (`:3048-3072`) are not a browser answer API; do not fire-and-forget a prompt or inject keystrokes to simulate one. |
+| Cancel / abort | The overlay's dismiss callback calls private `dismissOrAbortOverlaySession` (`BTW/extensions/btw.ts:2331-2336`); it checks the private child's `isStreaming` and calls `requestBtwSessionAbort`, whose `session.abort()` targets that child (`:1913-1920`, `:1954-1974`). Esc while streaming aborts first and leaves partial output visible; a subsequent Esc dismisses. No browser cancellation or first-answer-wins contract is exposed. |
+
+The shared `pi.events` bus is Pi's documented extension communication point
+(`PI/docs/extensions.md:175-188`). In `BTW/extensions/btw.ts:2282-2290`, the sole BTW bus
+emission, `btw:dialog`, carries `{sessionId, dialogId, open, question}` only; it neither publishes
+transcript/status nor accepts submit/cancel. `BTW/extensions/btw-ssh-workspace.ts:121` separately
+subscribes to an SSH environment event, not a BTW browser-control contract. The exported overlay
+class accepts callbacks supplied by its creator (`BTW/extensions/btw.ts:1328-1344`, `:1374-1404`);
+exporting that class does not give another extension the running overlay's private callbacks or child.
+
+Pi's SDK can create and control **its own** `AgentSession` (`PI/docs/sdk.md:26-30`, `:60-70`,
+`:72-91`); it does not expose the instance held in BTW's closure. RPC is a separate process/mode
+(`PI/docs/rpc.md:3-12`), not a second interface to the existing TUI (ADR 0001). RPC `prompt` can
+run extension commands, but reports handling rather than independent child completion
+(`PI/docs/rpc-commands.md:7-40`); RPC `get_state`, `get_messages`, and `abort` concern the RPC
+session (`:94-105`, `:155-205`), not BTW's private child. BTW's documented RPC inline-question
+path produces completed visible notes rather than the TUI's live side conversation
+(`BTW/README.md:75-85`); RPC cannot render `ctx.ui.custom()` (`PI/docs/rpc-extension-ui.md:12-25`).
+None supplies all four capabilities to the current Pi Pane.
+
+When upgrading, re-check the installed package/version and exports, the BTW event emissions and
+listeners, the child session ownership and persistence, and Pi's extension, SDK and RPC contracts.
+A future supported surface must provide a bounded, reconnectable live transcript and status plus
+identified submit and abort operations with terminal-authoritative, first-answer-wins settlement
+before advertising a capability. Until then, do not read private state, scrape the terminal, or
+invent an event/transport.
+
 ## Rules both sides rely on
 
 - Dialog answers settle first-answer-wins across the terminal and every connected client;

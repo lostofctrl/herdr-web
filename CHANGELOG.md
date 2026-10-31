@@ -129,6 +129,8 @@
 
 ### Changed
 
+- Pi Side Panel clarifies that `/btw` live transcripts and controls remain in the terminal;
+  the protocol documents the audited upstream limitation and re-check criteria.
 - Session Tree Card rows show readable model, thinking, summary and label entries; repeated labels
   include a short entry-id prefix without changing navigation ids.
 - The top tab bar shows the Herdr tab name before the pane title when available.

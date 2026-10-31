@@ -123,7 +123,7 @@ export function PiSidePanelContent({ bridgeId, paneId, disabled, httpUrl, onSend
       </p>
       {online && bridge?.catalog?.commands.some((command) => command.name === "btw") ? (
         <p aria-label="BTW terminal guidance" role="note">
-          Use <code>/btw</code> in the terminal for side conversations. A browser BTW dialog is not available.
+          Use <code>/btw</code> in the terminal for side conversations. A browser BTW dialog is not available; its live transcript and controls stay in the terminal.
         </p>
       ) : null}
       {online && bridge?.catalog ? (
