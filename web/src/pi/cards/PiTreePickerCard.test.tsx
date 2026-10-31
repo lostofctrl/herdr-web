@@ -167,6 +167,73 @@ describe("PiTreePickerCards", () => {
     expect(container.textContent).toContain("5 entries are only in the terminal /tree picker.");
   });
 
+  it("filters twelve published rows case-insensitively and keeps the omitted notice", async () => {
+    const { container } = await renderPicker();
+    const nodes = Array.from({ length: 12 }, (_, index) => ({
+      entry_id: `entry-${index}`,
+      label: index === 3 ? "Assistant: Special result" : `user: message ${index}`,
+      depth: 0,
+      current: index === 0,
+    }));
+    await send({ type: "tree_picker_open", picker: { ...PICKER, nodes: nodes.slice(0, 11) } });
+    expect(container.querySelector("input")).toBeNull();
+    await send({ type: "tree_picker_open", picker: { ...PICKER, id: "tree-12", nodes } });
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="Filter published entries"]');
+    expect(input).not.toBeNull();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "SPECIAL");
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.querySelectorAll("[data-entry-id]")).toHaveLength(1);
+    expect(container.textContent).toContain("Assistant: Special result");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "missing");
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.textContent).toContain("No published entries match");
+    expect(container.textContent).toContain("4 entries are only in the terminal /tree picker.");
+  });
+
+  it("selects visible filtered rows with both arrow keys from the filter", async () => {
+    const { container, pi } = await renderPicker();
+    const nodes = Array.from({ length: 12 }, (_, index) => ({
+      entry_id: `entry-${index}`, label: `user: message ${index}`, depth: 0, current: index === 0,
+    }));
+    await send({ type: "tree_picker_open", picker: { ...PICKER, nodes } });
+    const input = container.querySelector<HTMLInputElement>("input")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "message 1");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.focus();
+    });
+    expect(container.querySelector('[data-selected="true"]')?.getAttribute("data-entry-id")).toBe("entry-1");
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    expect(container.querySelector('[data-selected="true"]')?.getAttribute("data-entry-id")).toBe("entry-10");
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
+    expect(container.querySelector('[data-selected="true"]')?.getAttribute("data-entry-id")).toBe("entry-1");
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(sentRecords(pi).at(-1)).toMatchObject({ type: "tree_picker_answer", entry_id: "entry-1" });
+    expect(input.disabled).toBe(true);
+  });
+
+  it("does not apply an unfinished IME composition to the filter", async () => {
+    const { container } = await renderPicker();
+    const nodes = Array.from({ length: 12 }, (_, index) => ({
+      entry_id: `entry-${index}`, label: `user: message ${index}`, depth: 0, current: index === 0,
+    }));
+    await send({ type: "tree_picker_open", picker: { ...PICKER, nodes } });
+    const input = container.querySelector<HTMLInputElement>("input")!;
+    await act(async () => {
+      input.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "missing");
+      input.dispatchEvent(new InputEvent("input", { bubbles: true, isComposing: true }));
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, isComposing: true }));
+    });
+    expect(container.querySelectorAll("[data-entry-id]")).toHaveLength(12);
+    await act(async () => input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "missing" })));
+    expect(container.querySelectorAll("[data-entry-id]")).toHaveLength(0);
+  });
+
   it("renders readable and disambiguated labels and answers with the original id", async () => {
     const { container, pi } = await renderPicker();
     await send({ type: "tree_picker_open", picker: { ...PICKER, nodes: [
@@ -185,6 +252,50 @@ describe("PiTreePickerCards", () => {
       type: "tree_picker_answer", picker_id: "tree-1", entry_id: "abcd2000",
     });
     await respondAccepted(pi);
+  });
+
+  it("does not handle composing keys or keys outside the card", async () => {
+    const { container, pi } = await renderPicker();
+    await send({ type: "tree_picker_open", picker: PICKER });
+    expect(container.querySelector("input")).toBeNull();
+    const first = container.querySelector<HTMLButtonElement>('[data-entry-id="entry-1"]')!;
+    const outside = document.createElement("input");
+    document.body.appendChild(outside);
+    await act(async () => {
+      outside.focus();
+      outside.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+      outside.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      first.focus();
+      first.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, isComposing: true }));
+      first.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, isComposing: true }));
+    });
+    expect(sentRecords(pi).filter((record) => String(record.type).startsWith("tree_picker_"))).toHaveLength(0);
+    expect(document.activeElement).toBe(first);
+    await act(async () => first.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(sentRecords(pi).at(-1)).toMatchObject({ type: "tree_picker_cancel", picker_id: "tree-1" });
+  });
+
+  it("moves the keyboard selection inside the card and sends one request if a click races Enter", async () => {
+    const { container, pi } = await renderPicker();
+    await send({ type: "tree_picker_open", picker: PICKER });
+    const first = container.querySelector<HTMLButtonElement>('[data-entry-id="entry-1"]')!;
+    const second = container.querySelector<HTMLButtonElement>('[data-entry-id="entry-2"]')!;
+    await act(async () => {
+      first.focus();
+      first.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    });
+    expect(document.activeElement).toBe(second);
+    await act(async () => {
+      second.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      first.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      second.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+      second.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    expect(document.activeElement).toBe(second);
+    expect(sentRecords(pi).filter((record) => record.type === "tree_picker_answer")).toMatchObject([
+      { picker_id: "tree-1", entry_id: "entry-2" },
+    ]);
+    expect(second.disabled).toBe(true);
   });
 
   it("answers with the chosen entry id and the picker id", async () => {

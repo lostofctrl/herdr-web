@@ -6,6 +6,9 @@
 
 ### Added
 
+- Session Tree Cards with at least 12 published entries offer a filter and keyboard navigation;
+  long lists scroll within the card, and filtering does not search omitted entries.
+
 - Pi panes can open Pi's session tree from the phone: `/herdr-tree` in the terminal publishes
   the current tree and the resulting card navigates the session when an entry is chosen. It is
   bounded and summary-free — no summaries, no queued-message restoration, and it refuses to open

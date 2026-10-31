@@ -235,6 +235,21 @@
   gap: 6px;
 }
 
+.pi-tree-picker .pi-dialog-card-options {
+  max-height: 40vh;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.pi-tree-picker .pi-dialog-card-option[data-selected="true"] {
+  outline: 2px solid var(--accent, #89b4fa);
+  outline-offset: -2px;
+}
+
+.pi-tree-picker .pi-dialog-card-option-label {
+  overflow-wrap: anywhere;
+}
+
 .pi-dialog-card-option {
   display: flex;
   flex-direction: column;

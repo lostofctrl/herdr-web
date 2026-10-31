@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 
 import { usePiBridge, type PiBridgeApi } from "../PiBridgeContext";
 import type { PiTreePicker } from "../piProtocol";
@@ -26,6 +26,17 @@ export function PiTreePickerCard({ picker, answerTreePicker, cancelTreePicker }:
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+  const [filterText, setFilterText] = useState("");
+  const composingRef = useRef(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const visibleNodes = picker.nodes.filter((node) =>
+    node.label.toLowerCase().includes(filter.toLowerCase()),
+  );
+  const activeId = visibleNodes.some((node) => node.entry_id === selectedId)
+    ? selectedId
+    : visibleNodes[0]?.entry_id;
 
   async function settle(action: { entryId: string } | { cancel: true }) {
     if (sendingRef.current) {
@@ -50,13 +61,37 @@ export function PiTreePickerCard({ picker, answerTreePicker, cancelTreePicker }:
     }
   }
 
+  function handleListKey(event: KeyboardEvent<HTMLElement>) {
+    if (event.nativeEvent.isComposing || composingRef.current || sendingRef.current) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!visibleNodes.length) return;
+      const focusedId = event.target instanceof HTMLButtonElement ? event.target.dataset.entryId : activeId;
+      const currentIndex = visibleNodes.findIndex((node) => node.entry_id === focusedId);
+      const nextIndex = currentIndex < 0 ? 0 : Math.max(0, Math.min(visibleNodes.length - 1,
+        currentIndex + (event.key === "ArrowDown" ? 1 : -1)));
+      const next = visibleNodes[nextIndex];
+      setSelectedId(next.entry_id);
+      const button = listRef.current?.querySelectorAll<HTMLButtonElement>("button")[nextIndex];
+      if (event.target instanceof HTMLButtonElement) button?.focus();
+      else button?.scrollIntoView?.({ block: "nearest" });
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      const focusedId = event.target instanceof HTMLButtonElement ? event.target.dataset.entryId : activeId;
+      const selected = visibleNodes.find((node) => node.entry_id === focusedId) ?? visibleNodes[0];
+      if (selected) void settle({ entryId: selected.entry_id });
+    }
+  }
+
   return (
     <section
       className="pi-dialog-card pi-tree-picker"
       data-pi-tree-picker="true"
       aria-label={picker.title}
       onKeyDown={(event) => {
-        if (event.key === "Escape" && !event.nativeEvent.isComposing) {
+        if (event.key === "Escape" && !event.nativeEvent.isComposing && !composingRef.current) {
           event.preventDefault();
           event.stopPropagation();
           void settle({ cancel: true });
@@ -79,8 +114,29 @@ export function PiTreePickerCard({ picker, answerTreePicker, cancelTreePicker }:
         created, so use /tree in the terminal for those.
       </p>
 
-      <div className="pi-dialog-card-options" role="group" aria-label={picker.title}>
-        {picker.nodes.map((node) => (
+      {picker.nodes.length >= 12 ? (
+        <div className="pi-dialog-card-input">
+          <input
+            aria-label="Filter published entries"
+            placeholder="Filter published entries"
+            value={filterText}
+            disabled={sending}
+            onCompositionStart={() => { composingRef.current = true; }}
+            onCompositionEnd={(event) => {
+              composingRef.current = false;
+              setFilter(event.currentTarget.value);
+            }}
+            onChange={(event) => {
+              setFilterText(event.target.value);
+              if (!composingRef.current) setFilter(event.target.value);
+            }}
+            onKeyDown={handleListKey}
+          />
+        </div>
+      ) : null}
+      {visibleNodes.length === 0 ? <p className="pi-dialog-card-message">No published entries match.</p> : null}
+      <div ref={listRef} className="pi-dialog-card-options" role="group" aria-label={picker.title} onKeyDown={handleListKey}>
+        {visibleNodes.map((node) => (
           <button
             className="pi-dialog-card-option"
             type="button"
@@ -88,6 +144,8 @@ export function PiTreePickerCard({ picker, answerTreePicker, cancelTreePicker }:
             disabled={sending}
             data-entry-id={node.entry_id}
             data-current={node.current ? "true" : undefined}
+            data-selected={node.entry_id === activeId ? "true" : undefined}
+            onFocus={() => setSelectedId(node.entry_id)}
             aria-current={node.current ? "true" : undefined}
             style={{ paddingLeft: `${12 + node.depth * 14}px` }}
             onClick={() => void settle({ entryId: node.entry_id })}
