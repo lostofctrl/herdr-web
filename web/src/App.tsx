@@ -73,6 +73,8 @@ import type { AgentPinsListResponse } from "./agentPins";
 import { applyActivityMessage, parseActivityEventData, replayActivityMessages } from "./activity";
 import type { ActivityLogEntry } from "./activity";
 import { BackendSettingsDialog } from "./BackendSettingsDialog";
+import { resolveHerdrAgentRows } from "./herdrAgentRows";
+import type { HerdrAgentRowToken } from "./herdrAgentRows";
 import { useBridge } from "./bridge";
 import type { BridgeId, BridgeRuntime } from "./bridge";
 import { createCommands, createdPaneId } from "./commands";
@@ -429,6 +431,7 @@ type DisplayPrefs = {
   agentActiveOnly: boolean;
   agentFeaturesInTabs: boolean;
   multiHostSpaceSelection: boolean;
+  useHerdrAgentRows: boolean;
   sidebarWidth: number;
   notesPanelWidth: number;
   notesListPaneWidth: number;
@@ -498,6 +501,7 @@ function readDisplayPrefs(): DisplayPrefs {
     agentActiveOnly: false,
     agentFeaturesInTabs: DEFAULT_AGENT_FEATURES_IN_TABS,
     multiHostSpaceSelection: DEFAULT_MULTI_HOST_SPACE_SELECTION,
+    useHerdrAgentRows: true,
     sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
     notesPanelWidth: DEFAULT_NOTES_PANEL_WIDTH,
     notesListPaneWidth: DEFAULT_NOTES_LIST_PANE_WIDTH,
@@ -691,6 +695,10 @@ function parseDisplayPrefsValue(
       parsed.multiHostSpaceSelection,
       fallback.multiHostSpaceSelection,
     ),
+    useHerdrAgentRows:
+      typeof parsed.useHerdrAgentRows === "boolean"
+        ? parsed.useHerdrAgentRows
+        : fallback.useHerdrAgentRows,
     sidebarWidth,
     notesPanelWidth,
     notesListPaneWidth:
@@ -1072,6 +1080,7 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
   const [multiHostSpaceSelection, setMultiHostSpaceSelection] = useState(
     initialPrefs.multiHostSpaceSelection,
   );
+  const [useHerdrAgentRows, setUseHerdrAgentRows] = useState(initialPrefs.useHerdrAgentRows);
   const [sidebarWidth, setSidebarWidth] = useState(initialPrefs.sidebarWidth);
   const [notesPanelWidth, setNotesPanelWidth] = useState(initialPrefs.notesPanelWidth);
   const [notesListPaneWidth, setNotesListPaneWidth] = useState(initialPrefs.notesListPaneWidth);
@@ -1247,6 +1256,7 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
       setAgentActiveOnly(prefs.agentActiveOnly);
       setAgentFeaturesInTabs(prefs.agentFeaturesInTabs);
       setMultiHostSpaceSelection(prefs.multiHostSpaceSelection);
+      setUseHerdrAgentRows(prefs.useHerdrAgentRows);
       setSidebarWidth(prefs.sidebarWidth);
       setNotesPanelWidth(prefs.notesPanelWidth);
       setNotesListPaneWidth(prefs.notesListPaneWidth);
@@ -1812,6 +1822,7 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
       agentActiveOnly,
       agentFeaturesInTabs,
       multiHostSpaceSelection,
+      useHerdrAgentRows,
       sidebarWidth,
       notesPanelWidth,
       notesListPaneWidth,
@@ -1853,6 +1864,7 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
     agentActiveOnly,
     agentFeaturesInTabs,
     multiHostSpaceSelection,
+    useHerdrAgentRows,
     sidebarWidth,
     notesPanelWidth,
     notesListPaneWidth,
@@ -3962,6 +3974,7 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
           spaceReorderMode={spaceReorderMode}
           spaceReorderBusy={busy}
           multiHostSpaceSelection={multiHostSpaceSelection}
+          useHerdrAgentRows={useHerdrAgentRows}
           activeSpace={activeSpace}
           activeWorkspacesByBridgeId={activeWorkspacesByBridgeId}
           selectedPane={selectedPane}
@@ -4500,6 +4513,8 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
           onCombineMatchingWorkspaceNames={setCombineMatchingWorkspaceNames}
           multiHostSpaceSelection={multiHostSpaceSelection}
           onMultiHostSpaceSelection={setMultiHostSpaceSelection}
+          useHerdrAgentRows={useHerdrAgentRows}
+          onUseHerdrAgentRows={setUseHerdrAgentRows}
           terminalFontSizePx={terminalFontSizePx}
           onTerminalFontSizePx={setTerminalFontSizePx}
           terminalCursorBlink={terminalCursorBlink}
@@ -6192,6 +6207,7 @@ function Switcher({
   spaceReorderMode,
   spaceReorderBusy,
   multiHostSpaceSelection,
+  useHerdrAgentRows,
   activeSpace,
   activeWorkspacesByBridgeId,
   selectedPane,
@@ -6250,6 +6266,7 @@ function Switcher({
   spaceReorderMode: SpaceReorderMode | null;
   spaceReorderBusy: boolean;
   multiHostSpaceSelection: boolean;
+  useHerdrAgentRows: boolean;
   activeSpace: WorkspaceInfo | null;
   activeWorkspacesByBridgeId: Record<string, string>;
   selectedPane: PaneInfo | null;
@@ -6835,6 +6852,11 @@ function Switcher({
                   workspace={group.workspace}
                   tabLabel={tab.label}
                   bridgeLabel={rowContext.bridgeLabel}
+                  herdrRows={
+                    useHerdrAgentRows && pane.agent
+                      ? resolveHerdrAgentRows(group.snapshot.agent_rows_by_agent?.[pane.agent], pane, group.workspace, group.workspace.tab_count > 1 || tab.can_clear_name ? tab.label : undefined, rowContext.bridgeLabel)
+                      : null
+                  }
                   pinned={pinned}
                   active={active}
                   onSelect={onSelect}
@@ -7122,6 +7144,17 @@ function Switcher({
         workspace={entry.workspace}
         tabLabel={entry.tabLabel}
         bridgeLabel={rowContext.bridgeLabel}
+        herdrRows={
+          useHerdrAgentRows && entry.workspace && entry.pane.agent
+            ? resolveHerdrAgentRows(
+                entry.snapshot.agent_rows_by_agent?.[entry.pane.agent],
+                entry.pane,
+                entry.workspace,
+                entry.workspace.tab_count > 1 || entry.snapshot.tabs.find((tab) => tab.tab_id === entry.pane.tab_id)?.can_clear_name ? entry.tabLabel : undefined,
+                rowContext.bridgeLabel,
+              )
+            : null
+        }
         pinned={entry.pinned === true}
         active={
           entry.bridgeId === selectedBridgeId &&
@@ -9156,6 +9189,7 @@ function AgentRow({
   workspace,
   tabLabel,
   bridgeLabel,
+  herdrRows,
   pinned,
   active,
   index,
@@ -9166,6 +9200,7 @@ function AgentRow({
   workspace?: WorkspaceInfo;
   tabLabel?: string;
   bridgeLabel?: string;
+  herdrRows: HerdrAgentRowToken[][] | null;
   pinned: boolean;
   active: boolean;
   index: number;
@@ -9184,8 +9219,25 @@ function AgentRow({
       style={{ animationDelay: `${Math.min(index, 14) * 22}ms` }}
       {...press}
     >
-      <span className="dot" data-status={pane.agent_status} />
-      <span className="pane-body">
+      {herdrRows === null ? <span className="dot" data-status={pane.agent_status} /> : null}
+      {herdrRows !== null ? (
+        <span className="pane-body">
+          {herdrRows.map((row, rowIndex) => (
+            <span className={rowIndex === 0 ? "pane-name pane-title" : "pane-meta pane-title"} key={rowIndex}>
+              {row.map((token, tokenIndex) => (
+                <Fragment key={tokenIndex}>
+                  {token.separatorBefore}
+                  <span style={{ color: token.style.fg, fontWeight: token.style.bold ? "bold" : undefined, opacity: token.style.dim ? 0.6 : undefined }}>
+                    {token.kind === "state_icon" ? <span className="dot" data-status={token.status} style={{ display: "inline-block", verticalAlign: "middle", backgroundColor: token.style.fg, borderColor: token.style.fg }} /> : token.value}
+                  </span>
+                </Fragment>
+              ))}
+              {rowIndex === 0 && pinned ? <Pin className="agent-pin-indicator" size={10} aria-label="Pinned" /> : null}
+            </span>
+          ))}
+          {herdrRows.length === 0 && pinned ? <Pin className="agent-pin-indicator" size={10} aria-label="Pinned" /> : null}
+        </span>
+      ) : <span className="pane-body">
         <span className="pane-name pane-title">
           {!text.heading && iconKind ? <AgentIcon kind={iconKind} /> : null}
           <span className="pane-title-text">{text.heading || text.title}</span>
@@ -9198,7 +9250,7 @@ function AgentRow({
           </span>
         ) : null}
         <span className="pane-meta mono">{text.detail}</span>
-      </span>
+      </span>}
     </button>
   );
 }

@@ -266,6 +266,8 @@ function settingsProps() {
     onCombineMatchingWorkspaceNames: vi.fn(),
     multiHostSpaceSelection: true,
     onMultiHostSpaceSelection: vi.fn(),
+    useHerdrAgentRows: true,
+    onUseHerdrAgentRows: vi.fn(),
     terminalFontSizePx: 13,
     onTerminalFontSizePx: vi.fn(),
     terminalCursorBlink: false,

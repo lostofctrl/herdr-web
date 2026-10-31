@@ -303,7 +303,13 @@ export function spaceSubtitle(
   const panes = `${workspace.pane_count} pane${workspace.pane_count === 1 ? "" : "s"}`;
   const agents =
     agentCount > 0 ? `${agentCount} agent${agentCount === 1 ? "" : "s"}` : undefined;
-  return [bridgeLabel, tabs, panes, agents].filter(Boolean).join(" · ");
+  const git = workspace.git_status;
+  const counts = git?.ahead_behind;
+  const branch = git?.branch
+    ? [git.branch, counts?.[0] ? `↑${counts[0]}` : "", counts?.[1] ? `↓${counts[1]}` : ""]
+        .filter(Boolean).join(" ")
+    : undefined;
+  return [bridgeLabel, tabs, panes, agents, branch].filter(Boolean).join(" · ");
 }
 
 export function tabsForWorkspace(tabs: TabInfo[], workspaceId: string) {

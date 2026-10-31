@@ -70,6 +70,8 @@ type Props = {
   onCombineMatchingWorkspaceNames: (enabled: boolean) => void;
   multiHostSpaceSelection: boolean;
   onMultiHostSpaceSelection: (enabled: boolean) => void;
+  useHerdrAgentRows: boolean;
+  onUseHerdrAgentRows: (enabled: boolean) => void;
   terminalFontSizePx: number;
   onTerminalFontSizePx: (value: number) => void;
   terminalCursorBlink: boolean;
@@ -136,6 +138,8 @@ export function BackendSettingsDialog({
   onCombineMatchingWorkspaceNames,
   multiHostSpaceSelection,
   onMultiHostSpaceSelection,
+  useHerdrAgentRows,
+  onUseHerdrAgentRows,
   terminalFontSizePx,
   onTerminalFontSizePx,
   terminalCursorBlink,
@@ -654,6 +658,17 @@ export function BackendSettingsDialog({
                       onClick={() => onMultiHostSpaceSelection(true)}
                     >
                       On
+                    </button>
+                  </div>
+                </div>
+                <div className="settings-row">
+                  <span>Agent row layout</span>
+                  <div className="segmented-control" role="group" aria-label="Agent row layout">
+                    <button type="button" data-on={useHerdrAgentRows} aria-pressed={useHerdrAgentRows} onClick={() => onUseHerdrAgentRows(true)}>
+                      Herdr
+                    </button>
+                    <button type="button" data-on={!useHerdrAgentRows} aria-pressed={!useHerdrAgentRows} onClick={() => onUseHerdrAgentRows(false)}>
+                      Web
                     </button>
                   </div>
                 </div>

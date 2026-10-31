@@ -6,6 +6,8 @@
 
 ### Added
 
+- Agent rows can follow each bridge's Herdr `ui.sidebar.agents.rows_by_agent` overrides, including token styles and rules. The browser-wide Agent row layout setting can force the original web layout; agents without a valid override keep that layout. Each bridge reads `HERDR_CONFIG_PATH`, or its XDG/HOME Herdr config, which may differ from a separately started Herdr client. Only sidebar overrides are sent to connected browsers, so their rule values should not contain secrets.
+- Space cards show Git branches and nonzero ahead/behind counts from local tracking refs without fetching. A Space without worktree metadata uses a pane directory as an approximation; counts can be stale or unavailable.
 - Back and forward controls in the tab bar navigate recently visited tabs across spaces and bridges; history is saved in the browser.
 
 - Pi Side Panel buttons can be pinned and customized with built-in actions or literal prompts,

@@ -10,6 +10,10 @@ export type WorkspaceInfo = {
   active_tab_id: string;
   agent_status: AgentStatus;
   can_clear_name?: boolean;
+  git_status?: {
+    branch: string | null;
+    ahead_behind: [number, number] | null;
+  };
   worktree?: {
     repo_key: string;
     repo_name: string;
@@ -79,6 +83,7 @@ export type LayoutSnapshot = {
 };
 
 export type Snapshot = {
+  agent_rows_by_agent?: Record<string, unknown>;
   workspaces: WorkspaceInfo[];
   tabs: TabInfo[];
   panes: PaneInfo[];

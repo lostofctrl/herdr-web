@@ -52,6 +52,15 @@ const workspace = (label: string) =>
     agent_status: "idle",
   }) satisfies WorkspaceInfo;
 
+describe("Space Git status", () => {
+  it("shows branch and nonzero local upstream counts without inventing unknown counts", () => {
+    expect(spaceSubtitle({ ...workspace("repo"), git_status: { branch: "main", ahead_behind: [2, 3] } })).toContain("main ↑2 ↓3");
+    expect(spaceSubtitle({ ...workspace("repo"), git_status: { branch: "main", ahead_behind: [0, 0] } })).toContain("main");
+    expect(spaceSubtitle({ ...workspace("repo"), git_status: { branch: "main", ahead_behind: null } })).not.toContain("↑");
+    expect(spaceSubtitle({ ...workspace("repo"), git_status: { branch: null, ahead_behind: null } })).toBe("1 tab · 1 pane");
+  });
+});
+
 const snapshot = (panes: PaneInfo[]): Snapshot => ({
   workspaces: [
     {

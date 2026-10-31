@@ -157,6 +157,7 @@ struct Snapshot {
     panes: Vec<PaneInfo>,
     layouts: Vec<PaneLayoutSnapshot>,
     selected_pane_id: Option<String>,
+    agent_rows_by_agent: std::collections::BTreeMap<String, Vec<Vec<crate::sidebar_config::Token>>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -164,6 +165,8 @@ struct SnapshotWorkspaceInfo {
     #[serde(flatten)]
     info: WorkspaceInfo,
     can_clear_name: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    git_status: Option<crate::git_status::GitStatus>,
 }
 
 #[derive(Debug, Serialize)]
@@ -3085,10 +3088,24 @@ async fn snapshot_handler(
     }
     let selected_pane_id = shared_selected_pane(&state, &session_snapshot.panes)?;
 
-    Ok(Json(web_snapshot_from_session_snapshot(
-        session_snapshot,
-        selected_pane_id,
-    )))
+    let mut snapshot = web_snapshot_from_session_snapshot(session_snapshot, selected_pane_id);
+    if let Ok(Ok(overrides)) = tokio::time::timeout(
+        Duration::from_millis(200),
+        tokio::task::spawn_blocking(crate::sidebar_config::load_sidebar_overrides),
+    ).await {
+        snapshot.agent_rows_by_agent = overrides.rows_by_agent;
+    }
+    static GIT_CACHE: std::sync::OnceLock<crate::git_status::GitStatusCache> = std::sync::OnceLock::new();
+    let cache = GIT_CACHE.get_or_init(Default::default);
+    for workspace in &mut snapshot.workspaces {
+        // Prefer the daemon's checkout identity; pane cwd is only an approximation.
+        let path = workspace.info.worktree.as_ref().map(|worktree| worktree.checkout_path.as_str())
+            .or_else(|| snapshot.panes.iter().find(|pane| pane.workspace_id == workspace.info.workspace_id).and_then(|pane| pane.cwd.as_deref()));
+        if let Some(path) = path {
+            workspace.git_status = cache.cached_or_refresh(Path::new(path));
+        }
+    }
+    Ok(Json(snapshot))
 }
 
 fn web_snapshot_from_session_snapshot(
@@ -3117,6 +3134,7 @@ fn web_snapshot_from_session_snapshot(
             SnapshotWorkspaceInfo {
                 info: workspace,
                 can_clear_name,
+                git_status: None,
             }
         })
         .collect();
@@ -3137,6 +3155,7 @@ fn web_snapshot_from_session_snapshot(
         panes,
         layouts,
         selected_pane_id,
+        agent_rows_by_agent: Default::default(),
     }
 }
 
