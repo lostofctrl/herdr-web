@@ -253,12 +253,17 @@ command/skill browser (names, descriptions and sources). Catalog selection inser
 the live draft without sending. Explicit Abort, Compact, New session and Resume actions preserve
 unsent text and attachments; they use the existing PTY Esc or command paste plus Enter, not a new
 send API. Model, thinking and session actions require an online, idle Pi Bridge; Abort still works
-through the attached terminal while Bridge Offline. For Pi's session selector and other settings,
-use `/resume` and `/settings` in the terminal; the tree card needs `/herdr-tree` in the terminal and
-Pi's own full picker stays on `/tree`. If the `pi-btw` extension is
-installed, its `/btw` side conversation also remains in the terminal; a browser BTW dialog is not
-available. The Side Panel provides this terminal guidance without injecting these commands
-automatically. Failed requests show errors without discarding
+through the attached terminal while Bridge Offline. The Resume shortcut sends `/resume` to the
+terminal; it does not provide a browser session picker.
+
+On your phone, answer Native Cards and use `/herdr-tree` in the terminal for the summary-free Session
+Tree Card. Use `/resume` for sessions, `/settings` for Pi settings, and `/tree` for the full picker
+with summaries and queued-message restoration in the terminal.
+
+If pi-btw is installed, use `/btw` in the terminal for side conversations; its live transcript and
+controls stay in the terminal. The Side Panel provides this guidance without sending these commands
+automatically. See [the protocol](docs/pi-mode-protocol.md#terminal-actions-and-phone-cards) for the
+limitations. Failed requests show errors without discarding
 the draft. If a quick action reaches Pi without Enter, reopen ⋯ and choose Submit pending action;
 ordinary prompt delivery and helper/catalog insertion are blocked until that Enter-only recovery
 finishes. Key Bar/Chord keys and direct typing/paste cannot interleave with automatic delivery or

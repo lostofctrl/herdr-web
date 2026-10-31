@@ -129,6 +129,8 @@
 
 ### Changed
 
+- Pi Side Panel and documentation consistently explain terminal-only session, settings, full tree,
+  and BTW actions alongside the Native Cards and summary-free Session Tree Card available on a phone.
 - Pi Side Panel clarifies that `/btw` live transcripts and controls remain in the terminal;
   the protocol documents the audited upstream limitation and re-check criteria.
 - Session Tree Card rows show readable model, thinking, summary and label entries; repeated labels

@@ -117,13 +117,15 @@ export function PiSidePanelContent({ bridgeId, paneId, disabled, httpUrl, onSend
       {error ? <p role="alert">{error}</p> : null}
       {deliveryStatus ? <p role="status">{deliveryStatus}</p> : null}
       <p aria-label="Terminal-only Pi controls" role="note">
-        Use <code>/resume</code> or <code>/settings</code> in the terminal; their browser controls are not
-        available. Tree cards need <code>/herdr-tree</code> in the terminal; <code>/tree</code> keeps Pi&apos;s
-        summaries and queued-message handling.
+        On your phone, answer Native Cards and use <code>/herdr-tree</code> in the terminal for the
+        summary-free Session Tree Card. Use <code>/resume</code> for sessions, <code>/settings</code> for Pi
+        settings, and <code>/tree</code> for the full picker with summaries and queued-message restoration
+        in the terminal.
       </p>
       {online && bridge?.catalog?.commands.some((command) => command.name === "btw") ? (
         <p aria-label="BTW terminal guidance" role="note">
-          Use <code>/btw</code> in the terminal for side conversations. A browser BTW dialog is not available; its live transcript and controls stay in the terminal.
+          If pi-btw is installed, use <code>/btw</code> in the terminal for side conversations; its live
+          transcript and controls stay in the terminal.
         </p>
       ) : null}
       {online && bridge?.catalog ? (

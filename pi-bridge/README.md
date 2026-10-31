@@ -56,8 +56,6 @@ Implemented as `docs/pi-mode-protocol.md` version 1:
 - For wrapped generic dialogs, a browser answer claims the result and requests terminal
   prompt cancellation. An accepted answer is not an acknowledgement of completed prompt
   teardown or of any later action succeeding.
-- General settings and the full session tree remain available through Pi's terminal
-  `/settings` and `/tree` commands; the bridge does not write Pi settings files.
 - `state.busy` is `idle`, `busy` or `dialog`. It follows `agent_start` /
   `agent_end` and `ui_prompt_start` / `ui_prompt_end`.
 - `get_snapshot.dialogs` lists open question and generic dialogs.
@@ -100,6 +98,16 @@ strips the `skill:` prefix in `catalog.skills` and keeps those entries out of
 an empty list. Only a host without that method reports `skills_catalog: false` with a
 `skills_note`, and clients then show commands only.
 
+## Terminal actions and phone cards
+
+On your phone, answer Native Cards and use `/herdr-tree` in the terminal for the summary-free Session
+Tree Card. Use `/resume` for sessions, `/settings` for Pi settings, and `/tree` for the full picker
+with summaries and queued-message restoration in the terminal.
+
+If pi-btw is installed, use `/btw` in the terminal for side conversations; its live transcript and
+controls stay in the terminal. See [the protocol](../docs/pi-mode-protocol.md#terminal-actions-and-phone-cards)
+for the limitations.
+
 ## Session tree picker
 
 `/herdr-tree` is an opt-in command the extension registers. Running it in the
@@ -111,10 +119,9 @@ refuses to start or finish unless Pi is in interactive mode, is idle, has no
 queued messages, holds no editor draft, and its session id and leaf are
 unchanged. A new run or a session/tree/compaction change cancels the picker.
 
-Summaries and Pi's queued-message restoration stay in the terminal `/tree`
-picker, and an extension that awaits inside its own `session_before_tree` hook
-can still commit a stale target, so `/tree` remains the safe full picker.
-`session_tree_picker` in `hello` says whether the command is registered.
+An extension that awaits inside its own `session_before_tree` hook can still
+commit a stale target; see the protocol for the residual race. `session_tree_picker`
+in `hello` says whether the command is registered.
 
 ## Tests
 

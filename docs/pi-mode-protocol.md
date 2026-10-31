@@ -138,6 +138,27 @@ event (`dist/core/extensions/types.d.ts:853-859`). Answer validation stays with 
 extension: it accepts only a complete, in-range answer set, so a malformed
 `dialog_answer` gets `accepted:false` and the card stays open.
 
+## Terminal actions and phone cards
+
+On your phone, answer Native Cards and use `/herdr-tree` in the terminal for the summary-free Session
+Tree Card. Use `/resume` for sessions, `/settings` for Pi settings, and `/tree` for the full picker
+with summaries and queued-message restoration in the terminal.
+
+If pi-btw is installed, use `/btw` in the terminal for side conversations; its live transcript and
+controls stay in the terminal.
+
+There is no browser session picker, general Pi settings editor, full tree picker, or BTW dialog.
+The Resume shortcut sends the command to the terminal; it does not switch sessions in the browser.
+The limitations are:
+
+- **Session resume:** Pi's command-context session switch can exit the Pi process if the switch
+  fails, so a failed browser-driven session switch would exit Pi.
+- **Pi settings:** Pi exposes no supported setter combining runtime changes, persistence, and
+  read-back for general settings. Model and thinking controls remain available separately.
+- **Full tree picker:** Pi does not expose summaries and queued-message restoration to extensions.
+- **BTW:** the installed extension keeps live transcript, status, submit, and abort private; see
+  the [audit](#btw-remains-terminal-only) below.
+
 ## `herdr-tree` session picker
 
 `/herdr-tree` is a Pi command the Bridge registers, so the terminal starts every picker:
@@ -173,10 +194,8 @@ that hook.
 
 ## `/btw` remains terminal-only
 
-**Decision:** no browser BTW card or capability. If `pi-btw` is installed, use `/btw` in the
-terminal for side conversations; a browser BTW dialog is not available, and its live transcript
-and controls stay in the terminal. The terminal itself remains usable through herdr-web. This is
-an audit of the installed versions, not a claim about all future releases.
+**Decision:** no browser BTW card or capability. This is an audit of the installed versions,
+not a claim about all future releases.
 
 ### Evidence and re-audit checklist
 

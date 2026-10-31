@@ -106,11 +106,9 @@ it("explains terminal-only session, tree and settings access without sending inp
   const send = vi.fn(() => true);
   const content = await render(<PiSidePanelContent bridgeId="bridge" paneId="pane" disabled={false} onSend={send} />);
   const guidance = content.querySelector('[aria-label="Terminal-only Pi controls"]');
-  expect(guidance?.textContent).toContain("/resume");
-  expect(guidance?.textContent).toContain("/tree");
-  expect(guidance?.textContent).toContain("/settings");
-  expect(guidance?.textContent).toContain("/herdr-tree");
-  expect(guidance?.textContent).toMatch(/terminal/i);
+  expect(guidance?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+    "On your phone, answer Native Cards and use /herdr-tree in the terminal for the summary-free Session Tree Card. Use /resume for sessions, /settings for Pi settings, and /tree for the full picker with summaries and queued-message restoration in the terminal.",
+  );
   expect(send).not.toHaveBeenCalled();
 });
 
@@ -122,15 +120,27 @@ it("directs BTW conversations to the terminal when the command is available", as
   };
   const content = await render(<PiSidePanelContent bridgeId="bridge" paneId="pane" disabled={false} onSend={send} />);
   const guidance = content.querySelector('[aria-label="BTW terminal guidance"]');
-  expect(guidance?.textContent).toMatch(/\/btw/);
-  expect(guidance?.textContent).toMatch(/terminal/i);
-  expect(guidance?.textContent).toContain("A browser BTW dialog is not available; its live transcript and controls stay in the terminal.");
+  expect(guidance?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+    "If pi-btw is installed, use /btw in the terminal for side conversations; its live transcript and controls stay in the terminal.",
+  );
   expect(send).not.toHaveBeenCalled();
 });
 
 it("does not advertise BTW when it is absent from the command catalog", async () => {
   const content = await render(<PiSidePanelContent bridgeId="bridge" paneId="pane" disabled={false} onSend={() => true} />);
   expect(content.querySelector('[aria-label="BTW terminal guidance"]')).toBeNull();
+});
+
+it("does not advertise BTW while the bridge is offline", async () => {
+  bridge.current = {
+    ...api,
+    status: "offline",
+    catalog: { ...api.catalog, commands: [{ name: "btw", description: "Side conversation", source: "extension" }] },
+  };
+  const send = vi.fn(() => true);
+  const content = await render(<PiSidePanelContent bridgeId="bridge" paneId="pane" disabled={false} onSend={send} />);
+  expect(content.querySelector('[aria-label="BTW terminal guidance"]')).toBeNull();
+  expect(send).not.toHaveBeenCalled();
 });
 
 it("renders the same Side Panel controls in the terminal aside and the Composer panel", async () => {
