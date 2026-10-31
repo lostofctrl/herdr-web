@@ -1623,7 +1623,7 @@ describe("Pi Composer prompt history panel (Seam 3)", () => {
     expect(field.value).toBe("remembered prompt");
 
     // The side panel appends to the live draft, not to the stale stored one.
-    await act(async () => insertPiComposerText(BRIDGE_ID, PANE_A, "/skill:tdd"));
+    await act(async () => { insertPiComposerText(BRIDGE_ID, PANE_A, "/skill:tdd"); });
     expect(field.value).toBe("remembered prompt\n/skill:tdd");
     expect(sentTerminalInput(socket)).toHaveLength(sentBefore);
   });

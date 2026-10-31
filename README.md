@@ -273,6 +273,42 @@ deliberate reuse, not an automatic resend.
 Back returns to the initiating menu entry; dismissal returns to the helper trigger.
 Desktop retains its `/` and `@` buttons, and the Pi Side Panel remains available.
 
+### Configure Pi Side Panel buttons
+
+Open the Pi Side Panel and choose **Manage Pi buttons** (⋯). Abort, Compact, New session,
+Resume, and Open chat log are pinned initially; all remain available in the menu even when
+unpinned. Add a custom button for one of those actions or for prompt text, choose a Lucide icon
+or a short text/emoji glyph, and pin it if you want it alongside the controls. A live command or
+skill can be inserted into a prompt while editing it, but the saved prompt is literal text, so it
+also works when that catalog entry or the Pi Bridge is unavailable. Custom buttons can be edited
+or deleted; deletion asks for confirmation.
+
+A prompt button can **Insert** into the Composer draft or **Send** immediately. Insert appends
+without submitting and preserves attachments. Send uses bracketed paste and a separate Enter on the
+existing terminal connection; it does not send or clear the Composer draft or attachments. The
+terminal may already contain text typed outside the Composer, which the web app cannot detect:
+check Pi's editor before sending. Socket delivery does not confirm that Pi executed the action.
+If delivery is partial, use the Composer's explicit recovery; do not paste the action again.
+
+Button configuration is shared by clients connected to the **selected Herdr web bridge**, not by
+all bridges. It is reloaded each time the Side Panel opens rather than synchronized live. A stale
+save reports a conflict and lets you review the newer configuration before keeping it or explicitly
+replacing it. Older bridges without this optional feature continue to show the five default controls;
+a failed load is shown as an error, not saved as defaults.
+
+**Shared prompts are not secrets.** Any client allowed by the bridge's existing host/origin policy
+can read and edit them; that policy is not user authentication. Do not store sensitive prompts on an
+untrusted or exposed bridge.
+
+On Unix, settings are stored privately under
+`${XDG_DATA_HOME:-~/.local/share}/herdr-web/pi-sidepanel-buttons/`. The filename encodes the
+configured bind host and port, so changing either selects a different store. Override the directory
+with `HERDR_WEB_PI_SIDEPANEL_BUTTONS_DIR`, or set an explicit file with
+`--pi-sidepanel-buttons PATH` or `HERDR_WEB_PI_SIDEPANEL_BUTTONS=PATH`. Its parent directory must
+be private (no group or other permissions). An explicit file is shared by all bridges configured to
+use it. With port `0`, an explicit file is required; otherwise the feature is unavailable. Non-Unix
+bridges also leave this optional feature unavailable.
+
 Pi 1.4.0 has no verified supported API to hide only its built-in CLI editor chrome while preserving
 TUI input and PTY submission: `setEditorComponent` replaces the editor, `setWorkingVisible` affects
 only the loader, and header/footer hooks do not hide the editor. Therefore the collapsed terminal
@@ -504,7 +540,10 @@ that page should connect to another bridge; the bridge adds matching HTTP and We
 `connect-src` entries for that origin.
 
 Sync navigation is on by default. Selecting a pane updates `/api/selection`, broadcasts over
-`/ws/ui-events`, and other clients with sync enabled switch to the same pane. Clients can turn sync
+`/ws/ui-events`, and other clients with sync enabled switch to the same pane. A client's own
+selection is sticky: the pane Herdr itself has focused (set by the TUI in a terminal, for example)
+is used only when the browser has no selection yet, so another client's tab change never pulls this
+browser away from the pane it shows. Clients can turn sync
 off in Display settings to keep each open tab's pane selection in that tab's in-memory app state.
 The Sync setting is shared by every tab on the same browser origin; no pane selection is stored per
 tab. Navigation with sync off still uses the same Herdr session: terminal input, structural

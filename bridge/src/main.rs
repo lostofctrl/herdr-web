@@ -2,6 +2,8 @@ mod agent_activity;
 mod agent_pins;
 mod launcher_presets;
 mod notes;
+mod note_images;
+mod pi_sidepanel_buttons;
 mod session;
 mod store_util;
 mod web_bridge;

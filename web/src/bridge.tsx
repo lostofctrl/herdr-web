@@ -36,6 +36,7 @@ export type BridgeMode = "same-origin" | "configured";
 
 export type BridgeCapabilities = {
   commands: string[];
+  pi_sidepanel_buttons_version?: 1;
   agent_activity?: {
     version: 1;
   };
@@ -1076,6 +1077,7 @@ export function parseCapabilities(value: unknown): BridgeCapabilities {
     commands: Array.isArray(value.commands)
       ? value.commands.filter((command): command is string => typeof command === "string")
       : [],
+    ...(value.pi_sidepanel_buttons_version === 1 ? { pi_sidepanel_buttons_version: 1 as const } : {}),
     bridge_version: typeof value.bridge_version === "string" ? value.bridge_version : undefined,
     web_compat: typeof value.web_compat === "number" ? value.web_compat : undefined,
     min_android_app_compat:

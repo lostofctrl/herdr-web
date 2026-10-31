@@ -169,6 +169,19 @@ describe("Composer Side Panel", () => {
     expect(container.querySelector('[role="dialog"][aria-label="Pi Side Panel"]')).toBeNull();
   });
 
+  it("closes the nested button manager before the floating panel on Escape", async () => {
+    const { container } = await renderComposer();
+    const floating = await openPanel(container);
+    const trigger = floating.querySelector<HTMLButtonElement>('[aria-label="Manage Pi buttons"]')!;
+    await act(async () => trigger.click());
+    const dialog = floating.querySelector<HTMLElement>('[role="dialog"][aria-label="Manage Pi buttons"]')!;
+    expect(dialog).not.toBeNull();
+    await act(async () => dialog.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    expect(floating.querySelector('[role="dialog"][aria-label="Manage Pi buttons"]')).toBeNull();
+    expect(container.contains(floating)).toBe(true);
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it("keeps one Composer popup at a time and closes with the Composer", async () => {
     const { container } = await renderComposer();
     await openPanel(container);

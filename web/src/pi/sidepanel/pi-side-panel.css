@@ -174,3 +174,93 @@
 .pi-side-panel-catalog small {
   color: var(--subtext0);
 }
+
+.pi-button-manager-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(70vh, 560px);
+  min-width: 0;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--base);
+}
+
+.pi-button-manager-dialog pre {
+  max-height: 12rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pi-button-manager-dialog textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.pi-button-manager-dialog h3,
+.pi-button-manager-dialog p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.pi-button-manager-form,
+.pi-button-manager-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pi-button-manager-list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.pi-button-manager-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.pi-button-manager-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pi-button-manager-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pi-side-panel .pi-button-manager-controls button,
+.pi-composer-side-panel .pi-button-manager-controls button {
+  width: auto;
+}
+
+.pi-button-manager-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 88px;
+  padding: 8px;
+  resize: vertical;
+  color: inherit;
+  font: inherit;
+  background: var(--term-bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.pi-button-manager-form textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PiComposer } from "./PiComposer";
 import { piComposerDraftKey, retainPiComposerDrafts } from "./piComposerDraft";
 import { ConversationContext } from "../pi/conversation/ConversationContext";
+import { insertPiComposerText } from "../pi/sidepanel/piComposerInsert";
 import type { PiConversation } from "../pi/piConversation";
 
 /**
@@ -143,6 +144,62 @@ async function typePrompt(container: HTMLElement, text: string) {
 }
 
 describe("PiComposer under StrictMode", () => {
+  it("registers a guarded pane sender only while mounted and preserves draft and images", async () => {
+    const quickActionRef = { current: null as null | ((parts: string[], done: (count: number, total: number) => void) => boolean) };
+    const call = (parts: string[]) => quickActionRef.current?.(parts, () => {}) ?? false;
+    expect(call(["\x1b"])).toBe(false);
+    const { container, onSend } = await renderUnderStrictMode({ quickActionRef });
+    await typePrompt(container, "Keep draft");
+    await attachImage(container);
+    await act(async () => { expect(call(["\x1b[200~/compact\x1b[201~", "\r"])).toBe(true); });
+    expect(onSend.mock.calls.map(([parts]) => parts)).toEqual([["\x1b[200~/compact\x1b[201~", "\r"]]);
+    expect(promptField(container).value).toBe("Keep draft");
+    expect(container.querySelector('[aria-label="Edit shot.png"]')).not.toBeNull();
+    await act(async () => roots.pop()!.unmount());
+    expect(call(["\x1b"])).toBe(false);
+  });
+
+  it("reports mounted insertion as blocked during partial prompt recovery", async () => {
+    const onSend = vi.fn((_parts: string[], done: (count: number, total: number) => void) => { done(1, 2); return true; });
+    const { container } = await renderUnderStrictMode({ onSend });
+    await typePrompt(container, "Preserve draft");
+    let result: string | undefined;
+    await act(async () => { result = insertPiComposerText("bridge-1", "pane-a", "/review"); });
+    expect(result).toBe("inserted");
+    expect(promptField(container).value).toBe("Preserve draft\n/review");
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Send prompt"]')!.click());
+    await act(async () => { result = insertPiComposerText("bridge-1", "pane-a", "/new"); });
+    expect(result).toBe("blocked");
+    expect(promptField(container).value).toBe("Preserve draft\n/review");
+    expect(window.localStorage.getItem(piComposerDraftKey("bridge-1", "pane-a"))).toBe("Preserve draft\n/review");
+  });
+
+  it("only permits Enter recovery after a partial registered action, without replaying its paste", async () => {
+    const quickActionRef = { current: null as null | ((parts: string[], done: (count: number, total: number) => void) => boolean) };
+    const onSend = vi.fn((parts: string[], done: (count: number, total: number) => void) => {
+      done(onSend.mock.calls.length === 1 ? 1 : parts.length, parts.length);
+      return true;
+    });
+    const { container } = await renderUnderStrictMode({ quickActionRef, onSend });
+    await typePrompt(container, "Preserve draft");
+    await attachImage(container);
+    const call = (parts: string[]) => quickActionRef.current?.(parts, () => {}) ?? false;
+    await act(async () => { expect(call(["\x1b[200~/compact\x1b[201~", "\r"])).toBe(true); });
+    await act(async () => { expect(call(["\x1b[200~/compact\x1b[201~", "\r"])).toBe(false); });
+    await act(async () => { expect(call(["\x1b"])).toBe(false); });
+    await act(async () => { expect(call(["\r"])).toBe(true); });
+    expect(onSend.mock.calls.map(([parts]) => parts)).toEqual([["\x1b[200~/compact\x1b[201~", "\r"], ["\r"]]);
+    expect(promptField(container).value).toBe("Preserve draft");
+    expect(container.querySelector('[aria-label="Edit shot.png"]')).not.toBeNull();
+  });
+
+  it("rejects a registered action when disconnected", async () => {
+    const quickActionRef = { current: null as null | ((parts: string[], done: (count: number, total: number) => void) => boolean) };
+    const { onSend } = await renderUnderStrictMode({ quickActionRef, disabled: true });
+    expect(quickActionRef.current?.(["\x1b"], () => {})).toBe(false);
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
   it.each([true, false])("clears the persisted draft on Ctrl+C without a selection, preserving copy and IME input (mobile=%s)", async (mobile) => {
     const onShortcut = vi.fn<(data: string) => boolean>(() => true);
     const { container } = await renderUnderStrictMode({ onShortcut, mobile });

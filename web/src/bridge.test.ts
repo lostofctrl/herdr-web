@@ -303,6 +303,12 @@ describe("backend store parsing", () => {
 });
 
 describe("capabilities", () => {
+  it("negotiates only the supported side panel buttons version", () => {
+    expect(parseCapabilities({ pi_sidepanel_buttons_version: 1 }).pi_sidepanel_buttons_version).toBe(1);
+    expect(parseCapabilities({ pi_sidepanel_buttons_version: 2 }).pi_sidepanel_buttons_version).toBeUndefined();
+    expect(parseCapabilities({ pi_sidepanel_buttons_version: "1" }).pi_sidepanel_buttons_version).toBeUndefined();
+  });
+
   it("maps capability probe outcomes to connection blocking state", () => {
     expect(capabilityProbeSuccess({ commands: ["pane.split"], web_compat: 1 })).toEqual({
       blocked: false,

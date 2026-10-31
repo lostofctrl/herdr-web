@@ -172,7 +172,7 @@ async function showState(busy: "idle" | "busy" | "dialog") {
 }
 
 async function insertInAct(bridgeId: string, paneId: string, text: string) {
-  await act(async () => insertPiComposerText(bridgeId, paneId, text));
+  await act(async () => { insertPiComposerText(bridgeId, paneId, text); });
 }
 
 function triggerPicker(container: HTMLElement) {
@@ -225,6 +225,43 @@ function sentTerminalInput(socket: TestSocket): string[] {
 }
 
 describe("TerminalView Pi Side Panel (Seam 3)", () => {
+  it("blocks aside actions while a Composer prompt is pending or under manual reconciliation", async () => {
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Keep this draft");
+    const { container } = await renderTerminalView({ mobile: false });
+    const { terminal } = await openSockets();
+    await click(container, "Toggle Pi Side Panel");
+    await click(container, "Open Composer");
+    await click(container, "Send prompt");
+    await click(container, "Abort Pi");
+    await click(container, "Compact Pi session");
+    expect(sentTerminalInput(terminal)).toEqual(["\x1b[200~Keep this draft\x1b[201~"]);
+    await click(container, "Close Composer (Esc)");
+    await click(container, "Abort Pi");
+    await act(async () => vi.advanceTimersByTime(100));
+    expect(sentTerminalInput(terminal)).toEqual(["\x1b[200~Keep this draft\x1b[201~"]);
+    expect(readPiComposerDraft(BRIDGE_ID, PANE_ID)).toBe("Keep this draft");
+  });
+
+  it("keeps a partially delivered aside action from replaying or allowing another action", async () => {
+    writePiComposerDraft(BRIDGE_ID, PANE_ID, "Preserve draft");
+    const { container, reconnect } = await renderTerminalView({ mobile: false });
+    const { terminal } = await openSockets();
+    await click(container, "Toggle Pi Side Panel");
+    await click(container, "Compact Pi session");
+    await click(container, "New Pi session");
+    expect(sentTerminalInput(terminal)).toEqual(["\x1b[200~/compact\x1b[201~"]);
+    await click(container, "Open Composer");
+    await click(container, "Close Composer (Esc)");
+    await reconnect();
+    const next = terminalSocket();
+    await act(async () => next.dispatchEvent(new Event("open")));
+    await act(async () => vi.advanceTimersByTime(100));
+    expect(sentTerminalInput(next)).toEqual([]);
+    await click(container, "Open Composer");
+    expect(container.textContent).toContain("Finish or clear the pending input in the terminal");
+    expect(readPiComposerDraft(BRIDGE_ID, PANE_ID)).toBe("Preserve draft");
+  });
+
   it("dismisses menus for Native Cards and leaves terminal-only dialogs reachable without losing the draft", async () => {
     writePiComposerDraft(BRIDGE_ID, PANE_ID, "Draft behind dialog");
     const { container } = await renderTerminalView();
@@ -808,8 +845,12 @@ describe("TerminalView Pi Side Panel (Seam 3)", () => {
     for (const button of actions.querySelectorAll("button")) {
       expect(button.getAttribute("aria-label")).toBeTruthy();
       expect(button.title).toBeTruthy();
-      expect(button.querySelector("svg")).not.toBeNull();
-      expect(button.textContent).toBe("");
+      if (button.getAttribute("aria-label") === "Manage Pi buttons") {
+        expect(button.textContent).toBe("⋯");
+      } else {
+        expect(button.querySelector("svg")).not.toBeNull();
+        expect(button.textContent).toBe("");
+      }
     }
     await click(first.container, "Insert /beta");
     const skill = control<HTMLButtonElement>(first.container, "Insert /skill:tdd");

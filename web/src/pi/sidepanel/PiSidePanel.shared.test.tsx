@@ -4,6 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { PiSidePanel, PiSidePanelContent } from "./PiSidePanel";
+import { readPiComposerDraft, writePiComposerDraft } from "../../pi-mode/piComposerDraft";
+import { defaultPiSidePanelButtons } from "./piSidePanelButtons";
 
 /**
  * The terminal aside and the Composer's floating panel must show one Side
@@ -61,6 +63,44 @@ function labels(container: HTMLElement) {
     .filter((label) => label !== "Toggle Pi Side Panel" && label !== "Close Pi Side Panel" && label !== "Pi Side Panel")
     .sort();
 }
+
+it("reports a blocked catalog insertion instead of recording it", async () => {
+  const reject = (event: Event) => event.preventDefault();
+  window.addEventListener("herdr:pi-composer-insert", reject);
+  try {
+    const content = await render(<PiSidePanelContent bridgeId="bridge" paneId="pane" disabled={false} onSend={() => true} />);
+    await act(async () => content.querySelector<HTMLButtonElement>('[aria-label="Insert /compact"]')!.click());
+    expect(content.querySelector('[role="alert"]')?.textContent).toMatch(/blocked|pending|recover/i);
+    expect(window.localStorage.length).toBe(0);
+  } finally { window.removeEventListener("herdr:pi-composer-insert", reject); }
+});
+
+it("reports when an action cannot be queued", async () => {
+  const content = await render(<PiSidePanelContent bridgeId="bridge" paneId="pane" disabled={false} onSend={() => false} />);
+  await act(async () => content.querySelector<HTMLButtonElement>('[aria-label="Abort Pi"]')!.click());
+  expect(content.querySelector('[role="alert"]')?.textContent).toMatch(/could not|unavailable|blocked/i);
+});
+
+it("runs custom insert and send actions without sending or replacing the draft", async () => {
+  const state = { ...defaultPiSidePanelButtons(), buttons: [
+    { id: "custom-insert", title: "Insert prompt", icon: { type: "glyph", text: "✨" }, action: { type: "prompt", text: "/skill:review check", delivery: "insert" } },
+    { id: "custom-send", title: "Send prompt", icon: { type: "lucide", name: "star" }, action: { type: "prompt", text: "run once", delivery: "send" } },
+  ], pinned: ["custom-insert", "custom-send"] };
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => new Response(JSON.stringify(
+    String(url).endsWith("capabilities") ? { pi_sidepanel_buttons_version: 1 } : state,
+  )));
+  writePiComposerDraft("bridge", "pane", "Existing draft");
+  const send = vi.fn((_: string[], done?: (delivered: number, total: number) => void) => { done?.(2, 2); return true; });
+  const url = (path: string) => `https://selected.example/proxy${path}`;
+  const content = await render(<PiSidePanelContent bridgeId="bridge" paneId="pane" disabled={false} httpUrl={url} onSend={send} />);
+  await act(async () => content.querySelector<HTMLButtonElement>('[aria-label="Insert prompt"]')!.click());
+  expect(readPiComposerDraft("bridge", "pane")).toBe("Existing draft\n/skill:review check");
+  expect(send).not.toHaveBeenCalled();
+  await act(async () => content.querySelector<HTMLButtonElement>('[aria-label="Send prompt"]')!.click());
+  expect(send).toHaveBeenCalledWith(["\x1b[200~run once\x1b[201~", "\r"], expect.any(Function));
+  expect(readPiComposerDraft("bridge", "pane")).toBe("Existing draft\n/skill:review check");
+  expect(content.textContent).toContain("Pi execution is not confirmed");
+});
 
 it("renders the same Side Panel controls in the terminal aside and the Composer panel", async () => {
   const send = vi.fn(() => true);

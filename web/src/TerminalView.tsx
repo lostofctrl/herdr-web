@@ -223,6 +223,7 @@ export function TerminalView({
   const mobileCommandInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const piComposerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const piInputOwnerRef = useRef<PiComposerInputOwner>({ generation: 0, mode: "idle" });
+  const piQuickActionRef = useRef<Parameters<typeof PiComposer>[0]["onSend"] | null>(null);
   const piPaneRef = useRef(false);
   const rendererRef = useRef<TerminalRenderer | null>(null);
   const rendererGenerationRef = useRef(0);
@@ -1597,7 +1598,8 @@ export function TerminalView({
               bridgeId={bridgeId}
               paneId={pane.pane_id}
               disabled={connectionState !== "attached"}
-              onSend={enqueueTerminalInput}
+              httpUrl={httpUrl}
+              onSend={(parts, onDelivered) => piQuickActionRef.current?.(parts, onDelivered ?? (() => {})) ?? false}
             />
           ) : null}
         </div>
@@ -1663,6 +1665,8 @@ export function TerminalView({
           bridgeId={bridgeId}
           paneId={pane.pane_id}
           inputOwner={piInputOwnerRef}
+          quickActionRef={piQuickActionRef}
+          httpUrl={httpUrl}
           mobile={mobileControls}
           conversationContext={mobileControls ? (editor) => <ConversationContext paneId={pane.pane_id} editor={editor} /> : undefined}
           mobileTools={mobileControls ? <>

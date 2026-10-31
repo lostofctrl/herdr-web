@@ -78,6 +78,10 @@ export type PiComposerInputOwner = {
 
 export type PiComposerProps = {
   inputOwner?: { current: PiComposerInputOwner };
+  /** Pane-local quick-action bridge; cleared on unmount. */
+  quickActionRef?: { current: PiComposerProps["onSend"] | null };
+  /** Selected Herdr bridge resource, preserving its proxy prefix. */
+  httpUrl?: (path: string, query?: URLSearchParams) => string;
   bridgeId: string;
   paneId: string;
   /** Phone layout: explicit launcher, Enter inserts a newline. */
@@ -124,6 +128,8 @@ export type PiComposerProps = {
  */
 export function PiComposer({
   inputOwner,
+  quickActionRef,
+  httpUrl,
   bridgeId,
   paneId,
   mobile,
@@ -415,16 +421,17 @@ export function PiComposer({
       // without having persisted it (a recalled prompt) is not overwritten by
       // the stored draft.
       event.preventDefault();
-      if (pendingSendRef.current || awaitingSubmit || actionRecovery) return;
+      if (manualInput || owner.current.mode !== "idle" || pendingSendRef.current || awaitingSubmit || actionRecovery) return;
       const next = `${value}${value && !/\s$/.test(value) ? "\n" : ""}${text}`;
       pendingCaretRef.current = next.length;
       setAuthoredValue(next);
       setCursor(next.length);
+      (event as CustomEvent<PiComposerInsertDetail>).detail.result = "inserted";
       openComposer();
     };
     window.addEventListener(PI_COMPOSER_INSERT_EVENT, onInsert);
     return () => window.removeEventListener(PI_COMPOSER_INSERT_EVENT, onInsert);
-  }, [bridgeId, paneId, openComposer, setAuthoredValue, value, awaitingSubmit, actionRecovery]);
+  }, [bridgeId, paneId, openComposer, setAuthoredValue, value, awaitingSubmit, actionRecovery, manualInput, owner]);
 
   const closeComposer = useCallback(() => {
     handoffInput();
@@ -716,7 +723,7 @@ export function PiComposer({
   // Explicit Side Panel commands share the terminal queue, not draft delivery:
   // completing one must never clear or record the user's unsent prompt.
   const sendQuickAction: PiComposerProps["onSend"] = (parts, onDelivered) => {
-    if (owner.current.canClaim?.() === false || manualInput || disabled || sending || pendingSendRef.current || awaitingSubmit || composingRef.current || (actionRecovery && (parts.length !== 1 || parts[0] !== "\r"))) return false;
+    if (!mountedRef.current || !active || manualInput || disabled || sending || pendingSendRef.current || awaitingSubmit || composingRef.current || (owner.current.mode !== "idle" && !(owner.current.mode === "recovery" && actionRecovery && parts.length === 1 && parts[0] === "\r")) || (actionRecovery && (parts.length !== 1 || parts[0] !== "\r")) || owner.current.canClaim?.() === false) return false;
     const generation = claimInput();
     pendingSendRef.current = true;
     setDeliveryPending(true);
@@ -740,6 +747,14 @@ export function PiComposer({
     }
     return accepted;
   };
+
+  useLayoutEffect(() => {
+    if (!quickActionRef) return;
+    quickActionRef.current = sendQuickAction;
+    return () => {
+      if (quickActionRef.current === sendQuickAction) quickActionRef.current = null;
+    };
+  });
 
   const submit = () => {
     void send();
@@ -1270,9 +1285,10 @@ export function PiComposer({
           bridgeId={bridgeId}
           paneId={paneId}
           disabled={disabled || !active}
+          httpUrl={httpUrl}
           // Same action path as the helpers menu; the panel has no per-action
           // caller state, and delivery/recovery state stays Composer-owned.
-          onSend={(parts) => sendQuickAction(parts, () => {})}
+          onSend={(parts, onDelivered) => sendQuickAction(parts, onDelivered ?? (() => {}))}
           onClose={() => setSidePanelOpen(false)}
           anchorRef={sidePanelAnchorRef}
         />

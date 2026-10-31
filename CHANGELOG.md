@@ -6,6 +6,15 @@
 
 ### Added
 
+- Pi Side Panel buttons can be pinned and customized with built-in actions or literal prompts,
+  including optional catalog triggers and text/emoji icons. Settings are shared by clients of the
+  selected web bridge and checked for conflicting edits; older bridges retain the default controls.
+  Shared prompts are visible to clients allowed by the bridge and should not contain secrets.
+- Notes support pasting or uploading PNG, JPEG, GIF, and WebP images, stored on their bridge and
+  displayed in Markdown previews. Uploads are limited to 5 MiB each, bridge image storage to 256 MiB
+  and 1024 files, and previews to 20 images per note. Images can remain stored after a note or
+  reference is removed; contact the bridge administrator if storage fills.
+
 - Pi mode: the Composer opens the Pi Side Panel as a floating panel placed above (or below) its
   own trigger, on desktop and mobile. It renders the same view as the terminal's Side Panel — model,
   thinking level, quick actions, chat log and the searchable command/skill catalog — so catalog

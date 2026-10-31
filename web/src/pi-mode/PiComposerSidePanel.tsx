@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 
-import { PiSidePanelContent } from "../pi/sidepanel/PiSidePanel";
+import { PiSidePanelContent, type PiSidePanelContentProps } from "../pi/sidepanel/PiSidePanel";
 import "../pi/sidepanel/pi-side-panel.css";
 import "./pi-composer-side-panel.css";
 
@@ -9,7 +9,8 @@ export type PiComposerSidePanelProps = {
   bridgeId: string;
   paneId: string;
   disabled: boolean;
-  onSend: (parts: string[]) => boolean;
+  httpUrl?: PiSidePanelContentProps["httpUrl"];
+  onSend: PiSidePanelContentProps["onSend"];
   onClose: () => void;
   /** The Composer control the panel floats from; clicking it must not dismiss. */
   anchorRef: RefObject<HTMLElement | null>;
@@ -31,6 +32,7 @@ export function PiComposerSidePanel({
   bridgeId,
   paneId,
   disabled,
+  httpUrl,
   onSend,
   onClose,
   anchorRef,
@@ -84,7 +86,7 @@ export function PiComposerSidePanel({
       if (event.key !== "Escape" || event.defaultPrevented) return;
       const target = event.target as Element | null;
       // The model picker inside the panel owns Escape while it is open.
-      if (target?.closest('.pi-model-picker[data-open="true"]')) return;
+      if (target?.closest('.pi-model-picker[data-open="true"]') || rootRef.current?.querySelector(".pi-button-manager-dialog")) return;
       event.preventDefault();
       event.stopPropagation();
       onClose();
@@ -118,7 +120,7 @@ export function PiComposerSidePanel({
           <X size={16} aria-hidden="true" />
         </button>
       </div>
-      <PiSidePanelContent bridgeId={bridgeId} paneId={paneId} disabled={disabled} onSend={onSend} />
+      <PiSidePanelContent bridgeId={bridgeId} paneId={paneId} disabled={disabled} httpUrl={httpUrl} onSend={onSend} />
     </div>
   );
 }

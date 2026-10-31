@@ -59,6 +59,9 @@ use crate::notes::{
     AttachNoteRequest, CreateNoteRequest, NoteResponse, NotesError, NotesListQuery,
     NotesListResponse, NotesManager, RevisionRequest, UpdateNoteRequest,
 };
+use crate::pi_sidepanel_buttons::{
+    ButtonsState, ButtonsStore, StoreError, MAX_BYTES as MAX_BUTTONS_BYTES,
+};
 use crate::websocket_heartbeat::{WebSocketHeartbeat, WebSocketHeartbeatAction};
 
 const DEFAULT_HOST: &str = "127.0.0.1";
@@ -113,6 +116,7 @@ struct BridgeOptions {
     static_dir: PathBuf,
     upload_dir: PathBuf,
     launcher_presets_path: Option<PathBuf>,
+    pi_sidepanel_buttons_path: Option<PathBuf>,
     allowed_hosts: Vec<String>,
     allow_host_any_port: bool,
     allowed_origins: Vec<String>,
@@ -129,6 +133,7 @@ struct BridgeState {
     agent_activity: Arc<AgentActivityManager>,
     agent_pins: Arc<AgentPinsManager>,
     launcher_presets: Arc<LauncherPresetStore>,
+    pi_sidepanel_buttons: Option<ButtonsStore>,
     notes: Arc<NotesManager>,
     ui_event_tx: tokio::sync::broadcast::Sender<String>,
     activity_tx: tokio::sync::broadcast::Sender<ActivityMessage>,
@@ -174,6 +179,8 @@ struct Capabilities {
     agent_activity: AgentActivityCapability,
     agent_pins: AgentPinsCapability,
     launcher_presets: LauncherPresetsCapability,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pi_sidepanel_buttons_version: Option<u32>,
     notes: NotesCapability,
 }
 
@@ -888,7 +895,7 @@ pub(crate) fn run_command(args: &[String]) -> io::Result<i32> {
         Err(message) => {
             eprintln!("{message}");
             eprintln!(
-                "usage: herdr-web-bridge [--session NAME] [--host HOST] [--port PORT] [--static-dir DIR] [--launcher-presets PATH] [--allow-origin ORIGIN] [--allow-host HOSTNAME] [--allow-host-any-port] [--allow-connect-origin ORIGIN]"
+                "usage: herdr-web-bridge [--session NAME] [--host HOST] [--port PORT] [--static-dir DIR] [--launcher-presets PATH] [--pi-sidepanel-buttons PATH] [--allow-origin ORIGIN] [--allow-host HOSTNAME] [--allow-host-any-port] [--allow-connect-origin ORIGIN]"
             );
             return Ok(2);
         }
@@ -915,6 +922,7 @@ fn parse_options(args: &[String]) -> Result<Option<BridgeOptions>, String> {
     let mut static_dir = PathBuf::from(DEFAULT_STATIC_DIR);
     let mut upload_dir = default_upload_dir();
     let mut launcher_presets_path = None;
+    let mut pi_sidepanel_buttons_path = None;
     let mut allowed_hosts = Vec::new();
     let mut allow_host_any_port = false;
     let mut allowed_origins = Vec::new();
@@ -973,6 +981,13 @@ fn parse_options(args: &[String]) -> Result<Option<BridgeOptions>, String> {
                 launcher_presets_path = Some(expand_home(value));
                 index += 2;
             }
+            "--pi-sidepanel-buttons" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("missing value for --pi-sidepanel-buttons".into());
+                };
+                pi_sidepanel_buttons_path = Some(expand_home(value));
+                index += 2;
+            }
             "--allow-host" => {
                 let Some(value) = args.get(index + 1) else {
                     return Err("missing value for --allow-host".into());
@@ -1015,6 +1030,7 @@ fn parse_options(args: &[String]) -> Result<Option<BridgeOptions>, String> {
         static_dir,
         upload_dir,
         launcher_presets_path,
+        pi_sidepanel_buttons_path,
         allowed_hosts,
         allow_host_any_port,
         allowed_origins,
@@ -1029,7 +1045,7 @@ fn print_help() {
 fn help_text() -> &'static str {
     "herdr-web-bridge\n\
 \n\
-Usage: herdr-web-bridge [--session NAME] [--host HOST] [--port PORT] [--static-dir DIR] [--upload-dir DIR] [--launcher-presets PATH] [--allow-origin ORIGIN] [--allow-host HOSTNAME] [--allow-host-any-port] [--allow-connect-origin ORIGIN]\n\
+Usage: herdr-web-bridge [--session NAME] [--host HOST] [--port PORT] [--static-dir DIR] [--upload-dir DIR] [--launcher-presets PATH] [--pi-sidepanel-buttons PATH] [--allow-origin ORIGIN] [--allow-host HOSTNAME] [--allow-host-any-port] [--allow-connect-origin ORIGIN]\n\
 \n\
 Runs the local HTTP/WebSocket bridge for herdr-web.\n\
 Defaults to the active Herdr daemon sockets and 127.0.0.1:8787.\n\
@@ -1041,6 +1057,7 @@ Use --allow-host-any-port to accept an allowed hostname on any port, for reverse
 that terminate their own public port before forwarding to the bridge.\n\
 Use --allow-connect-origin ORIGIN to let the served web app connect to another bridge origin.\n\
 Use --launcher-presets PATH or HERDR_WEB_LAUNCHER_PRESETS to load custom launch presets.\n\
+Use --pi-sidepanel-buttons PATH or HERDR_WEB_PI_SIDEPANEL_BUTTONS for the Pi button store.\n\
 Uploads default to HERDR_WEB_UPLOAD_DIR, XDG_DATA_HOME/herdr-web/uploads, or ~/.local/share/herdr-web/uploads."
 }
 
@@ -1091,6 +1108,11 @@ async fn run_server(options: BridgeOptions) -> io::Result<()> {
         agent_activity,
         agent_pins,
         launcher_presets,
+        pi_sidepanel_buttons: ButtonsStore::configured(
+            &options.host,
+            options.port,
+            options.pi_sidepanel_buttons_path.clone(),
+        ),
         notes,
         ui_event_tx: tokio::sync::broadcast::channel(256).0,
         activity_tx: tokio::sync::broadcast::channel(512).0,
@@ -1156,9 +1178,11 @@ async fn run_server(options: BridgeOptions) -> io::Result<()> {
             post(launcher_preset_launch_handler).options(preflight_handler),
         );
     let app = Router::new()
+        .merge(pi_sidepanel_buttons_routes())
         .merge(agent_activity_routes)
         .merge(agent_pins_routes)
         .merge(notes_routes)
+        .merge(note_image_routes())
         .merge(launcher_preset_routes)
         .route(
             "/api/snapshot",
@@ -1209,6 +1233,7 @@ async fn add_security_headers(
     next: Next,
 ) -> Response {
     let cors_origin = cors_origin_header(request.headers(), &policy);
+    let buttons_route = request.uri().path() == "/api/pi-sidepanel-buttons";
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
     headers.insert(
@@ -1221,6 +1246,12 @@ async fn add_security_headers(
     );
     if let Some(origin) = cors_origin {
         insert_cors_headers(headers, origin);
+        if buttons_route {
+            headers.insert(
+                ACCESS_CONTROL_ALLOW_METHODS,
+                HeaderValue::from_static("GET, PUT, OPTIONS"),
+            );
+        }
     }
     response
 }
@@ -3124,8 +3155,451 @@ async fn capabilities_handler(
         agent_activity: AgentActivityCapability { version: 1 },
         agent_pins: AgentPinsCapability { version: 1 },
         launcher_presets: LauncherPresetsCapability { version: 1 },
+        pi_sidepanel_buttons_version: state.pi_sidepanel_buttons.as_ref().map(|_| 1),
         notes: NotesCapability { version: 1 },
     }))
+}
+
+fn note_image_routes() -> Router<BridgeState> {
+    Router::new()
+        .route("/api/note-images", post(note_image_upload).options(preflight_handler))
+        .route("/api/note-images/{id}", get(note_image_get).options(preflight_handler))
+}
+
+async fn note_image_upload(State(state): State<BridgeState>, request: AxumRequest) -> Response {
+    if let Err(error) = ensure_allowed_request(request.headers(), &state.request_policy) {
+        return error.into_response();
+    }
+    let body = match axum::body::to_bytes(request.into_body(), crate::note_images::MAX_BYTES).await {
+        Ok(body) => body,
+        Err(_) => return StatusCode::PAYLOAD_TOO_LARGE.into_response(),
+    };
+    if crate::note_images::image_type(&body).is_none() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "unsupported image format"}))).into_response();
+    }
+    let path = state.notes.note_images_dir();
+    match tokio::task::spawn_blocking(move || crate::note_images::save(&path, &body)).await {
+        Ok(Ok(id)) => Json(serde_json::json!({"id": id})).into_response(),
+        Ok(Err(crate::note_images::SaveError::QuotaExceeded)) => (StatusCode::INSUFFICIENT_STORAGE, Json(serde_json::json!({"error": "note image storage quota exceeded"}))).into_response(),
+        Ok(Err(crate::note_images::SaveError::Io(error))) => {
+            warn!(%error, "failed to store note image");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn note_image_get(State(state): State<BridgeState>, AxumPath(id): AxumPath<String>, headers: HeaderMap) -> Response {
+    if let Err(error) = ensure_allowed_request(&headers, &state.request_policy) {
+        return error.into_response();
+    }
+    let path = state.notes.note_images_dir();
+    match tokio::task::spawn_blocking(move || crate::note_images::load(&path, &id)).await {
+        Ok(Ok(bytes)) => {
+            let content_type = crate::note_images::image_type(&bytes).expect("loaded images are validated");
+            ([(axum::http::header::CONTENT_TYPE, content_type), (HeaderName::from_static("x-content-type-options"), "nosniff")], bytes).into_response()
+        }
+        Ok(Err(error)) if error.kind() == ErrorKind::NotFound || matches!(error.raw_os_error(), Some(libc::ELOOP) | Some(libc::ENOTDIR)) => StatusCode::NOT_FOUND.into_response(),
+        _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+#[cfg(all(test, unix))]
+mod note_image_tests {
+    use super::*;
+    use axum::body::{to_bytes, Body};
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    const LIMIT: usize = 5 * 1024 * 1024;
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\nexample";
+
+    struct Fixture(PathBuf);
+    impl Fixture {
+        fn new() -> Self {
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            let path = std::env::temp_dir().join(format!("herdr-note-image-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+        fn app(&self) -> Router {
+            let socket = self.0.join("daemon.sock");
+            let policy = RequestPolicy { bind_host: "127.0.0.1".into(), bind_port: 8787, allowed_hosts: vec![], allow_host_any_port: false, allowed_origins: vec!["https://allowed.example".into()], allowed_connect_sources: vec![] };
+            let state = BridgeState {
+                api: ApiClient::for_socket_path(socket.clone()), client_socket_path: socket,
+                request_policy: policy.clone(), terminal_sessions: Arc::new(Mutex::new(TerminalSessions::default())),
+                selected_pane_id: Arc::new(Mutex::new(None)), agent_activity: Arc::new(AgentActivityManager::new()),
+                agent_pins: Arc::new(AgentPinsManager::for_test(self.0.join("pins"), "test").unwrap()),
+                launcher_presets: Arc::new(LauncherPresetStore::load(None).unwrap()), pi_sidepanel_buttons: None,
+                notes: Arc::new(NotesManager::for_test(self.0.join("notes"), "test").unwrap()),
+                ui_event_tx: tokio::sync::broadcast::channel(256).0, activity_tx: tokio::sync::broadcast::channel(512).0,
+                upload_dir: self.0.join("uploads"),
+            };
+            note_image_routes().route("/api/notes", get(notes_list_handler).options(preflight_handler)).layer(middleware::from_fn_with_state(policy, add_security_headers)).with_state(state)
+        }
+    }
+    impl Drop for Fixture { fn drop(&mut self) { std::fs::remove_dir_all(&self.0).unwrap(); } }
+
+    async fn request(app: Router, method: &str, uri: &str, host: &str, origin: Option<&str>, body: Vec<u8>) -> (StatusCode, HeaderMap, Vec<u8>) {
+        let mut builder = Request::builder().method(method).uri(uri).header("host", host);
+        if let Some(origin) = origin { builder = builder.header("origin", origin); }
+        let response = app.oneshot(builder.body(Body::from(body)).unwrap()).await.unwrap();
+        let status = response.status();
+        let headers = response.headers().clone();
+        let bytes = to_bytes(response.into_body(), LIMIT + 1024).await.unwrap().to_vec();
+        (status, headers, bytes)
+    }
+
+    #[tokio::test]
+    async fn note_image_quota_response_allows_cors_and_recovers_after_reclaim() {
+        let fixture = Fixture::new();
+        let app = fixture.app();
+        let dir = fixture.0.join("notes/note-images");
+        std::fs::create_dir_all(&dir).unwrap();
+        let existing = dir.join("existing");
+        std::fs::File::create(&existing).unwrap().set_len(256 * 1024 * 1024).unwrap();
+        let (status, headers, body) = request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", Some("https://allowed.example"), PNG.to_vec()).await;
+        assert_eq!(status, StatusCode::INSUFFICIENT_STORAGE);
+        assert_eq!(headers[ACCESS_CONTROL_ALLOW_ORIGIN], "https://allowed.example");
+        assert_eq!(serde_json::from_slice::<serde_json::Value>(&body).unwrap(), serde_json::json!({"error":"note image storage quota exceeded"}));
+        std::fs::remove_file(existing).unwrap();
+        assert_eq!(request(app, "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await.0, StatusCode::OK);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn note_image_upload_waits_for_directory_lock() {
+        let fixture = Fixture::new();
+        let app = fixture.app();
+        let dir = fixture.0.join("notes/note-images");
+        std::fs::create_dir_all(&dir).unwrap();
+        let held = std::fs::File::open(&dir).unwrap();
+        crate::store_util::lock_file(&held).unwrap();
+        let task = tokio::spawn(async move { request(app, "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await.0 });
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let blocked = !task.is_finished();
+        let files_while_locked = std::fs::read_dir(&dir).unwrap().count();
+        crate::store_util::unlock_file(&held).unwrap();
+        let status = tokio::time::timeout(Duration::from_secs(5), task).await.unwrap().unwrap();
+        assert!(blocked);
+        assert_eq!(files_while_locked, 0);
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn note_image_upload_serves_raster_and_survives_restart() {
+        let fixture = Fixture::new();
+        let mut ids = std::collections::HashSet::new();
+        for (bytes, mime, extension) in [(PNG, "image/png", ".png"), (b"\xff\xd8\xffexample".as_slice(), "image/jpeg", ".jpg"), (b"GIF89aexample".as_slice(), "image/gif", ".gif"), (b"RIFF\x00\x00\x00\x00WEBPexample".as_slice(), "image/webp", ".webp")] {
+            let (status, headers, body) = request(fixture.app(), "POST", "/api/note-images", "127.0.0.1:8787", Some("https://allowed.example"), bytes.to_vec()).await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(headers[ACCESS_CONTROL_ALLOW_ORIGIN], "https://allowed.example");
+            let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(value.as_object().unwrap().len(), 1);
+            let id = value["id"].as_str().unwrap();
+            assert!(id.ends_with(extension), "id {id} must end in {extension}");
+            assert!(ids.insert(id.to_string()));
+            let (status, headers, served) = request(fixture.app(), "GET", &format!("/api/note-images/{id}"), "127.0.0.1:8787", Some("https://allowed.example"), vec![]).await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(headers["content-type"], mime);
+            assert_eq!(headers["x-content-type-options"], "nosniff");
+            assert_eq!(headers[ACCESS_CONTROL_ALLOW_ORIGIN], "https://allowed.example");
+            assert_eq!(served, bytes);
+        }
+        let (status, _, body) = request(fixture.app(), "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await;
+        assert_eq!(status, StatusCode::OK);
+        let id = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"].as_str().unwrap().to_string();
+        assert!(ids.insert(id.clone()));
+        for stored_id in ids {
+            assert_eq!(request(fixture.app(), "GET", &format!("/api/note-images/{stored_id}"), "127.0.0.1:8787", None, vec![]).await.0, StatusCode::OK);
+        }
+    }
+
+    #[tokio::test]
+    async fn note_image_rejects_invalid_oversized_and_disallowed_requests() {
+        let fixture = Fixture::new();
+        let app = fixture.app();
+        for body in [vec![], b"<svg xmlns='http://www.w3.org/2000/svg'/ >".to_vec(), b"not an image".to_vec()] {
+            assert_eq!(request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", None, body).await.0, StatusCode::BAD_REQUEST);
+        }
+        assert_eq!(request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", None, vec![0; LIMIT + 1]).await.0, StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(request(app.clone(), "POST", "/api/note-images", "evil.example", None, PNG.to_vec()).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", Some("https://evil.example"), PNG.to_vec()).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(request(app.clone(), "GET", "/api/note-images/00000000000000000000000000000000", "evil.example", None, vec![]).await.0, StatusCode::FORBIDDEN);
+        for path in ["/api/note-images/%2e%2e%2fsecret", "/api/note-images/%2e%2e%5csecret", "/api/note-images/not-an-id"] {
+            assert_eq!(request(app.clone(), "GET", path, "127.0.0.1:8787", None, vec![]).await.0, StatusCode::NOT_FOUND);
+        }
+        for path in ["/api/note-images", "/api/note-images/00000000000000000000000000000000.png"] {
+            let (status, headers, _) = request(app.clone(), "OPTIONS", path, "127.0.0.1:8787", Some("https://allowed.example"), vec![]).await;
+            assert_eq!(status, StatusCode::NO_CONTENT);
+            assert_eq!(headers[ACCESS_CONTROL_ALLOW_ORIGIN], "https://allowed.example");
+            assert_eq!(request(app.clone(), "OPTIONS", path, "127.0.0.1:8787", Some("https://evil.example"), vec![]).await.0, StatusCode::FORBIDDEN);
+        }
+        assert!(!fixture.0.join("notes/note-images").exists());
+        let (status, _, body) = request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await;
+        assert_eq!(status, StatusCode::OK);
+        let id = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"].as_str().unwrap().to_string();
+        assert_eq!(request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", None, b"<svg/>".to_vec()).await.0, StatusCode::BAD_REQUEST);
+        let (status, _, body) = request(app, "GET", &format!("/api/note-images/{id}"), "127.0.0.1:8787", None, vec![]).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, PNG);
+    }
+
+    #[tokio::test]
+    async fn note_image_preserves_notes_preflight() {
+        let fixture = Fixture::new();
+        let app = fixture.app();
+        let (status, headers, _) = request(app.clone(), "OPTIONS", "/api/notes", "127.0.0.1:8787", Some("https://allowed.example"), vec![]).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(headers[ACCESS_CONTROL_ALLOW_ORIGIN], "https://allowed.example");
+        assert_eq!(headers[ACCESS_CONTROL_ALLOW_METHODS], "GET, POST, OPTIONS");
+        assert_eq!(request(app, "OPTIONS", "/api/notes", "127.0.0.1:8787", Some("https://evil.example"), vec![]).await.0, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn note_image_accepts_limit_and_rejects_one_byte_over() {
+        let fixture = Fixture::new();
+        let app = fixture.app();
+        let mut body = vec![0; LIMIT];
+        body[..PNG.len()].copy_from_slice(PNG);
+        let (status, _, result) = request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", None, body.clone()).await;
+        assert_eq!(status, StatusCode::OK);
+        let id = serde_json::from_slice::<serde_json::Value>(&result).unwrap()["id"].as_str().unwrap().to_string();
+        body.push(0);
+        assert_eq!(request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", None, body).await.0, StatusCode::PAYLOAD_TOO_LARGE);
+        let (status, _, saved) = request(app, "GET", &format!("/api/note-images/{id}"), "127.0.0.1:8787", None, vec![]).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(saved.len(), LIMIT);
+        assert_eq!(&saved[..PNG.len()], PNG);
+    }
+
+    #[tokio::test]
+    async fn note_image_quota_bytes_counts_existing_and_enforces_boundary() {
+        let fixture = Fixture::new();
+        let app = fixture.app();
+        let dir = fixture.0.join("notes/note-images");
+        std::fs::create_dir(&dir).unwrap();
+        let existing = dir.join(format!("{:032x}.png", 1));
+        let file = std::fs::File::create(&existing).unwrap();
+        file.set_len(256 * 1024 * 1024 - PNG.len() as u64).unwrap();
+        let (status, _, body) = request(app, "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await;
+        assert_eq!(status, StatusCode::OK);
+        let id = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"].as_str().unwrap().to_string();
+        let restarted = fixture.app();
+        let (status, _, body) = request(restarted.clone(), "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await;
+        assert_eq!(status, StatusCode::INSUFFICIENT_STORAGE);
+        assert_eq!(serde_json::from_slice::<serde_json::Value>(&body).unwrap(), serde_json::json!({"error":"note image storage quota exceeded"}));
+        let (status, _, saved) = request(restarted, "GET", &format!("/api/note-images/{id}"), "127.0.0.1:8787", None, vec![]).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(saved, PNG);
+        assert_eq!(file.metadata().unwrap().len(), 256 * 1024 * 1024 - PNG.len() as u64);
+    }
+
+    #[tokio::test]
+    async fn note_image_quota_file_count_enforces_boundary() {
+        let fixture = Fixture::new();
+        let app = fixture.app();
+        let dir = fixture.0.join("notes/note-images");
+        std::fs::create_dir(&dir).unwrap();
+        for number in 0..1023 { std::fs::File::create(dir.join(format!("{number:032x}.png"))).unwrap(); }
+        let (status, _, body) = request(app, "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await;
+        assert_eq!(status, StatusCode::OK);
+        let id = serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"].as_str().unwrap().to_string();
+        let app = fixture.app();
+        let (status, _, body) = request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await;
+        assert_eq!(status, StatusCode::INSUFFICIENT_STORAGE);
+        assert_eq!(serde_json::from_slice::<serde_json::Value>(&body).unwrap(), serde_json::json!({"error":"note image storage quota exceeded"}));
+        let (status, _, saved) = request(app, "GET", &format!("/api/note-images/{id}"), "127.0.0.1:8787", None, vec![]).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(saved, PNG);
+        assert_eq!(std::fs::read_dir(dir).unwrap().count(), 1024);
+    }
+
+    #[tokio::test]
+    async fn note_image_quota_child() {
+        let Ok(root) = std::env::var("HERDR_NOTE_IMAGE_QUOTA_CHILD_ROOT") else { return; };
+        let fixture = std::mem::ManuallyDrop::new(Fixture(PathBuf::from(root)));
+        let app = fixture.app();
+        if let Ok(index) = std::env::var("HERDR_NOTE_IMAGE_QUOTA_CHILD_INDEX") {
+            std::fs::write(fixture.0.join(format!("ready-{index}")), b"ready").unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(20);
+            while !fixture.0.join("go").exists() {
+                assert!(std::time::Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        let (status, _, _) = request(app, "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await;
+        println!("note-quota-http-status:{}", status.as_u16());
+    }
+
+    #[tokio::test]
+    async fn note_image_quota_serializes_across_processes() {
+        use std::process::{Command, Stdio};
+        let fixture = Fixture::new();
+        let app = fixture.app();
+        let dir = fixture.0.join("notes/note-images");
+        std::fs::create_dir(&dir).unwrap();
+        let existing = std::fs::File::create(dir.join(format!("{:032x}.png", 1))).unwrap();
+        existing.set_len(256 * 1024 * 1024 - PNG.len() as u64).unwrap();
+        let mut children = Vec::new();
+        for index in 0..2 {
+            children.push(Command::new(std::env::current_exe().unwrap()).args(["--exact", "web_bridge::note_image_tests::note_image_quota_child", "--nocapture"])
+                .env("HERDR_NOTE_IMAGE_QUOTA_CHILD_ROOT", &fixture.0).env("HERDR_NOTE_IMAGE_QUOTA_CHILD_INDEX", index.to_string())
+                .stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap());
+        }
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while !(fixture.0.join("ready-0").exists() && fixture.0.join("ready-1").exists()) {
+            assert!(std::time::Instant::now() < deadline, "child process startup timed out");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::fs::write(fixture.0.join("go"), b"go").unwrap();
+        let mut statuses = Vec::new();
+        for child in children {
+            let output = child.wait_with_output().unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            let stdout = String::from_utf8(output.stdout).unwrap();
+            if stdout.contains("note-quota-http-status:200") { statuses.push(200); }
+            if stdout.contains("note-quota-http-status:507") { statuses.push(507); }
+        }
+        statuses.sort_unstable();
+        assert_eq!(statuses, vec![200, 507]);
+        assert_eq!(request(app, "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await.0, StatusCode::INSUFFICIENT_STORAGE);
+    }
+
+    #[tokio::test]
+    async fn note_image_quota_failed_write_leaves_no_partial_file() {
+        use std::os::unix::process::CommandExt;
+        use std::process::Command;
+        let fixture = Fixture::new();
+        let app = fixture.app();
+        let mut child = Command::new(std::env::current_exe().unwrap());
+        child.args(["--exact", "web_bridge::note_image_tests::note_image_quota_child", "--nocapture"])
+            .env("HERDR_NOTE_IMAGE_QUOTA_CHILD_ROOT", &fixture.0);
+        unsafe {
+            child.pre_exec(|| {
+                let limit = libc::rlimit { rlim_cur: 1, rlim_max: 1 };
+                if libc::setrlimit(libc::RLIMIT_FSIZE, &limit) != 0 { return Err(std::io::Error::last_os_error()); }
+                libc::signal(libc::SIGXFSZ, libc::SIG_IGN);
+                Ok(())
+            });
+        }
+        let output = child.output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert!(String::from_utf8_lossy(&output.stdout).contains("note-quota-http-status:500"));
+        assert_eq!(std::fs::read_dir(fixture.0.join("notes/note-images")).unwrap().count(), 0);
+        let (status, _, result) = request(app.clone(), "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await;
+        assert_eq!(status, StatusCode::OK);
+        let id = serde_json::from_slice::<serde_json::Value>(&result).unwrap()["id"].as_str().unwrap().to_string();
+        let (status, _, saved) = request(app, "GET", &format!("/api/note-images/{id}"), "127.0.0.1:8787", None, vec![]).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(saved, PNG);
+    }
+
+    #[tokio::test]
+    async fn note_image_does_not_follow_symlinks() {
+        use std::os::unix::fs::symlink;
+        let fixture = Fixture::new();
+        let app = fixture.app();
+        let notes = fixture.0.join("notes");
+        let images = notes.join("note-images");
+        let secret = fixture.0.join("secret");
+        std::fs::write(&secret, PNG).unwrap();
+        std::fs::create_dir(&images).unwrap();
+        let id = "00000000000000000000000000000000.png";
+        symlink(&secret, images.join(id)).unwrap();
+        let (status, _, body) = request(app.clone(), "GET", &format!("/api/note-images/{id}"), "127.0.0.1:8787", None, vec![]).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_ne!(body, PNG);
+        assert_eq!(std::fs::read(&secret).unwrap(), PNG);
+        let hardlink_id = "11111111111111111111111111111111.png";
+        std::fs::hard_link(&secret, images.join(hardlink_id)).unwrap();
+        assert_eq!(request(app, "GET", &format!("/api/note-images/{hardlink_id}"), "127.0.0.1:8787", None, vec![]).await.0, StatusCode::NOT_FOUND);
+        let fixture2 = Fixture::new();
+        let app2 = fixture2.app();
+        symlink(&fixture.0, fixture2.0.join("notes/note-images")).unwrap();
+        assert_eq!(request(app2.clone(), "GET", &format!("/api/note-images/{id}"), "127.0.0.1:8787", None, vec![]).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(request(app2, "POST", "/api/note-images", "127.0.0.1:8787", None, PNG.to_vec()).await.0, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(std::fs::read(secret).unwrap(), PNG);
+    }
+}
+
+fn pi_sidepanel_buttons_routes() -> Router<BridgeState> {
+    Router::new()
+        .route(
+            "/api/pi-sidepanel-buttons",
+            get(pi_sidepanel_buttons_get)
+                .put(pi_sidepanel_buttons_put)
+                .options(pi_sidepanel_buttons_preflight),
+        )
+        .layer(DefaultBodyLimit::max(MAX_BUTTONS_BYTES))
+}
+
+async fn pi_sidepanel_buttons_preflight(
+    state: State<BridgeState>,
+    headers: HeaderMap,
+) -> Result<Response, BridgeError> {
+    let mut response = preflight_handler(state, headers).await?;
+    response.headers_mut().insert(
+        ACCESS_CONTROL_ALLOW_METHODS,
+        HeaderValue::from_static("GET, PUT, OPTIONS"),
+    );
+    Ok(response)
+}
+
+fn buttons_error(err: StoreError, reading: bool) -> Response {
+    let (status, message) = match err {
+        StoreError::Conflict => (StatusCode::CONFLICT, "revision conflict".to_string()),
+        StoreError::Invalid(message) if !reading => (StatusCode::BAD_REQUEST, message),
+        StoreError::Invalid(message) | StoreError::Corrupt(message) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, message)
+        }
+        StoreError::Io(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
+    };
+    (status, Json(serde_json::json!({"error": message}))).into_response()
+}
+
+async fn pi_sidepanel_buttons_get(
+    State(state): State<BridgeState>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(err) = ensure_allowed_request(&headers, &state.request_policy) {
+        return err.into_response();
+    }
+    let Some(store) = state.pi_sidepanel_buttons else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    match tokio::task::spawn_blocking(move || store.read()).await {
+        Ok(Ok(value)) => Json(value).into_response(),
+        Ok(Err(err)) => buttons_error(err, true),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn pi_sidepanel_buttons_put(
+    State(state): State<BridgeState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if let Err(err) = ensure_allowed_request(&headers, &state.request_policy) {
+        return err.into_response();
+    }
+    let Some(store) = state.pi_sidepanel_buttons else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let value: ButtonsState = match serde_json::from_slice(&body) {
+        Ok(value) => value,
+        Err(err) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": err.to_string()})),
+            )
+                .into_response()
+        }
+    };
+    match tokio::task::spawn_blocking(move || store.update(value)).await {
+        Ok(Ok(value)) => Json(value).into_response(),
+        Ok(Err(err)) => buttons_error(err, false),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
 }
 
 async fn agent_activity_list_handler(
@@ -8350,6 +8824,7 @@ mod pi_relay_tests {
             agent_activity: Arc::new(AgentActivityManager::new()),
             agent_pins: Arc::new(AgentPinsManager::for_test(base.join("pins"), "test").unwrap()),
             launcher_presets: Arc::new(LauncherPresetStore::load(None).unwrap()),
+            pi_sidepanel_buttons: None,
             notes: Arc::new(NotesManager::for_test(base.join("notes"), "test").unwrap()),
             ui_event_tx: tokio::sync::broadcast::channel(256).0,
             activity_tx: tokio::sync::broadcast::channel(512).0,
