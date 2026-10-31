@@ -6,10 +6,14 @@
 
 ### Added
 
+- Back and forward controls in the tab bar navigate recently visited tabs across spaces and bridges; history is saved in the browser.
+
 - Pi Side Panel buttons can be pinned and customized with built-in actions or literal prompts,
   including optional catalog triggers and text/emoji icons. Settings are shared by clients of the
   selected web bridge and checked for conflicting edits; older bridges retain the default controls.
-  Shared prompts are visible to clients allowed by the bridge and should not contain secrets.
+  The ⋯ menu shows unpinned actions and opens a centered manager with visual icon selection and
+  searchable command/skill triggers. Shared prompts are visible to clients allowed by the bridge
+  and should not contain secrets.
 - Notes support pasting or uploading PNG, JPEG, GIF, and WebP images, stored on their bridge and
   displayed in Markdown previews. Uploads are limited to 5 MiB each, bridge image storage to 256 MiB
   and 1024 files, and previews to 20 images per note. Images can remain stored after a note or

@@ -3,12 +3,15 @@ import { hasOpenModal, isShortcutTextEntryTarget } from "./keyboardShortcutTarge
 import { retainPiComposerDrafts } from "./pi-mode/piComposerDraft";
 import { retainPiComposerHistory } from "./pi-mode/piComposerHistory";
 import { linkedWorkspaceLabels } from "./workspaceClose";
+import { appendTabVisit, findTabVisit, readTabHistory, sameTabVisit, writeTabHistory } from "./tabHistory";
+import type { TabVisit } from "./tabHistory";
 import {
   Activity,
   Archive,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ImagePlus,
   Link2,
   ListCollapse,
   ListRestart,
@@ -130,6 +133,9 @@ import {
   updateNote,
 } from "./notes";
 import type { NoteAttachment, NotesListResponse, PaneNote } from "./notes";
+import type { BridgeHttpUrl } from "./bridgeApi";
+import { NoteImageStorageFullError, uploadNoteImage } from "./noteImages";
+import { piComposerImageFiles } from "./pi-mode/piComposerAttachments";
 import {
   NAVIGATION_SYNC_MODE_KEY,
   navigationSyncModeForStorageEvent,
@@ -364,6 +370,7 @@ export type ScopedNoteEntry = {
   bridgeIndex: number;
   bridgeLabel: string;
   bridgeColor: string;
+  httpUrl?: BridgeHttpUrl;
   note: PaneNote;
   snapshot: Snapshot | null;
   workspace?: WorkspaceInfo;
@@ -1001,6 +1008,8 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
   const [selectedBridgeId, setSelectedBridgeId] = useState<BridgeId | null>(
     initialSharedNavigationPrefs.selectedBridgeId,
   );
+  const [tabHistory, setTabHistory] = useState(readTabHistory);
+  const [pendingTabVisit, setPendingTabVisit] = useState<{ visit: TabVisit; index: number } | null>(null);
   const [navigationSyncMode, setNavigationSyncMode] = useState<NavigationSyncMode>(
     initialNavigationSyncMode,
   );
@@ -2168,6 +2177,29 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
     () => snapshot?.panes.find((pane) => pane.pane_id === resolvedPaneId) ?? null,
     [snapshot, resolvedPaneId],
   );
+  useEffect(() => {
+    writeTabHistory(tabHistory);
+  }, [tabHistory]);
+
+  useEffect(() => {
+    if (!bridge.storeLoaded || !displayPrefsLoaded || !selectedRuntime?.canConnect || loadState !== "ready" || !selectedPane) return;
+    const visit = { bridgeId: selectedRuntime.id, tabId: selectedPane.tab_id };
+    if (pendingTabVisit) {
+      if (sameTabVisit(pendingTabVisit.visit, visit)) {
+        setTabHistory((current) => ({ ...current, index: pendingTabVisit.index }));
+        setPendingTabVisit(null);
+      }
+      return;
+    }
+    setTabHistory((current) => appendTabVisit(current, visit));
+  }, [bridge.storeLoaded, displayPrefsLoaded, selectedRuntime?.id, selectedRuntime?.canConnect, loadState, selectedPane?.tab_id, pendingTabVisit]);
+
+  useEffect(() => {
+    if (!pendingTabVisit) return;
+    const timeout = window.setTimeout(() => setPendingTabVisit(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [pendingTabVisit]);
+
   const selectedAgentPinsState =
     selectedRuntime &&
     agentPinsStates[selectedRuntime.id]?.connectionKey === selectedRuntime.connectionKey
@@ -2430,6 +2462,7 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
   };
 
   const openPane = (bridgeId: BridgeId, pane: PaneInfo) => {
+    setPendingTabVisit(null);
     const runtime = bridge.getRuntime(bridgeId);
     if (!runtime) {
       return;
@@ -2472,6 +2505,7 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
   };
 
   const selectSpace = (bridgeId: BridgeId, workspaceId: string) => {
+    setPendingTabVisit(null);
     const runtime = bridge.getRuntime(bridgeId);
     if (!runtime) {
       return;
@@ -2511,6 +2545,26 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
         openPane(bridgeId, pane);
       }
     }
+  };
+
+  const historyTarget = (direction: -1 | 1) => findTabVisit(tabHistory, direction, (visit) => {
+    if (selectedRuntime && selectedPane && sameTabVisit(visit, { bridgeId: selectedRuntime.id, tabId: selectedPane.tab_id })) return false;
+    const view = bridgeViews.find(({ runtime }) => runtime.id === visit.bridgeId);
+    return Boolean(view?.runtime.canConnect && view.loadState === "ready" &&
+      view.snapshot?.tabs.some((tab) => tab.tab_id === visit.tabId) &&
+      view.snapshot.panes.some((pane) => pane.tab_id === visit.tabId));
+  });
+  const backIndex = historyTarget(-1);
+  const forwardIndex = historyTarget(1);
+  const navigateTabHistory = (index: number) => {
+    const visit = tabHistory.entries[index];
+    if (!visit) return;
+    const bridgeSnapshot = snapshotForBridge(visit.bridgeId);
+    const paneId = bridgeSnapshot && choosePaneForTab(bridgeSnapshot, visit.tabId);
+    const pane = bridgeSnapshot?.panes.find((item) => item.pane_id === paneId);
+    if (!pane) return;
+    openPane(visit.bridgeId, pane);
+    setPendingTabVisit({ visit, index });
   };
 
   const focusTab = (bridgeId: BridgeId, tabId: string) => {
@@ -4028,6 +4082,10 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
           snapshot={snapshot}
           activeSpace={activeSpace}
           selectedPane={selectedPane}
+          canGoBack={!pendingTabVisit && backIndex !== -1}
+          canGoForward={!pendingTabVisit && forwardIndex !== -1}
+          onBack={() => navigateTabHistory(backIndex)}
+          onForward={() => navigateTabHistory(forwardIndex)}
           onSelectTab={(tabId) => selectedRuntime && selectTab(selectedRuntime.id, tabId)}
           onCreateTab={(workspaceId) =>
             selectedRuntime &&
@@ -5496,6 +5554,7 @@ export function buildVisibleScopedNotes(
           bridgeIndex,
           bridgeLabel: view.runtime.label,
           bridgeColor: view.runtime.color,
+          httpUrl: view.runtime.httpUrl,
           note,
           snapshot,
           workspace: workspaceId
@@ -6010,6 +6069,10 @@ function TabBar({
   snapshot,
   activeSpace,
   selectedPane,
+  canGoBack,
+  canGoForward,
+  onBack,
+  onForward,
   onSelectTab,
   onCreateTab,
   onMenu,
@@ -6017,6 +6080,10 @@ function TabBar({
   snapshot: Snapshot | null;
   activeSpace: WorkspaceInfo | null;
   selectedPane: PaneInfo | null;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  onBack: () => void;
+  onForward: () => void;
   onSelectTab: (tabId: string) => void;
   onCreateTab: (workspaceId: string) => void;
   onMenu: (
@@ -6041,6 +6108,10 @@ function TabBar({
       : activeSpace.active_tab_id;
   return (
     <div className="tabbar">
+      <div className="tabbar-history" role="group" aria-label="Tab history">
+        <button type="button" className="tabbar-history-button" aria-label="Back in tab history" title="Back in tab history" disabled={!canGoBack} onClick={onBack}><ChevronLeft size={16} /></button>
+        <button type="button" className="tabbar-history-button" aria-label="Forward in tab history" title="Forward in tab history" disabled={!canGoForward} onClick={onForward}><ChevronRight size={16} /></button>
+      </div>
       <div className="tabbar-scroll" role="tablist" aria-label="Tabs">
         {tabs.map((tab) => {
           const label = topTabLabel(tab, snapshot.panes);
@@ -8352,15 +8423,25 @@ export function NoteEditor({
   const saveBlockedRef = useRef(false);
   const noteSaveInFlightRef = useRef<NoteSaveInFlight | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
   const entryRef = useRef(entry);
   const onSaveRef = useRef(onSave);
   const noteIdentity = entry ? noteDraftStorageKey(entry) : "";
+  const imageNoteRef = useRef(noteIdentity);
+  imageNoteRef.current = noteIdentity;
   const noteKey = entry ? `${entry.bridgeId}:${entry.note.note_id}:${entry.note.revision}` : "";
   const currentEntryBridgeId = entry?.bridgeId ?? null;
   const currentEntryNoteId = entry?.note.note_id ?? null;
   const serverTitle = entry?.note.title ?? "";
   const serverBody = entry?.note.body ?? "";
   const serverRevision = entry?.note.revision ?? 0;
+
+  useEffect(() => {
+    imageNoteRef.current = noteIdentity;
+    setImageError(null);
+    return () => { imageNoteRef.current = ""; };
+  }, [noteIdentity]);
 
   useEffect(() => {
     entryRef.current = entry;
@@ -8652,6 +8733,25 @@ export function NoteEditor({
     saveBlockedRef.current = false;
     setSaveState("pending");
   };
+  const addImages = async (files: File[]) => {
+    const httpUrl = entry.httpUrl;
+    if (!httpUrl || deleted || files.length === 0) return;
+    const identity = noteIdentity;
+    setImageError(null);
+    for (const file of files) {
+      try {
+        const path = await uploadNoteImage(httpUrl, file);
+        if (imageNoteRef.current !== identity || entryRef.current?.note.deleted_at) return;
+        setBody((current) => `${current}${current && !current.endsWith("\n") ? "\n" : ""}![Image](${path})\n`);
+        setBaseRevision((current) => current ?? entryRef.current?.note.revision ?? entry.note.revision);
+        setDirty(true);
+        setSaveState((current) => current === "conflict" || current === "error" ? current : "pending");
+      } catch (error) {
+        if (imageNoteRef.current === identity) setImageError(error instanceof NoteImageStorageFullError ? error.message : "Image upload failed. Please try again.");
+        if (error instanceof NoteImageStorageFullError) return;
+      }
+    }
+  };
   const overwriteConflict = () => {
     saveBlockedRef.current = false;
     setSaveState("saving");
@@ -8699,6 +8799,21 @@ export function NoteEditor({
           </div>
         </div>
         <div className="note-editor-actions">
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            multiple
+            hidden
+            onChange={(event) => {
+              const files = Array.from(event.currentTarget.files ?? []);
+              event.currentTarget.value = "";
+              void addImages(files);
+            }}
+          />
+          <button className="icon-btn" type="button" aria-label="Upload image" title="Upload image" disabled={deleted || !entry.httpUrl} onClick={() => imageInputRef.current?.click()}>
+            <ImagePlus size={16} />
+          </button>
           {canViewLinkedPane ? (
             <button className="icon-btn" type="button" aria-label="View pane" title="View pane" onClick={() => onViewPane(entry)}>
               <SquareTerminal size={16} />
@@ -8770,7 +8885,7 @@ export function NoteEditor({
       {editorMode === "preview" ? (
         <div className="note-body-preview">
           <Suspense fallback={<span className="note-body-preview-empty">Loading preview</span>}>
-            <NoteMarkdownPreview body={body} />
+            <NoteMarkdownPreview body={body} httpUrl={entry.httpUrl} />
           </Suspense>
         </div>
       ) : (
@@ -8781,10 +8896,18 @@ export function NoteEditor({
             setBody(event.currentTarget.value);
             markEdited();
           }}
+          onPaste={(event) => {
+            const files = piComposerImageFiles(event.clipboardData);
+            if (!files.length) return;
+            event.preventDefault();
+            event.stopPropagation();
+            void addImages(files);
+          }}
           placeholder="Write a note"
           disabled={deleted}
         />
       )}
+      {imageError ? <span role="alert">{imageError}</span> : null}
       {saveStatusLabel ? (
         <span className="note-editor-save-status mono" data-state={saveState}>
           {saveStatusLabel}

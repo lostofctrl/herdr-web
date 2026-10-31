@@ -1028,6 +1028,33 @@ button {
   background: var(--sidebar-bg);
 }
 
+.tabbar-history {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.tabbar-history-button {
+  display: inline-grid;
+  width: 26px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: var(--overlay1);
+  background: transparent;
+}
+
+.tabbar-history-button:not(:disabled):hover {
+  color: var(--text);
+  background: var(--row-hover);
+}
+
+.tabbar-history-button:disabled {
+  opacity: 0.35;
+}
+
 .tabbar-scroll {
   display: flex;
   min-width: 0;
@@ -1625,6 +1652,11 @@ button {
   border-color: color-mix(in srgb, var(--peach) 42%, var(--line-soft));
   color: var(--peach);
   background: color-mix(in srgb, var(--peach) 12%, var(--surface0));
+}
+
+.note-body-preview img {
+  max-width: 100%;
+  height: auto;
 }
 
 .note-body-preview > :first-child {
