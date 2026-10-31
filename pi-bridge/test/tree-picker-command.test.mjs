@@ -210,6 +210,55 @@ test("publishes readable duplicate labels and navigates using the unchanged id",
   }
 });
 
+test("publishes a leaf beyond the cutoff with an honest omitted count and unchanged id", async () => {
+  const started = await startBridge();
+  try {
+    const { ctx, session, navigations } = commandContext(started.fake);
+    ctx.sessionManager.getTree = () => Array.from({ length: 205 }, (_, index) => ({
+      entry: { type: "message", id: `entry-${index}`, message: { role: "user", content: index === 204 ? "repeat" : index === 0 ? "repeat" : `message ${index}` } },
+    }));
+    session.leafId = "entry-204";
+    const running = started.fake.runCommand("herdr-tree", "", ctx);
+    const { picker } = await started.connection.next((record) => record.type === "tree_picker_open");
+    assert.equal(picker.nodes.length, 200);
+    assert.equal(picker.omitted, 5);
+    assert.deepEqual(picker.nodes.filter((node) => node.current).map((node) => node.entry_id), ["entry-204"]);
+    assert.equal(picker.nodes.some((node) => node.entry_id === "entry-199"), false);
+    assert.deepEqual(picker.nodes.filter((node) => node.label.startsWith("user: repeat")).map(({ entry_id, label }) => [entry_id, label]), [
+      ["entry-0", "user: repeat [entry-0]"], ["entry-204", "user: repeat [entry-2]"],
+    ]);
+    await started.connection.send({ type: "tree_picker_answer", id: "pick-leaf", picker_id: picker.id, entry_id: "entry-204" });
+    assert.deepEqual((await started.connection.next((record) => record.id === "pick-leaf")).result, { accepted: true });
+    await running;
+    assert.deepEqual(navigations, [{ entryId: "entry-204", options: { summarize: false } }]);
+  } finally {
+    await started.stop();
+  }
+});
+
+test("publishes a leaf at the cutoff once without trading a row", async () => {
+  const started = await startBridge();
+  try {
+    const { ctx, session } = commandContext(started.fake);
+    ctx.sessionManager.getTree = () => Array.from({ length: 201 }, (_, index) => ({
+      entry: { type: "message", id: `entry-${index}`, message: { role: "user", content: `message ${index}` } },
+    }));
+    session.leafId = "entry-199";
+    const running = started.fake.runCommand("herdr-tree", "", ctx);
+    const { picker } = await started.connection.next((record) => record.type === "tree_picker_open");
+    assert.equal(picker.nodes.length, 200);
+    assert.equal(picker.omitted, 1);
+    assert.equal(picker.nodes.filter((node) => node.entry_id === "entry-199").length, 1);
+    assert.deepEqual(picker.nodes.filter((node) => node.current).map((node) => node.entry_id), ["entry-199"]);
+    assert.equal(picker.nodes.some((node) => node.entry_id === "entry-200"), false);
+    await started.connection.send({ type: "tree_picker_cancel", id: "cancel-cutoff", picker_id: picker.id });
+    assert.deepEqual((await started.connection.next((record) => record.id === "cancel-cutoff")).result, { accepted: true });
+    await running;
+  } finally {
+    await started.stop();
+  }
+});
+
 test("refuses an entry id it never published", async () => {
   const started = await startBridge();
   try {

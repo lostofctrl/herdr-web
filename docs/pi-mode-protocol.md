@@ -147,9 +147,13 @@ the card settles it, and starting any new Pi run cancels it. `session_tree_picke
 `true` only when Pi exposed `registerCommand`.
 
 `picker` is `{id, session_id, leaf_id, title, nodes, omitted}`; each node is
-`{entry_id, label, depth, current}` in depth-first order, labels are `user: …`,
-`assistant: …`, `[tool] <name>` or `[label] <label>`, and `omitted` counts entries left
-out beyond 200. `tree_picker_answer` responds with `{accepted}`; only an `entry_id`
+`{entry_id, label, depth, current}`. The bridge publishes at most 200 entries in
+depth-first order. If the live leaf lies beyond that window, it replaces the last row;
+if already inside, it stays in place without duplication. `omitted` counts all valid
+entries not published, including the replaced row. Labels include `user: …`,
+`assistant: …`, `[tool] <name>` and readable phrases for model, thinking and summary
+entries; colliding labels gain id suffixes without changing `entry_id`. Any card filter
+searches only published entries. `tree_picker_answer` responds with `{accepted}`; only an `entry_id`
 published for that `picker_id` while that picker is the open one is accepted, so a stale
 card cannot move a session that has moved on. `tree_picker_cancel` dismisses it without
 navigating. Either way the command settles and `tree_picker_closed` reports `answered` or

@@ -148,6 +148,8 @@
 
 ### Fixed
 
+- Keep the current Pi session-tree entry visible beyond the 200-row cutoff, while accurately
+  counting entries available only in the terminal picker. Older bridges keep their previous behavior.
 - Allow Ctrl-clicking terminal links, including Pi `/code` links, while Herdr captures mouse input.
 - Pi Composer: Ctrl+C clears the text draft when nothing is selected, while keeping normal copy behavior for selected text.
 - Fix terminal Ctrl+C being lost when Kitty keyboard protocol flags are enabled.

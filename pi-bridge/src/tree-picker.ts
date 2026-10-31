@@ -122,8 +122,8 @@ function entryIdOf(node: SessionTreeNodeLike): string | null {
 
 /**
  * Flattens the Pi session tree into publishable rows in depth-first order.
- * Entries past `limit` are dropped and counted, because a phone should never be
- * asked to render an unbounded tree.
+ * Entries past `limit` are counted and dropped, except the live leaf replaces
+ * the last row when it falls outside the window.
  */
 export function treePickerNodes(
   tree: SessionTreeNodeLike[],
@@ -138,13 +138,15 @@ export function treePickerNodes(
       const entryId = entryIdOf(node);
       if (entryId !== null) {
         total += 1;
-        if (nodes.length < limit) {
-          nodes.push({
+        if (nodes.length < limit || entryId === leafId) {
+          const row = {
             entry_id: entryId,
             label: labelFor(node.entry),
             depth,
             current: entryId === leafId,
-          });
+          };
+          if (nodes.length < limit) nodes.push(row);
+          else nodes[nodes.length - 1] = row;
         }
       }
       if (Array.isArray(node.children) && node.children.length > 0) {

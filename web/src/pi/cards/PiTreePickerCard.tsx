@@ -100,7 +100,7 @@ export function PiTreePickerCard({ picker, answerTreePicker, cancelTreePicker }:
 
       {picker.omitted > 0 ? (
         <p className="pi-dialog-card-message" role="status">
-          {picker.omitted} older {picker.omitted === 1 ? "entry is" : "entries are"} only in the
+          {picker.omitted} {picker.omitted === 1 ? "entry is" : "entries are"} only in the
           terminal /tree picker.
         </p>
       ) : null}

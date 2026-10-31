@@ -150,7 +150,21 @@ describe("PiTreePickerCards", () => {
     expect(labels).toEqual(["user: plan the picker", "assistant: implemented", "[tool] bash"]);
     const current = container.querySelector('[data-entry-id="entry-2"]');
     expect(current?.getAttribute("aria-current")).toBe("true");
-    expect(container.textContent).toContain("4 older entries are only in the terminal /tree picker.");
+    expect(container.textContent).toContain("4 entries are only in the terminal /tree picker.");
+  });
+
+  it("shows the pinned current row and omitted count in a long published tree", async () => {
+    const { container } = await renderPicker();
+    const nodes = Array.from({ length: 200 }, (_, index) => ({
+      entry_id: index === 199 ? "entry-204" : `entry-${index}`,
+      label: index === 199 ? "assistant: live leaf" : `user: message ${index}`,
+      depth: 0,
+      current: index === 199,
+    }));
+    await send({ type: "tree_picker_open", picker: { ...PICKER, leaf_id: "entry-204", nodes, omitted: 5 } });
+    expect(container.querySelectorAll('[aria-current="true"]')).toHaveLength(1);
+    expect(container.querySelector('[aria-current="true"]')?.textContent).toContain("assistant: live leaf");
+    expect(container.textContent).toContain("5 entries are only in the terminal /tree picker.");
   });
 
   it("renders readable and disambiguated labels and answers with the original id", async () => {

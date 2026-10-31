@@ -122,6 +122,15 @@ test("caps the published tree and reports how many entries were dropped", () => 
   assert.equal(omitted, 5);
 });
 
+test("pins a nested leaf at its original depth when only one row fits", () => {
+  const picker = createTreePicker(() => {}, { limit: 1 });
+  const view = picker.open({ sessionId: "s1", leafId: "leaf", tree: [
+    node("root", "user", "root", [node("leaf", "assistant", "here")]),
+  ] });
+  assert.deepEqual(view.nodes, [{ entry_id: "leaf", label: "assistant: here", depth: 1, current: true }]);
+  assert.equal(view.omitted, 1);
+});
+
 test("publishes an open view and resolves only the matching answer", async () => {
   const { published, publish } = recordPublishes();
   const picker = createTreePicker(publish, { createId: () => "picker-1" });
