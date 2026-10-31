@@ -19,6 +19,11 @@ export interface SessionTreeEntryLike {
   id?: string;
   message?: { role?: string; content?: unknown; toolName?: string };
   content?: unknown;
+  provider?: string;
+  modelId?: string;
+  thinkingLevel?: string;
+  summary?: string;
+  label?: string;
 }
 
 export interface SessionTreeNodeLike {
@@ -92,6 +97,19 @@ function labelFor(entry: SessionTreeEntryLike): string {
     const preview = normalize(textOf(entry.message?.content)).slice(0, PREVIEW_LIMIT);
     return `${role}: ${preview || "(empty)"}`;
   }
+  if (entry.type === "model_change") {
+    return `Model: ${[entry.provider, entry.modelId].filter(Boolean).join("/") || "(unknown)"}`;
+  }
+  if (entry.type === "thinking_level_change") {
+    return `Thinking: ${normalize(entry.thinkingLevel ?? "") || "(unknown)"}`;
+  }
+  if (entry.type === "branch_summary" || entry.type === "compaction") {
+    const preview = normalize(entry.summary ?? "").slice(0, PREVIEW_LIMIT);
+    return `${entry.type === "branch_summary" ? "Branch" : "Compaction"} summary: ${preview || "(empty)"}`;
+  }
+  if (entry.type === "label") {
+    return `Label: ${normalize(entry.label ?? "").slice(0, PREVIEW_LIMIT) || "(empty)"}`;
+  }
   const preview = normalize(textOf(entry.content)).slice(0, PREVIEW_LIMIT);
   const kind = entry.type ?? "entry";
   return preview ? `[${kind}] ${preview}` : `[${kind}]`;
@@ -135,6 +153,26 @@ export function treePickerNodes(
     }
   };
   walk(tree, 0);
+  for (let round = 0; round < nodes.length; round += 1) {
+    const groups = new Map<string, TreePickerNode[]>();
+    for (const node of nodes) {
+      const group = groups.get(node.label) ?? [];
+      group.push(node);
+      groups.set(node.label, group);
+    }
+    const collisions = [...groups.values()].filter((group) => group.length > 1);
+    if (collisions.length === 0) break;
+    for (const group of collisions) {
+      for (const node of group) {
+        let length = Math.min(4, node.entry_id.length);
+        while (length < node.entry_id.length && group.some((other) =>
+          other !== node && other.entry_id.startsWith(node.entry_id.slice(0, length)))) {
+          length += 1;
+        }
+        node.label += ` [${node.entry_id.slice(0, length)}]`;
+      }
+    }
+  }
   return { nodes, omitted: Math.max(0, total - nodes.length) };
 }
 

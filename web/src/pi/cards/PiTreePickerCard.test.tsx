@@ -153,6 +153,26 @@ describe("PiTreePickerCards", () => {
     expect(container.textContent).toContain("4 older entries are only in the terminal /tree picker.");
   });
 
+  it("renders readable and disambiguated labels and answers with the original id", async () => {
+    const { container, pi } = await renderPicker();
+    await send({ type: "tree_picker_open", picker: { ...PICKER, nodes: [
+      { entry_id: "model-1", label: "Model: anthropic/claude-sonnet", depth: 0, current: false },
+      { entry_id: "thinking-1", label: "Thinking: high", depth: 0, current: false },
+      { entry_id: "summary-1", label: "Branch summary: Earlier work", depth: 0, current: false },
+      { entry_id: "abcd1000", label: "user: repeat [abcd1]", depth: 0, current: false },
+      { entry_id: "abcd2000", label: "user: repeat [abcd2]", depth: 0, current: false },
+    ] } });
+    expect([...container.querySelectorAll(".pi-dialog-card-option-label")].map((node) => node.textContent)).toEqual([
+      "Model: anthropic/claude-sonnet", "Thinking: high", "Branch summary: Earlier work",
+      "user: repeat [abcd1]", "user: repeat [abcd2]",
+    ]);
+    await click(button(container, (label) => label.startsWith("user: repeat [abcd2]")));
+    expect(sentRecords(pi).at(-1)).toMatchObject({
+      type: "tree_picker_answer", picker_id: "tree-1", entry_id: "abcd2000",
+    });
+    await respondAccepted(pi);
+  });
+
   it("answers with the chosen entry id and the picker id", async () => {
     const { container, pi } = await renderPicker();
     await send({ type: "tree_picker_open", picker: PICKER });

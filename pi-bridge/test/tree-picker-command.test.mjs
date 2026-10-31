@@ -182,6 +182,34 @@ test("publishes the session tree and navigates to the entry chosen on the phone"
   }
 });
 
+test("publishes readable duplicate labels and navigates using the unchanged id", async () => {
+  const started = await startBridge();
+  try {
+    const { ctx, navigations } = commandContext(started.fake);
+    ctx.sessionManager.getTree = () => [
+      { entry: { type: "model_change", id: "model001", provider: "anthropic", modelId: "sonnet" } },
+      { entry: { type: "thinking_level_change", id: "think001", thinkingLevel: "high" } },
+      { entry: { type: "branch_summary", id: "summary1", summary: "Earlier work" } },
+      { entry: { type: "label", id: "label001", label: "Checkpoint" } },
+      { entry: { type: "message", id: "aaaa1111", message: { role: "user", content: "repeat" } } },
+      { entry: { type: "message", id: "bbbb2222", message: { role: "user", content: "repeat" } } },
+    ];
+    const running = started.fake.runCommand("herdr-tree", "", ctx);
+    const open = await started.connection.next((record) => record.type === "tree_picker_open");
+    assert.deepEqual(open.picker.nodes.map(({ entry_id, label }) => [entry_id, label]), [
+      ["model001", "Model: anthropic/sonnet"], ["think001", "Thinking: high"],
+      ["summary1", "Branch summary: Earlier work"], ["label001", "Label: Checkpoint"],
+      ["aaaa1111", "user: repeat [aaaa]"], ["bbbb2222", "user: repeat [bbbb]"],
+    ]);
+    await started.connection.send({ type: "tree_picker_answer", id: "pick-label", picker_id: open.picker.id, entry_id: "bbbb2222" });
+    assert.deepEqual((await started.connection.next((record) => record.id === "pick-label")).result, { accepted: true });
+    await running;
+    assert.deepEqual(navigations, [{ entryId: "bbbb2222", options: { summarize: false } }]);
+  } finally {
+    await started.stop();
+  }
+});
+
 test("refuses an entry id it never published", async () => {
   const started = await startBridge();
   try {

@@ -126,6 +126,8 @@
 
 ### Changed
 
+- Session Tree Card rows show readable model, thinking, summary and label entries; repeated labels
+  include a short entry-id prefix without changing navigation ids.
 - The top tab bar shows the Herdr tab name before the pane title when available.
 - Sidebar agent rows show workspace, tab and available branch above the pane title, with tab and state beneath.
 - Pi Side Panel: place quick actions in one compact icon row with hover labels and a Kitty-compatible Alt+C chat-log shortcut; move commands and skills below and remember recently selected entries in browser storage.

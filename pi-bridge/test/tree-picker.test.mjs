@@ -34,9 +34,76 @@ test("builds depth-first previews for message and non-message entries", () => {
       ["a", 0, false, "user: first question"],
       ["b", 1, true, "assistant: first answer"],
       ["c", 2, false, "[tool] read"],
-      ["d", 0, false, "[label]"],
+      ["d", 0, false, "Label: (empty)"],
     ],
   );
+});
+
+test("publishes readable model changes", () => {
+  const picker = createTreePicker(() => {}, { createId: () => "picker" });
+  const view = picker.open({ sessionId: "s1", leafId: null, tree: [
+    { entry: { type: "model_change", id: "model-1", provider: "anthropic", modelId: "claude-sonnet" } },
+  ] });
+  assert.equal(view.nodes[0].label, "Model: anthropic/claude-sonnet");
+});
+
+test("publishes readable thinking, summary and label entries", () => {
+  const picker = createTreePicker(() => {});
+  const view = picker.open({ sessionId: "s1", leafId: null, tree: [
+    { entry: { type: "thinking_level_change", id: "think", thinkingLevel: "high" } },
+    { entry: { type: "branch_summary", id: "branch", summary: "Branch\nsummary" } },
+    { entry: { type: "compaction", id: "compact", summary: "Compact summary" } },
+    { entry: { type: "label", id: "label", label: "Checkpoint" } },
+    { entry: { type: "mystery", id: "unknown" } },
+  ] });
+  assert.deepEqual(view.nodes.map((entry) => entry.label), [
+    "Thinking: high", "Branch summary: Branch summary", "Compaction summary: Compact summary", "Label: Checkpoint", "[mystery]",
+  ]);
+});
+
+test("keeps custom entry previews and supplies readable empty fallbacks", () => {
+  const picker = createTreePicker(() => {});
+  const view = picker.open({ sessionId: "s1", leafId: null, tree: [
+    { entry: { type: "custom", id: "custom", content: "  custom\nentry  " } },
+    { entry: { type: "model_change", id: "model" } },
+    { entry: { type: "thinking_level_change", id: "thinking" } },
+    { entry: { type: "branch_summary", id: "summary" } },
+    { entry: { type: "label", id: "label" } },
+  ] });
+  assert.deepEqual(view.nodes.map((entry) => entry.label), [
+    "[custom] custom entry", "Model: (unknown)", "Thinking: (unknown)", "Branch summary: (empty)", "Label: (empty)",
+  ]);
+});
+
+test("disambiguates only colliding published labels without changing entry ids", () => {
+  const picker = createTreePicker(() => {}, { limit: 5 });
+  const view = picker.open({ sessionId: "s1", leafId: null, tree: [
+    node("abcd1000", "user", "repeat"),
+    node("abcd2000", "user", "repeat"),
+    node("efgh3000", "user", "unique"),
+    node("ijkl4000", "user", "unique"),
+    node("mnop5000", "user", "outside limit"),
+    node("qrst6000", "user", "outside limit"),
+  ] });
+  assert.deepEqual(view.nodes.map(({ entry_id, label }) => [entry_id, label]), [
+    ["abcd1000", "user: repeat [abcd1]"],
+    ["abcd2000", "user: repeat [abcd2]"],
+    ["efgh3000", "user: unique [efgh]"],
+    ["ijkl4000", "user: unique [ijkl]"],
+    ["mnop5000", "user: outside limit"],
+  ]);
+});
+
+test("keeps labels distinct when a suffix matches another original label", () => {
+  const picker = createTreePicker(() => {});
+  const view = picker.open({ sessionId: "s1", leafId: null, tree: [
+    node("aaaa1111", "user", "repeat"),
+    node("bbbb2222", "user", "repeat"),
+    node("cccc3333", "user", "repeat [aaaa]"),
+  ] });
+  assert.deepEqual(view.nodes.map((entry) => entry.label), [
+    "user: repeat [aaaa] [aaaa]", "user: repeat [bbbb]", "user: repeat [aaaa] [cccc]",
+  ]);
 });
 
 test("collapses whitespace and shortens long previews", () => {
