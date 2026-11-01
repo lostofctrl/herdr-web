@@ -1,0 +1,22 @@
+.file-editor {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 0.5rem;
+}
+
+.file-editor-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.file-editor textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 12rem;
+  flex: 1;
+  font-family: monospace;
+  resize: vertical;
+}

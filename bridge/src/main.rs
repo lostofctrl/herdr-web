@@ -1,5 +1,9 @@
 mod agent_activity;
 mod agent_pins;
+mod file_identity;
+mod file_mutations;
+mod file_root;
+mod file_service;
 mod git_status;
 mod launcher_presets;
 mod note_images;

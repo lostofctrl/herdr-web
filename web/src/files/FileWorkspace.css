@@ -1,0 +1,7 @@
+.file-workspace { display: grid; gap: 0.75rem; min-width: 0; }
+.file-workspace-columns { display: grid; grid-template-columns: minmax(10rem, 16rem) minmax(0, 1fr); gap: 1rem; }
+.file-workspace-columns > nav, .file-workspace-file { min-width: 0; }
+.file-workspace-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.file-workspace-heading h2 { overflow-wrap: anywhere; }
+.file-workspace-note { margin: 0; }
+@media (max-width: 40rem) { .file-workspace-columns { grid-template-columns: minmax(0, 1fr); } }

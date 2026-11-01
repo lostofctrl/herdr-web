@@ -64,6 +64,10 @@ use crate::pi_sidepanel_buttons::{
 };
 use crate::websocket_heartbeat::{WebSocketHeartbeat, WebSocketHeartbeatAction};
 
+mod file_http;
+#[cfg(all(test, target_os = "linux"))]
+mod file_route_tests;
+
 const DEFAULT_HOST: &str = "127.0.0.1";
 const DEFAULT_PORT: u16 = 8787;
 const DEFAULT_COLS: u16 = 80;
@@ -117,6 +121,8 @@ struct BridgeOptions {
     upload_dir: PathBuf,
     launcher_presets_path: Option<PathBuf>,
     pi_sidepanel_buttons_path: Option<PathBuf>,
+    file_root: Option<PathBuf>,
+    file_git_metadata_roots: Vec<PathBuf>,
     allowed_hosts: Vec<String>,
     allow_host_any_port: bool,
     allowed_origins: Vec<String>,
@@ -138,6 +144,16 @@ struct BridgeState {
     ui_event_tx: tokio::sync::broadcast::Sender<String>,
     activity_tx: tokio::sync::broadcast::Sender<ActivityMessage>,
     upload_dir: PathBuf,
+    file_service: Option<Arc<crate::file_service::FileService>>,
+    file_capability: Option<FileCapability>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct FileCapability {
+    version: u32,
+    bridge_id: String,
+    root_id: String,
+    binding_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -185,6 +201,8 @@ struct Capabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     pi_sidepanel_buttons_version: Option<u32>,
     notes: NotesCapability,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    files: Option<FileCapability>,
 }
 
 #[derive(Debug, Serialize)]
@@ -898,7 +916,7 @@ pub(crate) fn run_command(args: &[String]) -> io::Result<i32> {
         Err(message) => {
             eprintln!("{message}");
             eprintln!(
-                "usage: herdr-web-bridge [--session NAME] [--host HOST] [--port PORT] [--static-dir DIR] [--launcher-presets PATH] [--pi-sidepanel-buttons PATH] [--allow-origin ORIGIN] [--allow-host HOSTNAME] [--allow-host-any-port] [--allow-connect-origin ORIGIN]"
+                "usage: herdr-web-bridge [--session NAME] [--host HOST] [--port PORT] [--static-dir DIR] [--launcher-presets PATH] [--pi-sidepanel-buttons PATH] [--file-root PATH] [--file-git-metadata-root PATH] [--allow-origin ORIGIN] [--allow-host HOSTNAME] [--allow-host-any-port] [--allow-connect-origin ORIGIN]"
             );
             return Ok(2);
         }
@@ -926,6 +944,8 @@ fn parse_options(args: &[String]) -> Result<Option<BridgeOptions>, String> {
     let mut upload_dir = default_upload_dir();
     let mut launcher_presets_path = None;
     let mut pi_sidepanel_buttons_path = None;
+    let mut file_root = non_empty_env_path("HERDR_WEB_FILE_ROOT");
+    let mut file_git_metadata_roots = Vec::new();
     let mut allowed_hosts = Vec::new();
     let mut allow_host_any_port = false;
     let mut allowed_origins = Vec::new();
@@ -991,6 +1011,19 @@ fn parse_options(args: &[String]) -> Result<Option<BridgeOptions>, String> {
                 pi_sidepanel_buttons_path = Some(expand_home(value));
                 index += 2;
             }
+            "--file-root" | "--file-git-metadata-root" => {
+                let flag = &args[index];
+                let Some(value) = args.get(index + 1).filter(|value| !value.starts_with('-'))
+                else {
+                    return Err(format!("missing value for {flag}"));
+                };
+                if flag == "--file-root" {
+                    file_root = Some(expand_home(value));
+                } else {
+                    file_git_metadata_roots.push(expand_home(value));
+                }
+                index += 2;
+            }
             "--allow-host" => {
                 let Some(value) = args.get(index + 1) else {
                     return Err("missing value for --allow-host".into());
@@ -1020,6 +1053,10 @@ fn parse_options(args: &[String]) -> Result<Option<BridgeOptions>, String> {
         }
     }
 
+    if file_root.is_none() && !file_git_metadata_roots.is_empty() {
+        return Err("--file-git-metadata-root requires --file-root".into());
+    }
+
     allowed_connect_sources.sort();
     allowed_connect_sources.dedup();
 
@@ -1034,6 +1071,8 @@ fn parse_options(args: &[String]) -> Result<Option<BridgeOptions>, String> {
         upload_dir,
         launcher_presets_path,
         pi_sidepanel_buttons_path,
+        file_root,
+        file_git_metadata_roots,
         allowed_hosts,
         allow_host_any_port,
         allowed_origins,
@@ -1049,6 +1088,7 @@ fn help_text() -> &'static str {
     "herdr-web-bridge\n\
 \n\
 Usage: herdr-web-bridge [--session NAME] [--host HOST] [--port PORT] [--static-dir DIR] [--upload-dir DIR] [--launcher-presets PATH] [--pi-sidepanel-buttons PATH] [--allow-origin ORIGIN] [--allow-host HOSTNAME] [--allow-host-any-port] [--allow-connect-origin ORIGIN]\n\
+Usage: herdr-web-bridge [--session NAME] [--host HOST] [--port PORT] [--static-dir DIR] [--upload-dir DIR] [--launcher-presets PATH] [--file-root PATH] [--file-git-metadata-root PATH] [--allow-origin ORIGIN] [--allow-host HOSTNAME] [--allow-host-any-port] [--allow-connect-origin ORIGIN]\n\
 \n\
 Runs the local HTTP/WebSocket bridge for herdr-web.\n\
 Defaults to the active Herdr daemon sockets and 127.0.0.1:8787.\n\
@@ -1061,10 +1101,86 @@ that terminate their own public port before forwarding to the bridge.\n\
 Use --allow-connect-origin ORIGIN to let the served web app connect to another bridge origin.\n\
 Use --launcher-presets PATH or HERDR_WEB_LAUNCHER_PRESETS to load custom launch presets.\n\
 Use --pi-sidepanel-buttons PATH or HERDR_WEB_PI_SIDEPANEL_BUTTONS for the Pi button store.\n\
+Use --file-root PATH or HERDR_WEB_FILE_ROOT to configure a file root (disabled by default).\n\
+Use repeatable --file-git-metadata-root PATH only with a file root.\n\
+File roots are validated at startup and served only over /api/files on this bridge.\n\
 Uploads default to HERDR_WEB_UPLOAD_DIR, XDG_DATA_HOME/herdr-web/uploads, or ~/.local/share/herdr-web/uploads."
 }
 
+fn open_file_roots(options: &BridgeOptions) -> io::Result<Vec<crate::file_root::FileRoot>> {
+    let mut roots = Vec::new();
+    for (label, path) in options
+        .file_root
+        .iter()
+        .map(|path| ("file root", path))
+        .chain(
+            options
+                .file_git_metadata_roots
+                .iter()
+                .map(|path| ("file Git metadata root", path)),
+        )
+    {
+        let root = crate::file_root::FileRoot::open(path).map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!("invalid {label} {}: {error}", path.display()),
+            )
+        })?;
+        roots.push(root);
+    }
+    Ok(roots)
+}
+
+/// Binds the configured root to durable private identity and builds the opt-in file
+/// service. Any failure (including unsupported platforms) leaves file access disabled.
+fn build_file_service(
+    options: &BridgeOptions,
+    roots: Vec<crate::file_root::FileRoot>,
+) -> io::Result<(
+    Option<Arc<crate::file_service::FileService>>,
+    Option<FileCapability>,
+)> {
+    let mut roots = roots.into_iter();
+    let Some(root) = roots.next() else {
+        return Ok((None, None));
+    };
+    if roots.next().is_some() {
+        // Metadata roots are reserved for the Git boundary, which is not implemented.
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "Git metadata roots are not supported because Git access is disabled",
+        ));
+    }
+    let root_path = std::fs::canonicalize(
+        options
+            .file_root
+            .as_ref()
+            .expect("a root implies an option"),
+    )
+    .map_err(|error| io::Error::new(error.kind(), format!("invalid file root: {error}")))?;
+    let (dev, ino) = root.dev_ino()?;
+    let identity_dir = default_identity_dir();
+    ensure_private_dir(&identity_dir)?;
+    let store = crate::file_identity::IdentityStore::open(&identity_dir)?;
+    let binding = store.bind("file-root", &root_path, dev, ino)?;
+    let capability = FileCapability {
+        version: 1,
+        bridge_id: binding.bridge_id.clone(),
+        root_id: binding.root_id.clone(),
+        binding_id: binding.live_binding.clone(),
+    };
+    Ok((
+        Some(Arc::new(crate::file_service::FileService::new(
+            root, binding,
+        ))),
+        Some(capability),
+    ))
+}
+
 async fn run_server(options: BridgeOptions) -> io::Result<()> {
+    // Keep the validated descriptors alive for the lifetime of the server.
+    let file_roots = open_file_roots(&options)?;
+    let (file_service, file_capability) = build_file_service(&options, file_roots)?;
     if !is_loopback_bind_host(&options.host) {
         warn!(
             host = %options.host,
@@ -1120,6 +1236,8 @@ async fn run_server(options: BridgeOptions) -> io::Result<()> {
         ui_event_tx: tokio::sync::broadcast::channel(256).0,
         activity_tx: tokio::sync::broadcast::channel(512).0,
         upload_dir: options.upload_dir.clone(),
+        file_service,
+        file_capability,
     };
     spawn_agent_activity_watcher(state.clone());
     let agent_activity_routes = Router::new().route(
@@ -1207,6 +1325,7 @@ async fn run_server(options: BridgeOptions) -> io::Result<()> {
             "/api/uploads",
             post(upload_handler).options(preflight_handler),
         )
+        .route("/api/files", post(file_handler).options(preflight_handler))
         .route("/ws/events", get(events_ws_handler))
         .route("/ws/activity", get(activity_ws_handler))
         .route("/ws/ui-events", get(ui_events_ws_handler))
@@ -1330,6 +1449,18 @@ fn is_loopback_bind_host(host: &str) -> bool {
     matches!(host, "localhost" | "127.0.0.1" | "::1")
 }
 
+/// The identity store refuses non-private directories, so a first run must create it.
+fn ensure_private_dir(path: &Path) -> io::Result<()> {
+    let created = !path.is_dir();
+    std::fs::create_dir_all(path)?;
+    #[cfg(unix)]
+    if created {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}
+
 fn default_upload_dir() -> PathBuf {
     if let Some(path) = non_empty_env_path("HERDR_WEB_UPLOAD_DIR") {
         return path;
@@ -1345,6 +1476,17 @@ fn default_upload_dir() -> PathBuf {
             .join("uploads");
     }
     PathBuf::from("herdr-web-uploads")
+}
+
+/// Private durable state next to (not inside) the configured root; it is never served.
+fn default_identity_dir() -> PathBuf {
+    if let Some(path) = non_empty_env_path("HERDR_WEB_FILE_IDENTITY_DIR") {
+        return path;
+    }
+    let data_home = non_empty_env_path("XDG_DATA_HOME")
+        .or_else(|| non_empty_env_path("HOME").map(|home| home.join(".local").join("share")))
+        .unwrap_or_else(|| PathBuf::from("."));
+    data_home.join("herdr-web").join("file-identity")
 }
 
 // Intentionally diverges from `store_util::non_empty_env_path`: upload dir
@@ -3189,6 +3331,7 @@ async fn capabilities_handler(
         launcher_presets: LauncherPresetsCapability { version: 1 },
         pi_sidepanel_buttons_version: state.pi_sidepanel_buttons.as_ref().map(|_| 1),
         notes: NotesCapability { version: 1 },
+        files: state.file_capability.clone(),
     }))
 }
 
@@ -4187,6 +4330,10 @@ async fn pi_sidepanel_buttons_put(
         Ok(Err(err)) => buttons_error(err, false),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
+}
+
+async fn file_handler(State(state): State<BridgeState>, request: AxumRequest) -> Response {
+    file_http::handle_request(state.file_service.clone(), &state.request_policy, request).await
 }
 
 async fn agent_activity_list_handler(
@@ -6433,6 +6580,7 @@ fn startup_daemon_error(err: BridgeError) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use flate2::read::GzDecoder;
     use socket2::SockRef;
     use std::convert::Infallible;
@@ -6441,6 +6589,10 @@ mod tests {
     use std::pin::Pin;
     use std::task::{Context, Poll};
     use tokio::sync::Notify;
+
+    mod file_options_tests {
+        include!("web_bridge/file_options_tests.rs");
+    }
 
     #[derive(Clone)]
     struct ActivitySocketTestState {
@@ -9443,6 +9595,8 @@ mod pi_relay_tests {
             ui_event_tx: tokio::sync::broadcast::channel(256).0,
             activity_tx: tokio::sync::broadcast::channel(512).0,
             upload_dir: base.join("uploads"),
+            file_service: None,
+            file_capability: None,
         }
     }
 

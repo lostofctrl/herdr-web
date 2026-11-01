@@ -20,6 +20,20 @@
   displayed in Markdown previews. Uploads are limited to 5 MiB each, bridge image storage to 256 MiB
   and 1024 files, and previews to 20 images per note. Images can remain stored after a note or
   reference is removed; contact the bridge administrator if storage fills.
+- Browser file tabs: open, browse, edit and save files inside a bridge's configured file root as
+  local tabs that never change the Herdr workspace, tab or pane selection. Tabs and drafts are
+  browser-local, survive reloads and bridge restarts (with an explicit root confirmation), warn on
+  close/reload when dirty, and keep unsaved text in memory when storage fails. Saves are conditional
+  on the revision the editor loaded, so an external change reports a conflict instead of overwriting
+  it. Creating, renaming and deleting entries is supported, and a single file can be copied from the
+  editor; the bridge also supports copying and recursively deleting whole directory trees without
+  following symbolic links, but those directory actions are not yet exposed in the explorer.
+  Markdown preview is inert (no raw HTML, links or remote images).
+- Bridge: opt-in confined file service, disabled unless `--file-root`/`HERDR_WEB_FILE_ROOT` is set.
+  Linux-only, descriptor-relative resolution under the pinned root, bounded reads, listings and
+  requests, host and origin checks on the route, and a persistent bridge/root identity so drafts are
+  never reattached to a different root. Saves can lose hidden `trusted.*` attributes and race a
+  non-cooperating local writer; see `docs/adr/0003-confined-browser-file-tabs.md`.
 
 - Pi mode: the Composer opens the Pi Side Panel as a floating panel placed above (or below) its
   own trigger, on desktop and mobile. It renders the same view as the terminal's Side Panel — model,

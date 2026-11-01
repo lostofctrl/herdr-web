@@ -111,6 +111,8 @@ fn test_state(api_path: PathBuf) -> BridgeState {
         ui_event_tx: tokio::sync::broadcast::channel(256).0,
         activity_tx: tokio::sync::broadcast::channel(512).0,
         upload_dir: api_path.with_extension("uploads"),
+        file_service: None,
+        file_capability: None,
     }
 }
 

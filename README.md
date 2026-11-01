@@ -30,6 +30,8 @@ navigation, multi-client viewing, mobile input controls, and synchronized pane s
   `ask_user_question`, and a Reader Sheet for the last answer.
 - Image and file uploads from the terminal toolbar, paste, or drag/drop, with uploaded paths inserted
   into the active terminal input.
+- Browser file tabs: opt-in confined browsing, editing and saving inside one configured file root,
+  with browser-local tabs and drafts that never change the Herdr workspace, tab or pane selection.
 - Context menus for renaming, closing, splitting, and moving panes between tabs or spaces.
 
 ## Screenshots
@@ -512,6 +514,9 @@ The bridge exposes:
 - `GET /api/agent-activity`: bridge-tracked agent status transition activity
 - `GET /api/agent-pins` and `POST /api/agent-pins/{pane_id}/pin|unpin`: bridge-owned agent pins
 - `POST /api/uploads`: save uploaded files into the configured upload directory
+- `POST /api/files`: opt-in confined file listing, read, save, create, rename and delete under the
+  configured file root; absent from `/api/capabilities` unless `--file-root`/`HERDR_WEB_FILE_ROOT`
+  configured a root at startup
 - `GET /ws/activity`: bridge-owned pane activity deltas
 - `GET /ws/events`: Herdr structural events, preceded by a bridge `resync_required` message after
   subscription acknowledgement; closes on upstream failure so clients can reconnect and resnapshot
@@ -533,6 +538,12 @@ be explicitly allowed with `--allow-host HOSTNAME`. This is a DNS-rebinding/CSRF
 authentication. A reverse proxy that terminates its own public port forwards the original `Host`
 header, so the forwarded authority port never matches the bridge port; add `--allow-host-any-port`
 to accept an already allowed hostname on any port. It widens only the explicitly allowed hostnames.
+
+Bridge-owned files are part of that same request policy, and the file service additionally pins the
+root descriptor at startup, resolves every path relative to it, bounds reads and listings, and
+requires the identity echoed by `/api/capabilities`. It is enabled only when a root is configured,
+runs only on Linux, and is still unauthenticated: any client the bridge accepts can read and write
+inside that root. See `docs/adr/0003-confined-browser-file-tabs.md` for the accepted limitations.
 
 Bridge-owned notes are part of that same request policy. Any allowed bridge client can read and
 mutate saved note content, including clients connecting over a trusted LAN when the bridge is bound

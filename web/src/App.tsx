@@ -1,4 +1,9 @@
 import { CommandDraftContext, createCommandDraftStore } from "./commandDrafts";
+import { fileTabKey, loadFileTabs, partitionFileTabs, saveFileTabs } from "./files/fileTabs";
+import type { FileBinding, FileTab } from "./files/fileTabs";
+import type { FileDraft } from "./files/FileEditor";
+import type { FileWorkspaceDraft } from "./files/FileWorkspace";
+import { BoundFileWorkspace } from "./files/BoundFileWorkspace";
 import { hasOpenModal, isShortcutTextEntryTarget } from "./keyboardShortcutTargets";
 import { retainPiComposerDrafts } from "./pi-mode/piComposerDraft";
 import { retainPiComposerHistory } from "./pi-mode/piComposerHistory";
@@ -988,6 +993,284 @@ function usePointerDragResize(
   }, [active, onMove, onEnd]);
 }
 
+type FileShell = { id: string; label: string; binding: FileBinding };
+type FileShellState = { version: 1; shells: FileShell[]; activeId: string | null };
+const FILE_SHELLS_KEY = "herdr.files.shells.v1";
+
+function readFileShells(): { state: FileShellState; error: string | null } {
+  const empty: FileShellState = { version: 1, shells: [], activeId: null };
+  try {
+    const raw = window.localStorage.getItem(FILE_SHELLS_KEY);
+    if (!raw) return { state: empty, error: null };
+    const value: unknown = JSON.parse(raw);
+    if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.shells) ||
+        !(value.activeId === null || typeof value.activeId === "string")) throw new Error();
+    const shells: FileShell[] = [];
+    for (const shell of value.shells) {
+      if (!isRecord(shell) || typeof shell.id !== "string" || !shell.id ||
+          typeof shell.label !== "string" || !shell.label || !isRecord(shell.binding) ||
+          ![shell.binding.bridgeId, shell.binding.connectionKey, shell.binding.bridgeIdentity,
+            shell.binding.rootIdentity, shell.binding.bindingIdentity].every((part) => typeof part === "string" && part.length > 0)) throw new Error();
+      shells.push(shell as unknown as FileShell);
+    }
+    if (new Set(shells.map((shell) => shell.id)).size !== shells.length ||
+        (value.activeId !== null && !shells.some((shell) => shell.id === value.activeId))) throw new Error();
+    return { state: { version: 1, shells, activeId: value.activeId as string | null }, error: null };
+  } catch {
+    return { state: empty, error: "File tab storage could not be read; saved data was not overwritten." };
+  }
+}
+
+function fileBinding(runtime: BridgeRuntime | null): FileBinding | null {
+  const files = runtime?.capabilityState === "ready" && runtime.canConnect ? runtime.capabilities?.files : null;
+  return runtime && files ? {
+    bridgeId: runtime.id, connectionKey: runtime.connectionKey, bridgeIdentity: files.bridge_id,
+    rootIdentity: files.root_id, bindingIdentity: files.binding_id,
+  } : null;
+}
+
+export function FileShellNavigation({ selectedRuntime, bridgeViews, returnToken = 0, children }: {
+  selectedRuntime: BridgeRuntime | null;
+  bridgeViews: BridgeConnectionView[];
+  returnToken?: number;
+  children: (navigation: { active: boolean; showTerminal: () => void }) => ReactNode;
+}) {
+  const [initial] = useState(readFileShells);
+  const [initialDrafts] = useState(() => loadFileTabs(() => window.localStorage));
+  const [drafts, setDrafts] = useState<FileTab[]>(initialDrafts.ok ? initialDrafts.tabs : []);
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
+  const [draftError, setDraftError] = useState<string | null>(initialDrafts.ok ? null : "File draft storage could not be read; existing data will not be overwritten.");
+  const [state, setState] = useState(initial.state);
+  const [error, setError] = useState<string | null>(initial.error);
+  const returnTokenRef = useRef(returnToken);
+  const update = (next: FileShellState) => {
+    setState(next);
+    if (initial.error) return;
+    try {
+      window.localStorage.setItem(FILE_SHELLS_KEY, JSON.stringify(next));
+      setError(null);
+    } catch {
+      setError("File tab storage could not be written; tabs remain in memory only.");
+    }
+  };
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const updateRef = useRef(update);
+  updateRef.current = update;
+  useEffect(() => {
+    if (returnTokenRef.current !== returnToken) {
+      returnTokenRef.current = returnToken;
+      updateRef.current({ ...stateRef.current, activeId: null });
+    }
+  }, [returnToken]);
+  const active = state.shells.find((shell) => shell.id === state.activeId) ?? null;
+  const owner = active ? bridgeViews.find((view) => view.runtime.id === active.binding.bridgeId) : null;
+  const current = fileBinding(owner?.runtime ?? null);
+  const hasUnconfirmedDrafts = Boolean(current && drafts.some((tab) => {
+    const b = tab.binding;
+    return tab.dirty && b.bridgeId === current.bridgeId && b.connectionKey === current.connectionKey &&
+      b.bridgeIdentity === current.bridgeIdentity && b.rootIdentity === current.rootIdentity &&
+      b.bindingIdentity !== current.bindingIdentity;
+  }));
+  const status = !active ? null : !owner ? "Owner bridge unavailable" :
+    owner.runtime.connectionKey !== active.binding.connectionKey ? "Bridge connection mismatch" :
+    owner.runtime.capabilityState === "error" || owner.loadState === "error" || !owner.runtime.canConnect ? "Owner bridge offline" :
+    owner.loadState !== "ready" || !owner.snapshot || owner.runtime.capabilityState !== "ready" ? "Owner bridge unavailable" :
+    !current ? "File service unavailable on this bridge" :
+    current.bridgeIdentity !== active.binding.bridgeIdentity ? "Bridge identity mismatch" :
+    current.rootIdentity !== active.binding.rootIdentity ? "Root mismatch" :
+    current.bindingIdentity !== active.binding.bindingIdentity || hasUnconfirmedDrafts ? "Root confirmation required after bridge restart" : null;
+  const canConfirm = Boolean(active && current && status === "Root confirmation required after bridge restart");
+  const newBinding = fileBinding(selectedRuntime);
+  const selectedView = bridgeViews.find((view) => view.runtime.id === selectedRuntime?.id);
+  const canCreate = Boolean(newBinding && selectedView?.loadState === "ready" && selectedView.snapshot);
+  const showTerminal = () => update({ ...state, activeId: null });
+  useEffect(() => {
+    const warnOnReload = (event: BeforeUnloadEvent) => {
+      const loaded = loadFileTabs(() => window.localStorage);
+      if (!loaded.ok || loaded.tabs.some((tab) => tab.dirty) || draftsRef.current.some((tab) => tab.dirty)) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", warnOnReload);
+    return () => window.removeEventListener("beforeunload", warnOnReload);
+  }, []);
+  const closeShell = (shell: FileShell) => {
+    const loaded = loadFileTabs(() => window.localStorage);
+    const binding = shell.binding;
+    const hasDraft = !loaded.ok || [...loaded.tabs, ...draftsRef.current].some((tab) => tab.dirty &&
+      tab.binding.bridgeId === binding.bridgeId && tab.binding.connectionKey === binding.connectionKey &&
+      tab.binding.bridgeIdentity === binding.bridgeIdentity && tab.binding.rootIdentity === binding.rootIdentity);
+    if (hasDraft && !window.confirm("Unsaved file drafts may exist. Closing does not discard stored drafts, but drafts not stored successfully may be lost. Close this tab?")) return;
+    update({ ...state, shells: state.shells.filter((item) => item.id !== shell.id), activeId: state.activeId === shell.id ? null : state.activeId });
+  };
+  const confirm = () => {
+    if (!active || !current || !canConfirm) return;
+    const loaded = loadFileTabs(() => window.localStorage);
+    if (!loaded.ok || !initialDrafts.ok) {
+      setError("File drafts could not be read safely; root confirmation was not applied.");
+      return;
+    }
+    const combined = new Map(loaded.tabs.map((tab) => [fileTabKey(tab), tab]));
+    for (const tab of draftsRef.current) combined.set(fileTabKey(tab), tab);
+    const tabs = [...combined.values()].map((tab) => {
+      const matching = partitionFileTabs([tab], current, true).matching[0];
+      if (matching) return matching;
+      const b = tab.binding;
+      // A legacy draft remains recovery-only, but confirmation records which root was approved.
+      return tab.needsRecovery && b.bridgeId === current.bridgeId && b.connectionKey === current.connectionKey &&
+        b.bridgeIdentity === current.bridgeIdentity && b.rootIdentity === current.rootIdentity
+        ? { ...tab, binding: current } : tab;
+    });
+    const saved = saveFileTabs(() => window.localStorage, tabs);
+    if (!saved.ok) {
+      setError(`File drafts could not be saved (${saved.error}); root confirmation was not applied.`);
+      return;
+    }
+    draftsRef.current = tabs;
+    setDrafts(tabs);
+    setDraftError(null);
+    const shells = state.shells.map((shell) => {
+      const b = shell.binding;
+      return b.bridgeId === current.bridgeId && b.connectionKey === current.connectionKey &&
+        b.bridgeIdentity === current.bridgeIdentity && b.rootIdentity === current.rootIdentity
+        ? { ...shell, binding: current } : shell;
+    });
+    update({ ...state, shells });
+  };
+  const activeDrafts: Record<string, FileWorkspaceDraft> = Object.create(null) as Record<string, FileWorkspaceDraft>;
+  if (active) {
+    for (const tab of drafts) {
+      const b = tab.binding;
+      if (b.bridgeId !== active.binding.bridgeId || b.connectionKey !== active.binding.connectionKey ||
+          b.bridgeIdentity !== active.binding.bridgeIdentity || b.rootIdentity !== active.binding.rootIdentity || !tab.dirty) continue;
+      activeDrafts[tab.path] = tab.needsRecovery || tab.baseContent === undefined || tab.baseRevision === undefined
+        ? { content: tab.draft, needsRecovery: true }
+        : { content: tab.draft, baseContent: tab.baseContent, baseRevision: tab.baseRevision };
+    }
+  }
+  const changeDraft = (binding: FileBinding, path: string, draft: FileDraft) => {
+    const record: FileTab = { binding, path, draft: draft.content, dirty: draft.content !== draft.baseContent, baseContent: draft.baseContent, baseRevision: draft.baseRevision };
+    const key = fileTabKey(record);
+    const existing = draftsRef.current.find((tab) => fileTabKey(tab) === key);
+    if (!record.dirty && !existing) return;
+    const loaded = initialDrafts.ok ? loadFileTabs(() => window.localStorage) : initialDrafts;
+    const merged = new Map<string, FileTab>();
+    if (loaded.ok) for (const tab of loaded.tabs) merged.set(fileTabKey(tab), tab);
+    for (const tab of draftsRef.current) merged.set(fileTabKey(tab), tab);
+    merged.delete(key);
+    if (record.dirty) merged.set(key, record);
+    const next = [...merged.values()];
+    draftsRef.current = next;
+    setDrafts(next);
+    if (!initialDrafts.ok || !loaded.ok) {
+      setDraftError("File draft storage could not be read; unsaved edits remain in memory only and existing data was not overwritten.");
+      return;
+    }
+    const saved = saveFileTabs(() => window.localStorage, next);
+    setDraftError(saved.ok ? null : "File drafts could not be stored; unsaved edits remain in memory only.");
+  };
+  const renameDraftPaths = (binding: FileBinding, from: string, to: string) => {
+    const sameBinding = (tab: FileTab) => tab.binding.bridgeId === binding.bridgeId &&
+      tab.binding.connectionKey === binding.connectionKey && tab.binding.bridgeIdentity === binding.bridgeIdentity &&
+      tab.binding.rootIdentity === binding.rootIdentity && tab.binding.bindingIdentity === binding.bindingIdentity;
+    const loaded = loadFileTabs(() => window.localStorage);
+    if (!initialDrafts.ok || !loaded.ok) {
+      setDraftError("File drafts could not be read; the renamed file was not re-keyed.");
+      return;
+    }
+    const combined = new Map(loaded.tabs.map((tab) => [fileTabKey(tab), tab]));
+    for (const tab of draftsRef.current) combined.set(fileTabKey(tab), tab);
+    let changed = false;
+    for (const tab of [...combined.values()]) {
+      if (tab.path !== from || !sameBinding(tab)) continue;
+      combined.delete(fileTabKey(tab));
+      combined.set(fileTabKey({ ...tab, path: to }), { ...tab, path: to });
+      changed = true;
+    }
+    if (!changed) return;
+    const next = [...combined.values()];
+    draftsRef.current = next;
+    setDrafts(next);
+    const saved = saveFileTabs(() => window.localStorage, next);
+    setDraftError(saved.ok ? null : "File drafts could not be stored after the rename; unsaved edits remain in memory only.");
+  };
+  const discardDraft = (tab: FileTab) => {
+    if (!window.confirm(`Discard the local draft for ${tab.path}? This cannot be undone.`)) return;
+    const loaded = loadFileTabs(() => window.localStorage);
+    if (!initialDrafts.ok || !loaded.ok) {
+      setDraftError("File drafts could not be read; the draft was not discarded.");
+      return;
+    }
+    const combined = new Map(loaded.tabs.map((item) => [fileTabKey(item), item]));
+    for (const item of draftsRef.current) combined.set(fileTabKey(item), item);
+    combined.delete(fileTabKey(tab));
+    const next = [...combined.values()];
+    const saved = saveFileTabs(() => window.localStorage, next);
+    if (!saved.ok) {
+      setDraftError("File drafts could not be stored; the draft was not discarded.");
+      return;
+    }
+    draftsRef.current = next;
+    setDrafts(next);
+    setDraftError(null);
+  };
+  const visibleDrafts = active && (!status || status === "Owner bridge offline" || status === "Owner bridge unavailable")
+    ? drafts.filter((tab) => tab.dirty && tab.binding.bridgeId === active.binding.bridgeId &&
+      tab.binding.connectionKey === active.binding.connectionKey && tab.binding.bridgeIdentity === active.binding.bridgeIdentity &&
+      tab.binding.rootIdentity === active.binding.rootIdentity && tab.binding.bindingIdentity === active.binding.bindingIdentity)
+    : [];
+  return <>
+    <div className="file-shell-bar" aria-label="Browser file tabs">
+      <div role="tablist" aria-label="File tabs">
+        {state.shells.map((shell, index) => <span className="file-shell-item" key={shell.id}>
+          <button type="button" role="tab" aria-label={`File tab ${index + 1}`} aria-selected={shell.id === state.activeId}
+            onClick={() => update({ ...state, activeId: shell.id })}>{shell.label} · Files {index + 1}</button>
+          <button type="button" aria-label={`Close file tab ${index + 1}`}
+            onClick={() => closeShell(shell)}>×</button>
+        </span>)}
+      </div>
+      <button type="button" aria-label="New file tab" disabled={!canCreate} title={canCreate ? "New file tab" : "File service unavailable or bridge offline"}
+        onClick={() => {
+          if (!newBinding || !canCreate) return;
+          let id: string;
+          try {
+            const bytes = crypto.getRandomValues(new Uint8Array(16));
+            id = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+          } catch {
+            setError("A secure random file tab ID could not be created.");
+            return;
+          }
+          if (state.shells.some((shell) => shell.id === id)) {
+            setError("A unique file tab ID could not be created; try again.");
+            return;
+          }
+          update({ ...state, shells: [...state.shells, { id, label: selectedRuntime?.label ?? newBinding.bridgeId, binding: newBinding }], activeId: id });
+        }}>+ File tab</button>
+      {!canCreate ? <span className="file-shell-unavailable">File service unavailable or bridge offline</span> : null}
+    </div>
+    {error ? <p role="alert">{error}</p> : null}
+    {children({ active: Boolean(active), showTerminal })}
+    {active ? <div className="file-shell-placeholder" role="region" aria-label="File tab">
+      <p>{active.label}{status ? ` · ${status}` : " · Files"}</p>
+      {canConfirm ? <button type="button" onClick={confirm}>Confirm current root</button> : null}
+      <button type="button" onClick={showTerminal}>Return to terminal</button>
+      {draftError ? <p role="alert">{draftError}</p> : null}
+      {visibleDrafts.length > 0 ? <details><summary>Local unsaved drafts ({visibleDrafts.length})</summary>
+        <p>Drafts may contain sensitive content. Copy or discard them here even if a file is unavailable.</p>
+        {visibleDrafts.map((tab) => <section key={fileTabKey(tab)}>
+          <h3>{tab.path}</h3><textarea aria-label={`Draft for ${tab.path}`} readOnly value={tab.draft} />
+          <button type="button" aria-label={`Discard draft ${tab.path}`} onClick={() => discardDraft(tab)}>Discard draft</button>
+        </section>)}
+      </details> : null}
+      {!status && owner && current ? <BoundFileWorkspace key={active.id} runtime={owner.runtime} binding={current} drafts={activeDrafts}
+        onDraftChange={(path, draft) => changeDraft(current, path, draft)} onPathRenamed={(from, to) => renameDraftPaths(current, from, to)} /> : null}
+    </div> : null}
+  </>;
+}
+
 export function App() {
   const [commandDrafts] = useState(createCommandDraftStore);
   return (
@@ -1181,6 +1464,7 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
   const [launchTarget, setLaunchTarget] = useState<ScopedLaunchTarget | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fileShellReturnToken, setFileShellReturnToken] = useState(0);
   const [refitToken, setRefitToken] = useState(0);
   const [terminalFocusToken, setTerminalFocusToken] = useState(0);
   const isCompactLayout = useIsCompactLayout();
@@ -2475,6 +2759,7 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
 
   const openPane = (bridgeId: BridgeId, pane: PaneInfo) => {
     setPendingTabVisit(null);
+    setFileShellReturnToken((token) => token + 1);
     const runtime = bridge.getRuntime(bridgeId);
     if (!runtime) {
       return;
@@ -2518,6 +2803,7 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
 
   const selectSpace = (bridgeId: BridgeId, workspaceId: string) => {
     setPendingTabVisit(null);
+    setFileShellReturnToken((token) => token + 1);
     const runtime = bridge.getRuntime(bridgeId);
     if (!runtime) {
       return;
@@ -4091,6 +4377,8 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
       </aside>
 
       <section className="stage" aria-label="Terminal">
+        <FileShellNavigation selectedRuntime={selectedRuntime} bridgeViews={bridgeViews} returnToken={fileShellReturnToken}>
+        {({ active: fileShellActive, showTerminal }) => <>
         <TabBar
           snapshot={snapshot}
           activeSpace={activeSpace}
@@ -4099,7 +4387,12 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
           canGoForward={!pendingTabVisit && forwardIndex !== -1}
           onBack={() => navigateTabHistory(backIndex)}
           onForward={() => navigateTabHistory(forwardIndex)}
-          onSelectTab={(tabId) => selectedRuntime && selectTab(selectedRuntime.id, tabId)}
+          fileShellActive={fileShellActive}
+          onSelectTab={(tabId) => {
+            showTerminal();
+            setPendingTabVisit(null);
+            if (selectedRuntime) selectTab(selectedRuntime.id, tabId);
+          }}
           onCreateTab={(workspaceId) =>
             selectedRuntime &&
             setLaunchTarget({ mode: "tab", workspaceId, bridgeId: selectedRuntime.id })
@@ -4109,6 +4402,13 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
             setMenu({ kind, bridgeId: selectedRuntime.id, id, label, x, y, clearable })
           }
         />
+        {fileShellActive ? <header className="stage-bar">
+          <button className="icon-btn" type="button" aria-label={isCompactLayout ? "Back to switcher" : "Toggle sidebar"}
+            onClick={() => (isCompactLayout ? closeMobileDetail() : setSidebarOpen((open) => !open))}>
+            {isCompactLayout ? <ChevronLeft size={20} /> : <PanelLeft size={18} />}
+          </button>
+          <span>Browser file tab</span>
+        </header> : <>
         <header className="stage-bar">
           <button
             className="icon-btn"
@@ -4298,6 +4598,9 @@ function AppContent({ commandDrafts }: { commandDrafts: ReturnType<typeof create
         ) : (
           <div className="terminal-stage" aria-hidden="true" />
         )}
+        </>}
+        </>}
+        </FileShellNavigation>
       </section>
 
       {notesPanelOpen && notesEnabled ? (
@@ -6088,6 +6391,7 @@ function TabBar({
   canGoForward,
   onBack,
   onForward,
+  fileShellActive,
   onSelectTab,
   onCreateTab,
   onMenu,
@@ -6099,6 +6403,7 @@ function TabBar({
   canGoForward: boolean;
   onBack: () => void;
   onForward: () => void;
+  fileShellActive: boolean;
   onSelectTab: (tabId: string) => void;
   onCreateTab: (workspaceId: string) => void;
   onMenu: (
@@ -6137,8 +6442,8 @@ function TabBar({
               className="tabbar-tab"
               role="tab"
               title={label}
-              aria-selected={tab.tab_id === activeTabId}
-              data-active={tab.tab_id === activeTabId}
+              aria-selected={!fileShellActive && tab.tab_id === activeTabId}
+              data-active={!fileShellActive && tab.tab_id === activeTabId}
               onClick={() => onSelectTab(tab.tab_id)}
               onContextMenu={(event) => {
                 event.preventDefault();
