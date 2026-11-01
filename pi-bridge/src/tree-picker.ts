@@ -4,7 +4,7 @@
  * The Pi TUI stays authoritative: `/herdr-tree` publishes the current session
  * tree to herdr-web and waits. The browser can only choose one of the entry ids
  * that were published for that picker, and only while that picker is the open
- * one, so a stale card can never navigate a session that has moved on.
+ * one; the command checks the session again before navigating.
  *
  * Summaries are deliberately unsupported: `ctx.navigateTree` has no equivalent
  * of the built-in tree's summary and queue handling, so this module publishes
@@ -13,6 +13,7 @@
 
 export const TREE_PICKER_LIMIT = 200;
 const PREVIEW_LIMIT = 80;
+const LABEL_LIMIT = 100;
 
 export interface SessionTreeEntryLike {
   type?: string;
@@ -141,7 +142,7 @@ export function treePickerNodes(
         if (nodes.length < limit || entryId === leafId) {
           const row = {
             entry_id: entryId,
-            label: labelFor(node.entry),
+            label: labelFor(node.entry).slice(0, LABEL_LIMIT),
             depth,
             current: entryId === leafId,
           };
@@ -171,7 +172,11 @@ export function treePickerNodes(
           other !== node && other.entry_id.startsWith(node.entry_id.slice(0, length)))) {
           length += 1;
         }
-        node.label += ` [${node.entry_id.slice(0, length)}]`;
+        const suffix = length > 16
+          ? `${node.entry_id.slice(0, 16)}-${nodes.indexOf(node) + 1}`
+          : node.entry_id.slice(0, length);
+        const marker = ` [${suffix}]`;
+        node.label = node.label.slice(0, LABEL_LIMIT - marker.length) + marker;
       }
     }
   }

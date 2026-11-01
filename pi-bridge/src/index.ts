@@ -763,14 +763,23 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
     if (typeof ctx.navigateTree !== "function") {
       return "This Pi version does not let extensions navigate the session tree. Use /tree in the terminal.";
     }
-    if (typeof ctx.isIdle === "function" && !ctx.isIdle()) {
+    if (typeof ctx.isIdle !== "function") {
+      return "This Pi version cannot confirm it is idle. Use /tree in the terminal.";
+    }
+    if (!ctx.isIdle()) {
       return "Wait for Pi to finish its current run or compaction, then run /herdr-tree again.";
     }
-    if (typeof ctx.hasPendingMessages === "function" && ctx.hasPendingMessages()) {
+    if (typeof ctx.hasPendingMessages !== "function") {
+      return "This Pi version cannot check queued messages. Use /tree in the terminal.";
+    }
+    if (ctx.hasPendingMessages()) {
       return "Clear the queued messages first; the tree picker does not restore them the way /tree does.";
     }
-    const draft = typeof ctx.ui?.getEditorText === "function" ? ctx.ui.getEditorText() : "";
-    if (typeof draft === "string" && draft.trim().length > 0) {
+    if (typeof ctx.ui?.getEditorText !== "function") {
+      return "This Pi version cannot check the editor draft. Use /tree in the terminal.";
+    }
+    const draft = ctx.ui.getEditorText();
+    if (typeof draft !== "string" || draft.length > 0) {
       return "Clear the editor draft first; the tree picker needs an empty editor.";
     }
     if (expected) {
@@ -830,6 +839,7 @@ export function createPiBridge(pi: ExtensionApiLike, options: PiBridgeOptions = 
         }
         const answerRefusal = treePickerRefusal(ctx, { sessionId, leafId });
         if (answerRefusal) {
+          server?.broadcast({ type: "tree_picker_closed", picker_id: view.id, outcome: "refused", reason: answerRefusal });
           ctx?.ui?.notify?.(answerRefusal, "warning");
           return;
         }

@@ -140,6 +140,41 @@ test("refuses while Pi is busy, has queued messages, or holds a draft", async ()
   }
 });
 
+test("fails closed when safety APIs are missing or the editor contains whitespace", async () => {
+  const started = await startBridge();
+  try {
+    for (const missing of ["isIdle", "hasPendingMessages", "getEditorText", "whitespace"]) {
+      const { ctx, notices } = commandContext(started.fake);
+      if (missing === "getEditorText") delete ctx.ui.getEditorText;
+      else if (missing === "whitespace") ctx.ui.getEditorText = () => "  \n";
+      else delete ctx[missing];
+      void started.fake.runCommand("herdr-tree", "", ctx);
+      assert.ok(notices[0]?.type === "warning", `${missing} should be refused`);
+      await expectNoRecord(started.connection, (record) => record.type === "tree_picker_open");
+    }
+  } finally {
+    await started.stop();
+  }
+});
+
+test("fails closed if a safety API disappears after the picker opens", async () => {
+  const started = await startBridge();
+  try {
+    const { ctx, navigations } = commandContext(started.fake);
+    const running = started.fake.runCommand("herdr-tree", "", ctx);
+    const open = await started.connection.next((record) => record.type === "tree_picker_open");
+    delete ctx.ui.getEditorText;
+    await started.connection.send({ type: "tree_picker_answer", id: "pick-missing", picker_id: open.picker.id, entry_id: "e1" });
+    assert.deepEqual((await started.connection.next((record) => record.id === "pick-missing")).result, { accepted: true });
+    await running;
+    assert.deepEqual(navigations, []);
+    const refusal = await started.connection.next((record) => record.outcome === "refused");
+    assert.match(refusal.reason, /editor/i);
+  } finally {
+    await started.stop();
+  }
+});
+
 test("sends the waiting picker on a fresh connection", async () => {
   const started = await startBridge();
   let second;
@@ -351,6 +386,9 @@ test("re-checks the session before navigating and refuses when it moved", async 
 
     assert.deepEqual(navigations, []);
     assert.match(notices.at(-1).message, /session moved since the picker opened/);
+    const refusal = await started.connection.next((record) => record.type === "tree_picker_closed" && record.outcome === "refused");
+    assert.equal(refusal.picker_id, open.picker.id);
+    assert.equal(refusal.reason, notices.at(-1).message);
   } finally {
     await started.stop();
   }

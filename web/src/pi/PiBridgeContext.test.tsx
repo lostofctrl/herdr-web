@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PiBridgeProvider, usePiBridge } from "./PiBridgeContext";
+import { PiBridgeClient, type PiBridgeState } from "./piClient";
 
 class TestSocket extends EventTarget {
   static OPEN = 1;
@@ -157,6 +158,31 @@ async function renderProbe({
 function text(container: HTMLElement, testId: string) {
   return container.querySelector(`[data-testid="${testId}"]`)?.textContent ?? "";
 }
+
+describe("PiBridgeClient tree resync", () => {
+  it("clears a missed close and restores exactly one replayed picker", async () => {
+    let current: PiBridgeState | undefined;
+    const client = new PiBridgeClient({ url: () => "/ws/pi", onState: (state) => { current = state; } });
+    client.connect();
+    const pi = socket();
+    pi.dispatchEvent(new Event("open"));
+    const picker = { id: "tree-1", session_id: "s", leaf_id: null, title: "Tree", nodes: [], omitted: 0 };
+    const deliver = (record: Record<string, unknown>) => pi.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(record) }));
+    deliver({ type: "response", id: snapshotFrames(pi).at(-1)?.id, ok: true, result: SNAPSHOT });
+    await Promise.resolve();
+    deliver({ type: "tree_picker_open", picker });
+    client.resync();
+    deliver({ type: "response", id: snapshotFrames(pi).at(-1)?.id, ok: true, result: SNAPSHOT });
+    await Promise.resolve();
+    expect(current?.treePickers).toEqual([]);
+    client.resync();
+    deliver({ type: "response", id: snapshotFrames(pi).at(-1)?.id, ok: true, result: SNAPSHOT });
+    await Promise.resolve();
+    deliver({ type: "tree_picker_open", picker });
+    expect(current?.treePickers).toEqual([picker]);
+    client.dispose();
+  });
+});
 
 describe("PiBridgeProvider (Seam 3)", () => {
   it("requests a snapshot on open and applies state, catalog, dialogs and assistant updates", async () => {

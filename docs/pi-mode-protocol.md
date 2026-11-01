@@ -45,7 +45,7 @@ Every message is an object with a `type`.
 | `dialog_open` | `dialog` |
 | `dialog_closed` | `id`, `resolution` |
 | `tree_picker_open` | `picker` |
-| `tree_picker_closed` | `outcome` |
+| `tree_picker_closed` | `outcome`, and `picker_id` and `reason` when refused |
 | `assistant_message` | `text` |
 | `response` | `id`, `ok`, and `result` or `error` |
 
@@ -174,11 +174,14 @@ if already inside, it stays in place without duplication. `omitted` counts all v
 entries not published, including the replaced row. Labels include `user: …`,
 `assistant: …`, `[tool] <name>` and readable phrases for model, thinking and summary
 entries; colliding labels gain id suffixes without changing `entry_id`. Any card filter
-searches only published entries. `tree_picker_answer` responds with `{accepted}`; only an `entry_id`
-published for that `picker_id` while that picker is the open one is accepted, so a stale
-card cannot move a session that has moved on. `tree_picker_cancel` dismisses it without
-navigating. Either way the command settles and `tree_picker_closed` reports `answered` or
-`cancelled`.
+searches only published entries. `tree_picker_answer` responds with `{accepted}`: `true` means Pi
+accepted a published choice for the currently open picker, not that navigation succeeded; the
+terminal command decides after re-checking its guards. Those checks prevent an already stale card
+from navigating in ordinary cases, subject to the hook race below. `tree_picker_cancel` dismisses
+without navigating. `tree_picker_closed.outcome` is `answered` when the choice is accepted or
+`cancelled` when dismissed. If a post-answer guard refuses navigation, a subsequent
+`tree_picker_closed` has `outcome: "refused"`, the original `picker_id`, and a plain `reason` for
+the client to show.
 
 This picker deliberately has no summaries, and it navigates with
 `ctx.navigateTree(entryId, {summarize: false})`. The command refuses to open while Pi is

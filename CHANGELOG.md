@@ -152,6 +152,7 @@
 
 ### Fixed
 
+- Pi mode: show post-answer Session Tree Card refusals on the phone and show the filter only above 12 published rows.
 - Restore a pending Session Tree Card after reload, reconnect or resync, and report refused stale
   answers even if the card closes before the response. The Pi Bridge replays the open picker after
   `get_snapshot`; older bridges retain their previous behavior.

@@ -166,6 +166,39 @@ unique `HERDR_WEB_BRIDGE_PORT` and `HERDR_WEB_DEV_PORT`. Then verify in the brow
 - The Pi side panel shows the terminal guidance for session picker, tree, settings, and, only when a
   `/btw` command is in the catalog, side conversation.
 
+#### Session Tree Card
+
+In the same disposable environment, seed a session with 14 linked user entries (optionally add
+`model_change` or `thinking_level_change` entries), then launch Pi in a disposable pane:
+
+```bash
+python3 - "$FIX/sessions/tree.jsonl" "$PWD" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+from uuid import uuid4
+path, cwd = sys.argv[1:]
+with open(path, "w") as f:
+    f.write(json.dumps({"type": "session", "version": 3, "id": str(uuid4()), "cwd": cwd}) + "\n")
+    parent = None
+    for i in range(14):
+        entry_id = str(uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        entry = {"type": "message", "id": entry_id, "parentId": parent, "timestamp": now,
+                 "message": {"role": "user", "content": [{"type": "text", "text": f"Entry {i}"}], "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000)}}
+        f.write(json.dumps(entry) + "\n")
+        parent = entry_id
+PY
+herdr --session disposable pane run <PANE_ID> pi --offline --no-extensions \
+  --session "$FIX/sessions/tree.jsonl" --session-dir "$FIX/sessions" \
+  --extension "$PWD/pi-bridge/src/index.ts"
+herdr --session disposable pane send-text <PANE_ID> '/herdr-tree'
+herdr --session disposable pane send-keys <PANE_ID> enter
+```
+
+Check the rows and marked current entry, filter above twelve rows, and keyboard and tap navigation.
+After navigation, send `ctrl+c` to clear Pi's restored draft before reopening. Check that `/new`
+cancels an open picker and that reloading the browser restores a picker that is still open.
+
 Stop the isolated Herdr server and delete `$FIX` when finished.
 
 ## Cut

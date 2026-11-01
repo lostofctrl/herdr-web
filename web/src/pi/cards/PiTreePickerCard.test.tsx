@@ -167,17 +167,17 @@ describe("PiTreePickerCards", () => {
     expect(container.textContent).toContain("5 entries are only in the terminal /tree picker.");
   });
 
-  it("filters twelve published rows case-insensitively and keeps the omitted notice", async () => {
+  it("filters thirteen published rows case-insensitively and keeps the omitted notice", async () => {
     const { container } = await renderPicker();
-    const nodes = Array.from({ length: 12 }, (_, index) => ({
+    const nodes = Array.from({ length: 13 }, (_, index) => ({
       entry_id: `entry-${index}`,
       label: index === 3 ? "Assistant: Special result" : `user: message ${index}`,
       depth: 0,
       current: index === 0,
     }));
-    await send({ type: "tree_picker_open", picker: { ...PICKER, nodes: nodes.slice(0, 11) } });
+    await send({ type: "tree_picker_open", picker: { ...PICKER, nodes: nodes.slice(0, 12) } });
     expect(container.querySelector("input")).toBeNull();
-    await send({ type: "tree_picker_open", picker: { ...PICKER, id: "tree-12", nodes } });
+    await send({ type: "tree_picker_open", picker: { ...PICKER, id: "tree-13", nodes } });
     const input = container.querySelector<HTMLInputElement>('input[aria-label="Filter published entries"]');
     expect(input).not.toBeNull();
     await act(async () => {
@@ -196,7 +196,7 @@ describe("PiTreePickerCards", () => {
 
   it("requires an explicit selection before Enter answers a filtered tree", async () => {
     const { container, pi } = await renderPicker();
-    const nodes = Array.from({ length: 12 }, (_, index) => ({
+    const nodes = Array.from({ length: 13 }, (_, index) => ({
       entry_id: `entry-${index}`, label: `user: message ${index}`, depth: 0, current: index === 0,
     }));
     await send({ type: "tree_picker_open", picker: { ...PICKER, nodes } });
@@ -219,7 +219,7 @@ describe("PiTreePickerCards", () => {
 
   it("selects visible filtered rows with both arrow keys from the filter", async () => {
     const { container, pi } = await renderPicker();
-    const nodes = Array.from({ length: 12 }, (_, index) => ({
+    const nodes = Array.from({ length: 13 }, (_, index) => ({
       entry_id: `entry-${index}`, label: `user: message ${index}`, depth: 0, current: index === 0,
     }));
     await send({ type: "tree_picker_open", picker: { ...PICKER, nodes } });
@@ -243,7 +243,7 @@ describe("PiTreePickerCards", () => {
 
   it("selects the last visible row on ArrowUp when nothing is selected", async () => {
     const { container, pi } = await renderPicker();
-    const nodes = Array.from({ length: 12 }, (_, index) => ({
+    const nodes = Array.from({ length: 13 }, (_, index) => ({
       entry_id: `entry-${index}`, label: `user: message ${index}`, depth: 0, current: index === 0,
     }));
     await send({ type: "tree_picker_open", picker: { ...PICKER, nodes } });
@@ -255,16 +255,16 @@ describe("PiTreePickerCards", () => {
     });
     await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
     expect(container.querySelectorAll('[data-selected="true"]')).toHaveLength(1);
-    expect(container.querySelector('[data-selected="true"]')?.getAttribute("data-entry-id")).toBe("entry-11");
+    expect(container.querySelector('[data-selected="true"]')?.getAttribute("data-entry-id")).toBe("entry-12");
     await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
     expect(sentRecords(pi).filter((record) => record.type === "tree_picker_answer")).toMatchObject([
-      { picker_id: "tree-1", entry_id: "entry-11" },
+      { picker_id: "tree-1", entry_id: "entry-12" },
     ]);
   });
 
   it("does not apply an unfinished IME composition to the filter", async () => {
     const { container } = await renderPicker();
-    const nodes = Array.from({ length: 12 }, (_, index) => ({
+    const nodes = Array.from({ length: 13 }, (_, index) => ({
       entry_id: `entry-${index}`, label: `user: message ${index}`, depth: 0, current: index === 0,
     }));
     await send({ type: "tree_picker_open", picker: { ...PICKER, nodes } });
@@ -275,7 +275,7 @@ describe("PiTreePickerCards", () => {
       input.dispatchEvent(new InputEvent("input", { bubbles: true, isComposing: true }));
       input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, isComposing: true }));
     });
-    expect(container.querySelectorAll("[data-entry-id]")).toHaveLength(12);
+    expect(container.querySelectorAll("[data-entry-id]")).toHaveLength(13);
     await act(async () => input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "missing" })));
     expect(container.querySelectorAll("[data-entry-id]")).toHaveLength(0);
   });
@@ -395,6 +395,35 @@ describe("PiTreePickerCards", () => {
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
+  it("ignores a late refusal after a newer picker opens and closes", async () => {
+    const { container, pi } = await renderPicker();
+    await send({ type: "tree_picker_open", picker: PICKER });
+    await click(button(container, (label) => label.startsWith("user:")));
+    const request = sentRecords(pi).at(-1);
+    await send({ type: "tree_picker_open", picker: { ...PICKER, id: "tree-2" } });
+    await send({ type: "tree_picker_closed", outcome: "cancelled" });
+    await send({ type: "response", id: request?.id, ok: true, result: { accepted: false } });
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("shows Pi's post-answer refusal after the card closes", async () => {
+    const { container } = await renderPicker();
+    await send({ type: "tree_picker_open", picker: PICKER });
+    await send({ type: "tree_picker_closed", outcome: "answered" });
+    await send({ type: "tree_picker_closed", picker_id: PICKER.id, outcome: "refused", reason: "The Pi session moved. Run /herdr-tree again." });
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("The Pi session moved. Run /herdr-tree again.");
+  });
+
+  it("ignores a late post-answer refusal for a superseded picker", async () => {
+    const { container } = await renderPicker();
+    await send({ type: "tree_picker_open", picker: PICKER });
+    await send({ type: "tree_picker_closed", outcome: "answered" });
+    await send({ type: "tree_picker_open", picker: { ...PICKER, id: "tree-2" } });
+    await send({ type: "tree_picker_closed", picker_id: PICKER.id, outcome: "refused", reason: "The Pi session moved." });
+    expect(container.querySelector("[data-pi-tree-picker]")).not.toBeNull();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it("sends one request when the same entry is tapped twice", async () => {
     const { container, pi } = await renderPicker();
     await send({ type: "tree_picker_open", picker: PICKER });
@@ -449,8 +478,9 @@ describe("PiTreePickerCards", () => {
     await send({ type: "response", id: snapshotRequest?.id, ok: true, result: SNAPSHOT });
     await send({ type: "tree_picker_open", picker: PICKER });
     expect(container.querySelectorAll("[data-pi-tree-picker]")).toHaveLength(1);
-    expect(entry.disabled).toBe(true);
-    await click(entry);
+    const restoredEntry = button(container, (label) => label.startsWith("user:"));
+    expect(restoredEntry.disabled).toBe(true);
+    await click(restoredEntry);
     expect(sentRecords(pi).filter((record) => record.type === "tree_picker_answer")).toHaveLength(1);
     await send({ type: "response", id: answer?.id, ok: true, result: { accepted: false } });
     expect(container.textContent).toContain("Pi is no longer waiting for this picker.");

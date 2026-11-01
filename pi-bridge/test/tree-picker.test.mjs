@@ -39,6 +39,21 @@ test("builds depth-first previews for message and non-message entries", () => {
   );
 });
 
+test("bounds every label and keeps a pathological model record publishable", () => {
+  const huge = "x".repeat(1_100_000);
+  const picker = createTreePicker(() => {}, { createId: () => "picker" });
+  const view = picker.open({ sessionId: "s1", leafId: null, tree: [
+    { entry: { type: "model_change", id: "model", provider: huge, modelId: huge } },
+    { entry: { type: "thinking_level_change", id: "think", thinkingLevel: huge } },
+    { entry: { type: "message", id: "tool", message: { role: "toolResult", toolName: huge } } },
+    { entry: { type: huge, id: "custom", content: huge } },
+    { entry: { type: "branch_summary", id: "summary", summary: huge } },
+    { entry: { type: "label", id: "label", label: huge } },
+  ] });
+  for (const row of view.nodes) assert.ok(row.label.length <= 100);
+  assert.ok(Buffer.byteLength(JSON.stringify({ type: "tree_picker_open", picker: view }) + "\n") <= 1024 * 1024);
+});
+
 test("publishes readable model changes", () => {
   const picker = createTreePicker(() => {}, { createId: () => "picker" });
   const view = picker.open({ sessionId: "s1", leafId: null, tree: [

@@ -17,6 +17,7 @@ export type PiBridgeState = {
   catalog: PiCatalog | null;
   dialogs: PiDialog[];
   treePickers: PiTreePicker[];
+  treePickerRefusal: string | null;
   assistantMessage: string | null;
   conversation: PiConversation | null;
   lastError: string | null;
@@ -29,6 +30,7 @@ export const INITIAL_PI_BRIDGE_STATE: PiBridgeState = {
   catalog: null,
   dialogs: [],
   treePickers: [],
+  treePickerRefusal: null,
   assistantMessage: null,
   conversation: null,
   lastError: null,
@@ -42,6 +44,7 @@ export function piReconnectDelay(attempt: number) {
 }
 
 type PendingRequest = {
+  snapshot: boolean;
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
 };
@@ -69,6 +72,7 @@ export class PiBridgeClient {
   private conversationRevision = 0;
   private conversationSession: string | null = null;
   private conversationRequestId: string | null = null;
+  private latestTreePickerId: string | null = null;
 
   constructor(options: PiBridgeClientOptions) {
     this.options = options;
@@ -110,6 +114,7 @@ export class PiBridgeClient {
     const id = String(this.nextRequestId++);
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, {
+        snapshot: type === "get_snapshot",
         resolve: resolve as (value: unknown) => void,
         reject,
       });
@@ -139,12 +144,13 @@ export class PiBridgeClient {
       this.socket = null;
       this.conversationEpoch = null;
       this.conversationRequestId = null;
+      this.latestTreePickerId = null;
       this.rejectPending(new Error(reason || "Pi Bridge connection closed"));
       if (code === 4501) {
-        this.patch({ status: "unknown-pane", lastError: reason || "unknown_pane", conversation: null, treePickers: [] });
+        this.patch({ status: "unknown-pane", lastError: reason || "unknown_pane", conversation: null, treePickers: [], treePickerRefusal: null });
         return;
       }
-      this.patch({ status: "offline", lastError: reason || `relay_closed_${code}`, conversation: null, treePickers: [] });
+      this.patch({ status: "offline", lastError: reason || `relay_closed_${code}`, conversation: null, treePickers: [], treePickerRefusal: null });
       this.scheduleReconnect();
     };
 
@@ -187,17 +193,6 @@ export class PiBridgeClient {
 
   private requestSnapshot() {
     void this.request<PiSnapshotResult>("get_snapshot")
-      .then((result) => {
-        if (this.disposed) {
-          return;
-        }
-        this.patch({
-          state: result.state ?? null,
-          catalog: result.catalog ?? null,
-          dialogs: Array.isArray(result.dialogs) ? result.dialogs : [],
-          assistantMessage: result.assistant_message ?? null,
-        });
-      })
       .catch(() => {
         // A close already moved the bridge Offline; a late error has no extra state.
       });
@@ -273,11 +268,18 @@ export class PiBridgeClient {
           return;
         }
         // Pi shows one tree picker at a time; a newer one replaces the stale card.
-        this.patch({ treePickers: [picker] });
+        this.latestTreePickerId = picker.id;
+        this.patch({ treePickers: [picker], treePickerRefusal: null });
         return;
       }
       case "tree_picker_closed":
-        this.patch({ treePickers: [] });
+        if (record.outcome === "refused") {
+          if (typeof record.picker_id === "string" && record.picker_id === this.latestTreePickerId && typeof record.reason === "string") {
+            this.patch({ treePickers: [], treePickerRefusal: record.reason });
+          }
+        } else {
+          this.patch({ treePickers: [] });
+        }
         return;
       case "assistant_message":
         this.patch({
@@ -309,6 +311,16 @@ export class PiBridgeClient {
     if (record.ok === false) {
       pending.reject(new Error(typeof record.error === "string" ? record.error : "request failed"));
       return;
+    }
+    if (pending.snapshot) {
+      const result = record.result as PiSnapshotResult;
+      this.patch({
+        state: result.state ?? null,
+        catalog: result.catalog ?? null,
+        dialogs: Array.isArray(result.dialogs) ? result.dialogs : [],
+        treePickers: [],
+        assistantMessage: result.assistant_message ?? null,
+      });
     }
     pending.resolve(record.result);
   }
