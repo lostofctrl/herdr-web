@@ -319,6 +319,7 @@ export class PiBridgeClient {
         catalog: result.catalog ?? null,
         dialogs: Array.isArray(result.dialogs) ? result.dialogs : [],
         treePickers: [],
+        treePickerRefusal: null,
         assistantMessage: result.assistant_message ?? null,
       });
     }

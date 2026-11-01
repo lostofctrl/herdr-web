@@ -160,6 +160,24 @@ function text(container: HTMLElement, testId: string) {
 }
 
 describe("PiBridgeClient tree resync", () => {
+  it("clears a refusal when a snapshot has no open picker", () => {
+    let current: PiBridgeState | undefined;
+    const client = new PiBridgeClient({ url: () => "/ws/pi", onState: (state) => { current = state; } });
+    client.connect();
+    const pi = socket();
+    pi.dispatchEvent(new Event("open"));
+    const deliver = (record: Record<string, unknown>) => pi.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(record) }));
+    deliver({ type: "response", id: snapshotFrames(pi).at(-1)?.id, ok: true, result: SNAPSHOT });
+    deliver({ type: "tree_picker_open", picker: { id: "tree-1", session_id: "s", leaf_id: null, title: "Tree", nodes: [], omitted: 0 } });
+    deliver({ type: "tree_picker_closed", outcome: "answered" });
+    deliver({ type: "tree_picker_closed", outcome: "refused", picker_id: "tree-1", reason: "The Pi session moved." });
+    expect(current?.treePickerRefusal).toBe("The Pi session moved.");
+    client.resync();
+    deliver({ type: "response", id: snapshotFrames(pi).at(-1)?.id, ok: true, result: SNAPSHOT });
+    expect(current?.treePickerRefusal).toBeNull();
+    client.dispose();
+  });
+
   it("clears a missed close and restores exactly one replayed picker", async () => {
     let current: PiBridgeState | undefined;
     const client = new PiBridgeClient({ url: () => "/ws/pi", onState: (state) => { current = state; } });
