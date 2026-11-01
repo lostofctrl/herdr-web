@@ -147,6 +147,9 @@ describe("Composer Side Panel", () => {
     expect(readPiComposerDraft("bridge-1", "pane-a")).toBe("draft");
     expect(onSend).not.toHaveBeenCalled();
 
+    // A mounted Composer never reports a storage failure, so it cannot tell the
+    // caller to retry; retrying the same text would append it twice by design.
+    // Recovery is proven by the next insertion reaching both live text and storage.
     failedWrite.mockRestore();
     await act(async () => {
       expect(insertPiComposerText("bridge-1", "pane-a", "/review")).toBe("inserted");
@@ -156,11 +159,14 @@ describe("Composer Side Panel", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it("delivers an insertion to the mounted Composer without sending it", async () => {
-    const { container, onSend } = await renderComposer();
+  it("delivers an insertion only to the Composer that owns that pane", async () => {
+    const first = await renderComposer();
+    const other = await renderComposer({ paneId: "pane-b" });
     await act(async () => { expect(insertPiComposerText("bridge-1", "pane-a", "/once")).toBe("inserted"); });
-    expect(promptField(container).value).toBe("/once");
-    expect(onSend).not.toHaveBeenCalled();
+    expect(promptField(first.container).value).toBe("/once");
+    expect(promptField(other.container).value).toBe("");
+    expect(first.onSend).not.toHaveBeenCalled();
+    expect(other.onSend).not.toHaveBeenCalled();
   });
 
   it("rejects insertion during pending delivery and recovery without storage fallback", async () => {
