@@ -54,6 +54,28 @@ test("bounds every label and keeps a pathological model record publishable", () 
   assert.ok(Buffer.byteLength(JSON.stringify({ type: "tree_picker_open", picker: view }) + "\n") <= 1024 * 1024);
 });
 
+test("keeps a full tree of pathological labels publishable under the record cap", () => {
+  // Worst case: every published row at the cap, the longest useful entry id and
+  // labels that JSON has to escape, across TREE_PICKER_LIMIT rows.
+  const huge = (
+    "x\\\"\n\t\\".repeat(5000)
+  );
+  const tree = Array.from({ length: TREE_PICKER_LIMIT }, (_, index) => ({
+    entry: {
+      type: "model_change",
+      id: `entry-${String(index).padStart(6, "0")}-${huge.slice(0, 32)}`,
+      provider: huge,
+      modelId: huge,
+    },
+  }));
+  const picker = createTreePicker(() => {}, { createId: () => "picker" });
+  const view = picker.open({ sessionId: "s1", leafId: null, tree });
+  assert.equal(view.nodes.length, TREE_PICKER_LIMIT);
+  const encoded = Buffer.byteLength(JSON.stringify({ type: "tree_picker_open", picker: view }) + "\n");
+  assert.ok(encoded <= 1024 * 1024, `published record was ${encoded} bytes`);
+  assert.ok(encoded < 1024 * 1024 / 4, `published record should stay well inside the cap, was ${encoded} bytes`);
+});
+
 test("publishes readable model changes", () => {
   const picker = createTreePicker(() => {}, { createId: () => "picker" });
   const view = picker.open({ sessionId: "s1", leafId: null, tree: [
