@@ -321,7 +321,16 @@
 .file-workspace-directory p { margin: 0; }
 
 @media (max-width: 40rem) {
-  .file-workspace-columns { grid-template-columns: minmax(0, 1fr); }
+  /* The stacked layout is taller than the stage, so the shell itself has to be
+     the scroll container; otherwise the editor renders below the clipped stage. */
+  .file-shell-placeholder {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .file-workspace-columns { grid-template-columns: minmax(0, 1fr); overflow: visible; }
   .file-workspace-columns > nav {
     max-height: 14rem;
     border-inline-end: 0;
