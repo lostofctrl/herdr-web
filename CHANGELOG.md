@@ -34,11 +34,13 @@
   preview is inert (no raw HTML, links or remote images); images, media, PDF and DOCX are not
   rendered in the application and are meant to be downloaded and opened externally.
   A file, and optionally one line of it, can be mentioned into a same-bridge Pi Composer draft.
+  ([#37](https://github.com/lostofctrl/herdr-web/pull/37))
 - Bridge: opt-in confined file service, disabled unless `--file-root`/`HERDR_WEB_FILE_ROOT` is set.
   Linux-only, descriptor-relative resolution under the pinned root, bounded reads, listings and
   requests, host and origin checks on the route, and a persistent bridge/root identity so drafts are
   never reattached to a different root. Saves can lose hidden `trusted.*` attributes and race a
   non-cooperating local writer; see `docs/adr/0003-confined-browser-file-tabs.md`.
+  ([#37](https://github.com/lostofctrl/herdr-web/pull/37))
 
 - Pi mode: the Composer opens the Pi Side Panel as a floating panel placed above (or below) its
   own trigger, on desktop and mobile. It renders the same view as the terminal's Side Panel — model,
