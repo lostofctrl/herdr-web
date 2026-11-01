@@ -160,6 +160,90 @@ describe("provisional file API", () => {
     expect(fetcher).toHaveBeenCalledTimes(6);
   });
 
+  it("downloads raw bytes and uploads framed files under the owned binding", async () => {
+    const binary = new Blob([new Uint8Array([0, 7, 255])], { type: "application/octet-stream" });
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(binary, { status: 200, headers: { "content-type": "application/octet-stream" } }))
+      .mockResolvedValueOnce(success({}));
+    const api = createFileApi("https://a.test/prefix", () => binding, fetcher);
+    const downloaded = await api.download(binding, "dir/bin.dat");
+    expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(new Uint8Array([0, 7, 255]));
+    expect(fetcher.mock.calls[0][0]).toBe("https://a.test/prefix/api/files/download");
+    await api.upload(binding, "dir/new.txt", new Blob(["payload"]));
+    const [uploadUrl, uploadInit] = fetcher.mock.calls[1];
+    expect(uploadUrl).toBe("https://a.test/prefix/api/files/upload");
+    expect(uploadInit.method).toBe("POST");
+    const body = uploadInit.body as Uint8Array;
+    const magic = new TextEncoder().encode("herdr-file-upload-1\n");
+    expect(body.slice(0, magic.length)).toEqual(magic);
+    const length = new DataView(body.buffer).getUint32(magic.length, false);
+    const metadata = JSON.parse(new TextDecoder().decode(body.slice(magic.length + 4, magic.length + 4 + length)));
+    expect(metadata).toEqual({ identity: binding.identity, path: "dir/new.txt" });
+    expect(new TextDecoder().decode(body.slice(magic.length + 4 + length))).toBe("payload");
+    await expect(api.upload(binding, "../escape", new Blob(["x"]))).rejects.toMatchObject({ code: "invalid_path" });
+    await expect(api.download(binding, "")).rejects.toMatchObject({ code: "invalid_path" });
+  });
+
+  it("rejects download and upload replies that are unbound or from another identity", async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(json({ identity: { bridge_id: "other", root_id: "root", binding_id: "binding" }, error: { code: "not_found", message: "File not found" } }))
+      .mockResolvedValueOnce(json({ identity: null, error: { code: "busy", message: "File service is busy" } }, 503))
+      .mockResolvedValueOnce(json({ identity: binding.identity, error: { code: "already_exists", message: "File or directory already exists" } }))
+      .mockResolvedValueOnce(new Response("{}", { status: 200, headers: { "content-type": "application/json" } }));
+    const api = createFileApi("https://a.test", () => binding, fetcher);
+    await expect(api.download(binding, "missing")).rejects.toMatchObject({ code: "binding_mismatch" });
+    await expect(api.upload(binding, "busy", new Blob(["x"]))).rejects.toMatchObject({ code: "busy" });
+    await expect(api.upload(binding, "existing", new Blob(["x"]))).rejects.toMatchObject({ code: "already_exists" });
+    await expect(api.upload(binding, "unbound", new Blob(["x"]))).rejects.toMatchObject({ code: "binding_mismatch" });
+  });
+
+  it("posts bounded search requests and validates typed hits", async () => {
+    const fetcher = vi.fn()
+      .mockImplementationOnce(() => Promise.resolve(success({ results: [{ path: "dir/a.txt" }, { path: "dir/b.txt", line: 3 }] })))
+      .mockImplementationOnce(() => Promise.resolve(success({ results: [{ path: "../escape" }] })));
+    const api = createFileApi("https://a.test", () => binding, fetcher);
+    await expect(api.request(binding, { type: "search", query: "a", content: true, limit: 10 }))
+      .resolves.toEqual({ results: [{ path: "dir/a.txt" }, { path: "dir/b.txt", line: 3 }] });
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).operation).toEqual({ type: "search", query: "a", content: true, limit: 10 });
+    await expect(api.request(binding, { type: "search", query: "a" })).rejects.toMatchObject({ code: "invalid_response" });
+    await expect(api.request(binding, { type: "search", query: "   " })).rejects.toMatchObject({ code: "invalid_path" });
+  });
+
+  it("streams bounded watch hints and stops when the binding changes", async () => {
+    const encoder = new TextEncoder();
+    const chunks = [
+      ": keepalive\n\n",
+      "event: change\ndata: {\"name\":\"a.txt\"}\n\n",
+      "event: overflow\ndata: {}\n\n",
+    ];
+    let index = 0;
+    const body = { getReader: () => ({ read: async () => index < chunks.length
+      ? { done: false, value: encoder.encode(chunks[index++]) }
+      : { done: true, value: undefined }, cancel: async () => {} }) };
+    const fetcher = vi.fn().mockImplementation(() => Promise.resolve(new Response(new ReadableStream({
+      pull(controller) { controller.enqueue(encoder.encode(chunks.shift() ?? "")); if (!chunks.length) controller.close(); },
+    }), { status: 200, headers: { "content-type": "text/event-stream" } })));
+    const api = createFileApi("https://a.test", () => binding, fetcher);
+    const seen: unknown[] = [];
+    const controller = new AbortController();
+    await api.watch(binding, "a.txt", (event) => seen.push(event), controller.signal);
+    expect(seen).toEqual([{ kind: "change", name: "a.txt" }, { kind: "overflow" }]);
+    // The watch route takes a flat { identity, path } body, not the operation envelope.
+    expect(fetcher.mock.calls[0][0]).toBe("https://a.test/api/files/watch");
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ identity: binding.identity, path: "a.txt" });
+    expect(body).toBeDefined();
+  });
+
+  it("surfaces a structured error instead of treating a JSON reply as a stream", async () => {
+    const fetcher = vi.fn().mockResolvedValue(json({
+      identity: { bridge_id: "b", root_id: "r", binding_id: "l" },
+      error: { code: "invalid_request", message: "Invalid file request" },
+    }));
+    const api = createFileApi("https://a.test", () => binding, fetcher);
+    await expect(api.watch(binding, "a.txt", () => {}, new AbortController().signal))
+      .rejects.toMatchObject({ code: "invalid_request" });
+  });
+
   it("surfaces pre-admission busy errors without accepting unbound success", async () => {
     const fetcher = vi.fn()
       .mockResolvedValueOnce(json({ identity: null, error: { code: "busy", message: "File service is busy" } }, 503))

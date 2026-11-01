@@ -17,7 +17,9 @@ export type FileOperation =
   | { type: "save"; path: string; content: string; revision: string }
   | { type: "create_file" | "create_directory"; path: string }
   | { type: "remove"; path: string; recursive?: boolean }
-  | { type: "copy" | "rename"; path: string; destination: string };
+  | { type: "copy" | "rename"; path: string; destination: string }
+  | { type: "search"; query: string; content?: boolean; limit?: number }
+  | { type: "watch"; path: string };
 
 export interface FileResults {
   list: { entries: (
@@ -31,6 +33,31 @@ export interface FileResults {
   rename: Record<string, never>;
   copy: Record<string, never>;
   remove: Record<string, never>;
+  search: { results: { path: string; line?: number }[] };
+  watch: Record<string, never>;
+}
+
+export type FileWatchEvent = { kind: "change"; name: string } | { kind: "overflow" };
+
+/** Parses one server-sent-event block; keepalive comments yield nothing. */
+function parseWatchBlock(block: string): FileWatchEvent | null {
+  let event = "message";
+  let data = "";
+  for (const line of block.split("\n")) {
+    if (line.startsWith(":")) continue;
+    if (line.startsWith("event: ")) event = line.slice(7).trim();
+    else if (line.startsWith("data: ")) data += line.slice(6);
+  }
+  if (event === "overflow") return { kind: "overflow" };
+  if (event !== "change") return null;
+  try {
+    const parsed: unknown = JSON.parse(data);
+    return isRecord(parsed) && typeof parsed.name === "string" && parsed.name
+      ? { kind: "change", name: parsed.name }
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export class FileApiError extends Error {
@@ -80,6 +107,11 @@ function validResult(type: FileOperation["type"], result: unknown): boolean {
         (entry.kind === "symlink" && (entry.resolved_kind === undefined || entry.resolved_kind === "file" || entry.resolved_kind === "directory"))
       ));
   }
+  if (type === "search") {
+    return Array.isArray(result.results) && result.results.every((hit: unknown) =>
+      isRecord(hit) && typeof hit.path === "string" && validPath(hit.path, false) &&
+      (hit.line === undefined || (typeof hit.line === "number" && Number.isInteger(hit.line) && hit.line > 0)));
+  }
   return typeof result.revision === "string" && (type !== "read" || typeof result.content === "string");
 }
 
@@ -95,6 +127,127 @@ export function createFileApi(baseUrl: string, currentBinding: () => FileBinding
   }
   base.pathname = `${base.pathname.replace(/\/+$/, "")}/api/files`;
   const url = base.toString();
+  const route = (suffix: string) => `${url}${suffix}`;
+  const uploadMagic = "herdr-file-upload-1\n";
+
+  function assertBound(binding: FileBindingSnapshot | null): FileBindingSnapshot {
+    if (!binding || !validIdentity(binding.identity) || !Number.isSafeInteger(binding.generation) || binding.generation < 0) {
+      throw new FileApiError("binding_mismatch", "File capability is unavailable or changed");
+    }
+    let current: FileBindingSnapshot | null;
+    try { current = currentBinding(); } catch { current = null; }
+    if (!current || current.generation !== binding.generation || !sameIdentity(binding.identity, current.identity)) {
+      throw new FileApiError("binding_mismatch", "File capability is unavailable or changed");
+    }
+    return binding;
+  }
+
+  /** Re-checks that a stream still belongs to the live binding before each delivered event. */
+  function assertStillBound(binding: FileBindingSnapshot): void {
+    let current: FileBindingSnapshot | null;
+    try { current = currentBinding(); } catch { current = null; }
+    if (!current || current.generation !== binding.generation || !sameIdentity(binding.identity, current.identity)) {
+      throw new FileApiError("binding_mismatch", "File capability is unavailable or changed");
+    }
+  }
+
+  /** Structured error shared by the JSON, download and upload routes. */
+  async function readError(response: Response, identity: FileIdentity): Promise<FileApiError> {
+    let body: unknown;
+    try { body = await response.json(); } catch {
+      return new FileApiError("invalid_response", "Invalid file response", response.status);
+    }
+    if (isRecord(body) && body.identity === null && !("result" in body) && isRecord(body.error) &&
+        ((response.status === 503 && body.error.code === "busy") ||
+         (response.status === 413 && body.error.code === "limit_exceeded")) &&
+        typeof body.error.message === "string" && body.error.message) {
+      return new FileApiError(body.error.code as string, body.error.message, response.status);
+    }
+    if (!isRecord(body) || !sameIdentity(identity, body.identity)) {
+      return new FileApiError("binding_mismatch", "File response identity does not match", response.status);
+    }
+    if (isRecord(body.error) && typeof body.error.code === "string" && body.error.code &&
+        typeof body.error.message === "string" && body.error.message) {
+      return new FileApiError(body.error.code, body.error.message, response.status);
+    }
+    return new FileApiError("invalid_response", "Invalid file error response", response.status);
+  }
+
+  /** Downloads raw bytes; the caller decides how to present or store them. */
+  async function download(binding: FileBindingSnapshot | null, path: string): Promise<Blob> {
+    const bound = assertBound(binding);
+    if (!validPath(path, false)) throw new FileApiError("invalid_path", "Invalid root-relative file path");
+    const identity: FileIdentity = { ...bound.identity };
+    const generation = bound.generation;
+    let response: Response;
+    try {
+      response = await fetcher(route("/download"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ identity, operation: { type: "download", path } }),
+      });
+    } catch {
+      assertBound(binding);
+      throw new FileApiError("network_error", "File request failed");
+    }
+    assertBound(binding);
+    if (currentBinding()?.generation !== generation) {
+      throw new FileApiError("binding_mismatch", "File capability is unavailable or changed");
+    }
+    const type = response.headers.get("content-type") ?? "";
+    if (!response.ok || type.startsWith("application/json")) throw await readError(response, identity);
+    return response.blob();
+  }
+
+  /** Uploads one file to a new root-relative path, never overwriting an existing entry. */
+  async function upload(binding: FileBindingSnapshot | null, path: string, file: Blob): Promise<void> {
+    const bound = assertBound(binding);
+    if (!validPath(path, false)) throw new FileApiError("invalid_path", "Invalid root-relative file path");
+    const identity: FileIdentity = { ...bound.identity };
+    const metadata = new TextEncoder().encode(JSON.stringify({ identity, path }));
+    const body = new Uint8Array(uploadMagic.length + 4 + metadata.length + file.size);
+    body.set(new TextEncoder().encode(uploadMagic), 0);
+    new DataView(body.buffer).setUint32(uploadMagic.length, metadata.length, false);
+    body.set(metadata, uploadMagic.length + 4);
+    body.set(new Uint8Array(await file.arrayBuffer()), uploadMagic.length + 4 + metadata.length);
+    let response: Response;
+    try {
+      response = await fetcher(route("/upload"), {
+        method: "POST",
+        headers: { "content-type": "application/octet-stream" },
+        body,
+      });
+    } catch {
+      assertBound(binding);
+      throw new FileApiError("network_error", "File request failed");
+    }
+    assertBound(binding);
+    let reply: unknown;
+    try { reply = await response.json(); } catch {
+      assertBound(binding);
+      throw new FileApiError("invalid_response", "Invalid file response", response.status);
+    }
+    assertBound(binding);
+    if (isRecord(reply) && reply.identity === null && isRecord(reply.error) &&
+        ((response.status === 503 && reply.error.code === "busy") ||
+         (response.status === 413 && reply.error.code === "limit_exceeded")) &&
+        typeof reply.error.message === "string" && reply.error.message) {
+      throw new FileApiError(reply.error.code as string, reply.error.message, response.status);
+    }
+    if (!isRecord(reply) || !sameIdentity(identity, reply.identity)) {
+      throw new FileApiError("binding_mismatch", "File response identity does not match", response.status);
+    }
+    if ("error" in reply) {
+      if (isRecord(reply.error) && typeof reply.error.code === "string" && reply.error.code &&
+          typeof reply.error.message === "string" && reply.error.message) {
+        throw new FileApiError(reply.error.code, reply.error.message, response.status);
+      }
+      throw new FileApiError("invalid_response", "Invalid file error response", response.status);
+    }
+    if (!response.ok || !isRecord(reply.result) || Object.keys(reply.result).length > 0) {
+      throw new FileApiError("invalid_response", "Invalid file response", response.status);
+    }
+  }
 
   async function request<T extends FileOperation>(binding: FileBindingSnapshot | null, operation: T): Promise<FileResults[T["type"]]> {
     if (!binding || !validIdentity(binding.identity) || !Number.isSafeInteger(binding.generation) || binding.generation < 0) {
@@ -110,8 +263,14 @@ export function createFileApi(baseUrl: string, currentBinding: () => FileBinding
       }
     };
     assertCurrent();
-    if (!operation || !["list", "read", "save", "create_file", "create_directory", "rename", "copy", "remove"].includes(operation.type) ||
-        !validPath(operation.path, operation.type === "list") ||
+    if (!operation || !["list", "read", "save", "create_file", "create_directory", "rename", "copy", "remove", "search", "watch"].includes(operation.type)) {
+      throw new FileApiError("invalid_path", "Invalid root-relative file path");
+    }
+    if (operation.type === "search") {
+      if (typeof operation.query !== "string" || !operation.query.trim().length) {
+        throw new FileApiError("invalid_path", "Invalid search query");
+      }
+    } else if (!validPath(operation.path, operation.type === "list") ||
         ((operation.type === "rename" || operation.type === "copy") && !validPath(operation.destination, false))) {
       throw new FileApiError("invalid_path", "Invalid root-relative file path");
     }
@@ -161,5 +320,63 @@ export function createFileApi(baseUrl: string, currentBinding: () => FileBinding
     return body.result as FileResults[T["type"]];
   }
 
-  return { request };
+  /**
+   * Streams change hints for one file until `signal` aborts or the bridge closes
+   * the stream. Every hint is advisory: callers must resynchronize, and an
+   * `overflow` hint means earlier changes may have been dropped entirely.
+   */
+  async function watch(
+    binding: FileBindingSnapshot,
+    path: string,
+    onEvent: (event: FileWatchEvent) => void,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const { identity } = assertBound(binding);
+    if (!validPath(path, false)) throw new FileApiError("invalid_path", "Invalid root-relative file path");
+    let response: Response;
+    try {
+      response = await fetcher(route("/watch"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ identity, path }),
+        signal,
+      });
+    } catch (error) {
+      if (signal.aborted) return;
+      throw new FileApiError("network_error", error instanceof Error ? error.message : "File watch failed");
+    }
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!response.ok || !response.body || !contentType.startsWith("text/event-stream")) {
+      const body: unknown = await response.json().catch(() => null);
+      const message = isRecord(body) && isRecord(body.error) && typeof body.error.message === "string"
+        ? body.error.message
+        : "File watch failed";
+      throw new FileApiError(isRecord(body) && isRecord(body.error) && typeof body.error.code === "string" ? body.error.code : "invalid_response", message, response.status);
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let boundary = buffer.indexOf("\n\n");
+        while (boundary >= 0) {
+          const block = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          const event = parseWatchBlock(block);
+          if (event) {
+            assertStillBound(binding);
+            onEvent(event);
+          }
+          boundary = buffer.indexOf("\n\n");
+        }
+      }
+    } finally {
+      await reader.cancel().catch(() => undefined);
+    }
+  }
+
+  return { request, download, upload, watch };
 }

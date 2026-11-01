@@ -42,6 +42,8 @@ export type BridgeCapabilities = {
     bridge_id: string;
     root_id: string;
     binding_id: string;
+    /** Absolute path of the operator-configured root, used for Pi file mentions. */
+    root_path: string;
   };
   agent_activity?: {
     version: 1;
@@ -1088,12 +1090,14 @@ export function parseCapabilities(value: unknown): BridgeCapabilities {
       isRecord(value.files) && value.files.version === 1 &&
       typeof value.files.bridge_id === "string" && value.files.bridge_id.trim().length > 0 &&
       typeof value.files.root_id === "string" && value.files.root_id.trim().length > 0 &&
-      typeof value.files.binding_id === "string" && value.files.binding_id.trim().length > 0
+      typeof value.files.binding_id === "string" && value.files.binding_id.trim().length > 0 &&
+      typeof value.files.root_path === "string" && value.files.root_path.startsWith("/")
         ? {
             version: 1,
             bridge_id: value.files.bridge_id,
             root_id: value.files.root_id,
             binding_id: value.files.binding_id,
+            root_path: value.files.root_path,
           }
         : undefined,
     bridge_version: typeof value.bridge_version === "string" ? value.bridge_version : undefined,

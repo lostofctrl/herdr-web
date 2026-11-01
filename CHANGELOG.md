@@ -25,10 +25,15 @@
   browser-local, survive reloads and bridge restarts (with an explicit root confirmation), warn on
   close/reload when dirty, and keep unsaved text in memory when storage fails. Saves are conditional
   on the revision the editor loaded, so an external change reports a conflict instead of overwriting
-  it. Creating, renaming and deleting entries is supported, and a single file can be copied from the
-  editor; the bridge also supports copying and recursively deleting whole directory trees without
-  following symbolic links, but those directory actions are not yet exposed in the explorer.
-  Markdown preview is inert (no raw HTML, links or remote images).
+  it. Creating, renaming, copying and deleting entries is supported, including copying and
+  recursively deleting whole directory trees from the explorer without following symbolic links.
+  A file can be downloaded through an attachment response and uploaded into the root, capped at
+  25 MiB per file with a 100 MiB aggregate budget and no overwriting. Filename and content search is
+  bounded (depth 8, 50,000 entries, 200 results), and an open file follows change hints from the
+  bridge: a clean file reloads, an unsaved draft is kept and reports the conflict on save. Markdown
+  preview is inert (no raw HTML, links or remote images); images, media, PDF and DOCX are not
+  rendered in the application and are meant to be downloaded and opened externally.
+  A file, and optionally one line of it, can be mentioned into a same-bridge Pi Composer draft.
 - Bridge: opt-in confined file service, disabled unless `--file-root`/`HERDR_WEB_FILE_ROOT` is set.
   Linux-only, descriptor-relative resolution under the pinned root, bounded reads, listings and
   requests, host and origin checks on the route, and a persistent bridge/root identity so drafts are

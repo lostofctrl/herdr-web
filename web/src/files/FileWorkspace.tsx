@@ -24,14 +24,29 @@ export interface FileWorkspaceProps {
   createDirectory?: (path: string) => Promise<void>;
   rename?: (path: string, destination: string) => Promise<void>;
   copy?: (path: string, destination: string) => Promise<void>;
-  remove?: (path: string) => Promise<void>;
+  download?: (path: string) => Promise<Blob>;
+  upload?: (path: string, file: Blob) => Promise<void>;
+  remove?: (path: string, recursive?: boolean) => Promise<void>;
   /** Owner moves or closes its tab and re-keys persisted drafts after a successful mutation. */
   onPathRenamed?: (from: string, to: string) => void;
   onPathRemoved?: (path: string) => void;
   onPathCopied?: (from: string, to: string) => void;
+  /** Explicit same-host Pi pane targeting; insertion never submits. */
+  mention?: FileMentionProps;
+  /** Change hints for one file; returns an unsubscribe function. */
+  watch?: (path: string, onEvent: (event: { kind: "change"; name: string } | { kind: "overflow" }) => void) => () => void;
+  /** Bounded filename/content search; results open in the same file panel. */
+  search?: (query: string, content: boolean) => Promise<readonly { path: string; line?: number }[]>;
   offline?: boolean;
   storageWarning?: string;
   conflictWarning?: string;
+}
+
+export interface FileMentionTarget { paneId: string; label: string }
+export interface FileMentionProps {
+  targets: readonly FileMentionTarget[];
+  /** Resolves to a user-facing failure message, or null when the draft accepted the insertion. */
+  insert: (target: FileMentionTarget, path: string, line: number | null) => Promise<string | null>;
 }
 
 /** Names typed by a user are single root-relative components; the bridge revalidates every path. */
@@ -42,11 +57,12 @@ export function validEntryName(name: string): boolean {
 type ReadResult = { attempt: number; content: string; revision: string; error?: never } |
   { attempt: number; error: string; deleted: boolean; content?: never; revision?: never };
 
-function FilePanel({ path, read, save, rename, copy, remove, onPathRenamed, onPathRemoved, onPathCopied, draft, onDraftChange, offline, isCurrent }: {
+function FilePanel({ path, read, save, rename, copy, download, remove, mention, watch, onPathRenamed, onPathRemoved, onPathCopied, draft, onDraftChange, offline, isCurrent }: {
   path: string; read: FileWorkspaceProps["read"]; save: FileWorkspaceProps["save"];
-  rename: FileWorkspaceProps["rename"]; copy: FileWorkspaceProps["copy"]; remove: FileWorkspaceProps["remove"];
+  rename: FileWorkspaceProps["rename"]; copy: FileWorkspaceProps["copy"]; download: FileWorkspaceProps["download"];
+  remove: FileWorkspaceProps["remove"];
   onPathRenamed: FileWorkspaceProps["onPathRenamed"]; onPathRemoved: FileWorkspaceProps["onPathRemoved"];
-  onPathCopied: FileWorkspaceProps["onPathCopied"];
+  onPathCopied: FileWorkspaceProps["onPathCopied"]; mention: FileWorkspaceProps["mention"]; watch: FileWorkspaceProps["watch"];
   draft: FileWorkspaceDraft | undefined; onDraftChange: FileWorkspaceProps["onDraftChange"]; offline: boolean; isCurrent: () => boolean;
 }) {
   const [attempt, setAttempt] = useState(0);
@@ -57,7 +73,27 @@ function FilePanel({ path, read, save, rename, copy, remove, onPathRenamed, onPa
   const [copying, setCopying] = useState(false);
   const [newName, setNewName] = useState("");
   const [copyName, setCopyName] = useState("");
+  const [paneId, setPaneId] = useState("");
+  const [lineNumber, setLineNumber] = useState("");
+  const [mentionStatus, setMentionStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [externalChange, setExternalChange] = useState<string | null>(null);
+  const draftRef = useRef<FileWorkspaceDraft | undefined>(draft);
+  draftRef.current = draft;
+  useEffect(() => {
+    if (!watch) return;
+    return watch(path, (event) => {
+      if (!liveOperation.current || !isCurrent()) return;
+      const pending = draftRef.current;
+      const unsaved = pending ? pending.needsRecovery === true || pending.content !== pending.baseContent : false;
+      if (unsaved) {
+        setExternalChange("This file changed on disk. Your draft is kept and saving will report the conflict.");
+        return;
+      }
+      setExternalChange(event.kind === "overflow" ? "Changes were missed; reloading the file." : "Reloaded after an external change.");
+      setAttempt((value) => value + 1);
+    });
+  }, [watch, path, isCurrent]);
   const liveOperation = useRef(true);
   useEffect(() => { liveOperation.current = true; return () => { liveOperation.current = false; }; }, []);
   const run = useCallback(async (operation: () => Promise<void>, done: () => void) => {
@@ -103,28 +139,57 @@ function FilePanel({ path, read, save, rename, copy, remove, onPathRenamed, onPa
     return result;
   }
   return <section className="file-workspace-file" aria-label={`File: ${path}`}>
-    <div className="file-workspace-heading"><h2>{path}</h2><button type="button" disabled={offline} onClick={() => setAttempt((value) => value + 1)}>{error ? "Retry read" : "Refresh file"}</button></div>
+    <div className="file-workspace-heading"><span className="file-workspace-live" data-stale={externalChange ? "true" : "false"} aria-hidden="true" /><h2>{path}</h2><button type="button" disabled={offline} onClick={() => setAttempt((value) => value + 1)}>{error ? "Retry read" : "Refresh file"}</button></div>
+    {mention && mention.targets.length > 0 && <form onSubmit={(event) => {
+      event.preventDefault();
+      const target = mention.targets.find((item) => item.paneId === paneId) ?? mention.targets[mention.targets.length - 1];
+      const line = lineNumber.trim() === "" ? null : Number(lineNumber);
+      if (line !== null && (!Number.isInteger(line) || line < 1)) { setMentionStatus("Enter a positive line number"); return; }
+      setMentionStatus("Inserting…");
+      void mention.insert(target, path, line).then((failure) => { if (liveOperation.current && isCurrent()) setMentionStatus(failure ?? `Inserted into ${target.label}`); });
+    }}>
+      <select aria-label="Pi pane" value={paneId || mention.targets[mention.targets.length - 1].paneId} onChange={(event) => setPaneId(event.target.value)}>
+        {mention.targets.map((target) => <option key={target.paneId} value={target.paneId}>{target.label}</option>)}
+      </select>
+      <input aria-label="Line number" inputMode="numeric" value={lineNumber} onChange={(event) => setLineNumber(event.target.value)} placeholder="Line (optional)" />
+      <button type="submit" disabled={offline || busy}>Mention in Pi</button>
+      {mentionStatus && <p role="status">{mentionStatus}</p>}
+    </form>}
+    <div className="file-workspace-actions">
     {remove && <button type="button" disabled={offline || busy} onClick={() => setConfirmingDelete(true)}>Delete</button>}
     {rename && <button type="button" disabled={offline || busy} onClick={() => { setRenaming(true); setNewName("") }}>Rename</button>}
+    {download && <button type="button" disabled={offline || busy} onClick={() => void run(async () => {
+      const blob = await download(path);
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = href;
+      anchor.download = path.split("/").pop() || "download";
+      anchor.click();
+      URL.revokeObjectURL(href);
+    }, () => {})}>Download file</button>}
     {copy && <button type="button" disabled={offline || busy} onClick={() => { setCopying(true); setCopyName("") }}>Copy file</button>}
-    {copying && copy && <form onSubmit={(event) => { event.preventDefault(); if (!validEntryName(copyName)) { setOperationError("Enter one file name without slashes"); return; } void run(() => copy(path, copyName), () => { setCopying(false); onPathCopied?.(path, copyName); }); }}>
+    </div>
+    {copying && copy && <form className="file-workspace-forms" onSubmit={(event) => { event.preventDefault(); if (!validEntryName(copyName)) { setOperationError("Enter one file name without slashes"); return; } void run(() => copy(path, copyName), () => { setCopying(false); onPathCopied?.(path, copyName); }); }}>
       <input aria-label="Copy destination" value={copyName} onChange={(event) => setCopyName(event.target.value)} disabled={busy} />
       <button type="submit" disabled={busy}>Confirm copy</button>
       <button type="button" disabled={busy} onClick={() => setCopying(false)}>Cancel copy</button>
     </form>}
-    {renaming && rename && <form onSubmit={(event) => { event.preventDefault(); if (!validEntryName(newName)) { setOperationError("Enter one file name without slashes"); return; } void run(() => rename(path, newName), () => onPathRenamed?.(path, newName)); }}>
+    {renaming && rename && <form className="file-workspace-forms" onSubmit={(event) => { event.preventDefault(); if (!validEntryName(newName)) { setOperationError("Enter one file name without slashes"); return; } void run(() => rename(path, newName), () => onPathRenamed?.(path, newName)); }}>
       <input aria-label="New name" value={newName} onChange={(event) => setNewName(event.target.value)} disabled={busy} />
       <button type="submit" disabled={busy}>Confirm rename</button>
       <button type="button" disabled={busy} onClick={() => setRenaming(false)}>Cancel rename</button>
     </form>}
-    {confirmingDelete && remove && <p role="group" aria-label="Confirm delete">Delete {path}? <button type="button" disabled={busy} onClick={() => void run(() => remove(path), () => onPathRemoved?.(path))}>Confirm delete</button><button type="button" disabled={busy} onClick={() => setConfirmingDelete(false)}>Cancel delete</button></p>}
+    {confirmingDelete && remove && <p role="group" aria-label="Confirm delete">Delete {path}? <button type="button" disabled={busy} onClick={() => void run(() => remove(path, false), () => onPathRemoved?.(path))}>Confirm delete</button><button type="button" disabled={busy} onClick={() => setConfirmingDelete(false)}>Cancel delete</button></p>}
     {operationError && <p role="alert">{operationError}</p>}
+    {externalChange && <p role="status">{externalChange}</p>}
     {offline && <p role="alert">File service offline; draft retained.</p>}
     {!offline && !visible && <p role="status">Loading file…</p>}
     {error && <p role="alert">{error.error || "Unable to read file"}</p>}
     {recovery && <><p role="alert">This draft needs recovery: its original base is unknown. Copy the text and resolve it outside this workspace; saving is disabled.</p><textarea aria-label="Recovery draft" readOnly value={recovery.content} /></>}
     {currentDraft && /\.(?:md|markdown)$/i.test(path) && <>
-      <button type="button" aria-pressed={showMarkdown} onClick={() => setShowMarkdown(!showMarkdown)}>{showMarkdown ? "Hide Markdown preview" : "Preview Markdown"}</button>
+      <div className="file-workspace-actions">
+        <button type="button" className="file-workspace-toggle" aria-pressed={showMarkdown} onClick={() => setShowMarkdown(!showMarkdown)}>{showMarkdown ? "Hide Markdown preview" : "Preview Markdown"}</button>
+      </div>
       {showMarkdown && <div aria-label="Markdown preview"><InertMarkdown content={currentDraft.content} /></div>}
     </>}
     {currentDraft && <FileEditor content={loaded?.content ?? currentDraft.baseContent} revision={loaded?.revision ?? currentDraft.baseRevision}
@@ -133,12 +198,52 @@ function FilePanel({ path, read, save, rename, copy, remove, onPathRenamed, onPa
   </section>;
 }
 
-function Workspace({ bindingKey, list, read, save, drafts, onDraftChange, createFile, createDirectory, rename, copy, remove, onPathRenamed, onPathRemoved, offline = false, storageWarning, conflictWarning }: FileWorkspaceProps) {
+/** Selected directory entry: directory operations live here instead of in the file editor. */
+function DirectoryPanel({ path, copy, remove, onCleared, onCopied, offline }: {
+  path: string; copy: FileWorkspaceProps["copy"]; remove: FileWorkspaceProps["remove"];
+  onCleared: () => void; onCopied: () => void; offline: boolean;
+}) {
+  const [copying, setCopying] = useState(false);
+  const [copyName, setCopyName] = useState("");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const live = useRef(true);
+  useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
+  const run = async (operation: () => Promise<void>, done: () => void) => {
+    setBusy(true); setError(null);
+    try { await operation(); if (live.current) done(); }
+    catch (caught) { if (live.current) setError(caught instanceof Error ? caught.message : "Directory operation failed"); }
+    finally { if (live.current) setBusy(false); }
+  };
+  return <section className="file-workspace-file file-workspace-directory" aria-label={`Directory: ${path}`}>
+    <div className="file-workspace-heading"><h2>Directory: {path}</h2></div>
+    {copy && <button type="button" disabled={offline || busy} onClick={() => { setCopying(true); setCopyName("") }}>Copy directory</button>}
+    {copying && copy && <form className="file-workspace-forms" onSubmit={(event) => { event.preventDefault(); if (!validEntryName(copyName)) { setError("Enter one name without slashes"); return; } void run(() => copy(path, copyName), () => { setCopying(false); onCopied(); }); }}>
+      <input aria-label="Copy destination" value={copyName} onChange={(event) => setCopyName(event.target.value)} disabled={busy} />
+      <button type="submit" disabled={busy}>Confirm copy</button>
+      <button type="button" disabled={busy} onClick={() => setCopying(false)}>Cancel copy</button>
+    </form>}
+    {remove && <button type="button" disabled={offline || busy} onClick={() => setConfirmingDelete(true)}>Delete directory</button>}
+    {confirmingDelete && remove && <p role="group" aria-label="Confirm delete">Delete {path} and everything inside it? <button type="button" disabled={busy} onClick={() => void run(() => remove(path, true), onCleared)}>Confirm delete</button><button type="button" disabled={busy} onClick={() => setConfirmingDelete(false)}>Cancel delete</button></p>}
+    {error && <p role="alert">{error}</p>}
+    {offline && <p role="alert">File service offline.</p>}
+  </section>;
+}
+
+function Workspace({ bindingKey, list, read, save, drafts, onDraftChange, createFile, createDirectory, rename, copy, download, upload, remove, mention, watch, search, onPathRenamed, onPathRemoved, offline = false, storageWarning, conflictWarning }: FileWorkspaceProps) {
   const [selection, setSelection] = useState<{ path: string; generation: number } | null>(null);
+  const [directory, setDirectory] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [newName, setNewName] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
+  const [uploadBusy, setUploadBusy] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [query, setQuery] = useState("");
+  const [searchContent, setSearchContent] = useState(false);
+  const [results, setResults] = useState<readonly { path: string; line?: number }[] | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
   const selectionGeneration = useRef(0);
   const listCurrent = useCallback(async (path: string): Promise<FileExplorerEntry[]> => {
     if (offline) throw new Error("File service offline");
@@ -154,20 +259,59 @@ function Workspace({ bindingKey, list, read, save, drafts, onDraftChange, create
   return <div className="file-workspace">
     {storageWarning && <p role="alert">{storageWarning}</p>}
     {conflictWarning && <p role="alert">{conflictWarning}</p>}
-    <p className="file-workspace-note">Upload, search, and conflict resolution are not supported in this workspace.</p>
-    {(createFile || createDirectory) && <form onSubmit={(event) => { event.preventDefault(); if (createFile) void create(createFile); }}>
+    <p className="file-workspace-note">Merge-based conflict resolution is not supported in this workspace.</p>
+    {search && <form className="file-workspace-search" onSubmit={(event) => {
+      event.preventDefault();
+      if (!query.trim()) { setResults([]); setSearchError("Enter a search query"); return; }
+      setSearching(true); setSearchError(null);
+      void search(query, searchContent)
+        .then((hits) => { setResults(hits); })
+        .catch((error: unknown) => { setSearchError(error instanceof Error ? error.message : "Search failed"); })
+        .finally(() => setSearching(false));
+    }}>
+      <input aria-label="Search files" value={query} onChange={(event) => setQuery(event.target.value)} disabled={offline || searching} />
+      <label><input type="checkbox" aria-label="Search file contents" checked={searchContent} onChange={(event) => setSearchContent(event.target.checked)} /> contents</label>
+      <button type="submit" disabled={offline || searching}>Search</button>
+      {searching && <span role="status">Searching…</span>}
+      {searchError && <span role="alert">{searchError}</span>}
+      {results && <div className="file-workspace-results" aria-label="Search results">
+        {results.length === 0 ? <p>No matches</p> : <ul>{results.map((hit) => <li key={`${hit.path}:${hit.line ?? 0}`}>
+          <button type="button" onClick={() => { const generation = ++selectionGeneration.current; setDirectory(null); setSelection({ path: hit.path, generation }); }}>{hit.line ? `${hit.path}:${hit.line}` : hit.path}</button>
+        </li>)}</ul>}
+      </div>}
+    </form>}
+    {(createFile || createDirectory) && <form className="file-workspace-forms" onSubmit={(event) => { event.preventDefault(); if (createFile) void create(createFile); }}>
       <input aria-label="New name" value={newName} onChange={(event) => setNewName(event.target.value)} disabled={offline || creating} />
       {createFile && <button type="submit" disabled={offline || creating}>Create file</button>}
       {createDirectory && <button type="button" disabled={offline || creating} onClick={() => void create(createDirectory)}>Create directory</button>}
       {createError && <span role="alert">{createError}</span>}
     </form>}
+    {upload && <form onSubmit={(event) => event.preventDefault()}>
+      <input type="file" aria-label="Upload file" disabled={offline || uploadBusy} onChange={(event) => {
+        const file = event.target.files?.[0];
+        event.target.value = "";
+        if (!file) return;
+        setUploadBusy(true); setCreateError(null);
+        void upload(file.name, file).then(() => setRefresh((value) => value + 1))
+          .catch((error: unknown) => setCreateError(error instanceof Error ? error.message : "Upload failed"))
+          .finally(() => setUploadBusy(false));
+      }} />
+      {uploadBusy && <span role="status">Uploading…</span>}
+    </form>}
     <div className="file-workspace-columns">
       <nav aria-label="Browse files"><h2>Files</h2><FileExplorer rootId={`${bindingKey}:${refresh}`} list={listCurrent} onOpen={(path) => {
         const generation = ++selectionGeneration.current;
+        setDirectory(null);
         setSelection({ path, generation });
+      }} onSelectDirectory={(path) => {
+        selectionGeneration.current += 1;
+        setSelection(null);
+        setDirectory(path);
       }} /></nav>
-      {selection ? <SelectedFile key={selection.generation} selection={selection} selectionGeneration={selectionGeneration} read={read} save={save} rename={rename} copy={copy}
-        remove={remove}
+      {directory ? <DirectoryPanel key={directory} path={directory} copy={copy} remove={remove} offline={offline}
+        onCleared={() => { setDirectory(null); setRefresh((value) => value + 1); }}
+        onCopied={() => setRefresh((value) => value + 1)} /> : selection ? <SelectedFile key={selection.generation} selection={selection} selectionGeneration={selectionGeneration} read={read} save={save} rename={rename} copy={copy} download={download}
+        mention={mention} watch={watch} remove={remove}
         onPathRenamed={(from, to) => { onPathRenamed?.(from, to); selectionGeneration.current++; setSelection(null); setRefresh((value) => value + 1); }}
         onPathRemoved={(path) => { onPathRemoved?.(path); selectionGeneration.current++; setSelection(null); setRefresh((value) => value + 1); }}
         onPathCopied={() => setRefresh((value) => value + 1)}

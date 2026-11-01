@@ -4,6 +4,9 @@ import type { FileBinding, FileTab } from "./files/fileTabs";
 import type { FileDraft } from "./files/FileEditor";
 import type { FileWorkspaceDraft } from "./files/FileWorkspace";
 import { BoundFileWorkspace } from "./files/BoundFileWorkspace";
+import type { FileMentionProps } from "./files/FileWorkspace";
+import { isPiPane } from "./pi-mode/piPane";
+import { insertPiComposerText } from "./pi/sidepanel/piComposerInsert";
 import { hasOpenModal, isShortcutTextEntryTarget } from "./keyboardShortcutTargets";
 import { retainPiComposerDrafts } from "./pi-mode/piComposerDraft";
 import { retainPiComposerHistory } from "./pi-mode/piComposerHistory";
@@ -1010,7 +1013,8 @@ function readFileShells(): { state: FileShellState; error: string | null } {
       if (!isRecord(shell) || typeof shell.id !== "string" || !shell.id ||
           typeof shell.label !== "string" || !shell.label || !isRecord(shell.binding) ||
           ![shell.binding.bridgeId, shell.binding.connectionKey, shell.binding.bridgeIdentity,
-            shell.binding.rootIdentity, shell.binding.bindingIdentity].every((part) => typeof part === "string" && part.length > 0)) throw new Error();
+            shell.binding.rootIdentity, shell.binding.bindingIdentity, shell.binding.rootPath]
+            .every((part) => typeof part === "string" && part.length > 0)) throw new Error();
       shells.push(shell as unknown as FileShell);
     }
     if (new Set(shells.map((shell) => shell.id)).size !== shells.length ||
@@ -1025,7 +1029,7 @@ function fileBinding(runtime: BridgeRuntime | null): FileBinding | null {
   const files = runtime?.capabilityState === "ready" && runtime.canConnect ? runtime.capabilities?.files : null;
   return runtime && files ? {
     bridgeId: runtime.id, connectionKey: runtime.connectionKey, bridgeIdentity: files.bridge_id,
-    rootIdentity: files.root_id, bindingIdentity: files.binding_id,
+    rootIdentity: files.root_id, bindingIdentity: files.binding_id, rootPath: files.root_path,
   } : null;
 }
 
@@ -1085,6 +1089,28 @@ export function FileShellNavigation({ selectedRuntime, bridgeViews, returnToken 
   const newBinding = fileBinding(selectedRuntime);
   const selectedView = bridgeViews.find((view) => view.runtime.id === selectedRuntime?.id);
   const canCreate = Boolean(newBinding && selectedView?.loadState === "ready" && selectedView.snapshot);
+  const mentionTargets = (owner?.snapshot?.panes ?? [])
+    .filter((pane) => isPiPane(pane))
+    .map((pane) => ({ paneId: pane.pane_id, label: pane.label || pane.title || pane.pane_id }));
+  const piMention: FileMentionProps | undefined = mentionTargets.length === 0 ? undefined : {
+    targets: mentionTargets,
+    insert: async (target, path, line) => {
+      // Revalidate the target now: the pane may have closed or stopped being a Pi pane.
+      const live = owner?.snapshot?.panes.find((pane) => pane.pane_id === target.paneId);
+      if (!owner || !live || !isPiPane(live) || !owner.runtime.canConnect) return "That Pi pane is no longer available";
+      const rootPath = fileBinding(owner.runtime)?.rootPath;
+      if (!rootPath) return "File root path is unavailable";
+      const absolute = `${rootPath.replace(/\/+$/, "")}/${path}`;
+      const text = line === null
+        ? `Pi read target: path="${absolute}"`
+        : `Pi read target: path="${absolute}", offset=${line}, limit=1`;
+      const result = insertPiComposerText(owner.runtime.id, target.paneId, text);
+      return result === "applied" ? null
+        : result === "rejected_busy" ? "That Pi draft is busy; retry when it is idle"
+        : result === "rejected_empty" ? "Nothing to insert"
+        : "Could not store the Pi draft";
+    },
+  };
   const showTerminal = () => update({ ...state, activeId: null });
   useEffect(() => {
     const warnOnReload = (event: BeforeUnloadEvent) => {
@@ -1266,7 +1292,8 @@ export function FileShellNavigation({ selectedRuntime, bridgeViews, returnToken 
         </section>)}
       </details> : null}
       {!status && owner && current ? <BoundFileWorkspace key={active.id} runtime={owner.runtime} binding={current} drafts={activeDrafts}
-        onDraftChange={(path, draft) => changeDraft(current, path, draft)} onPathRenamed={(from, to) => renameDraftPaths(current, from, to)} /> : null}
+        onDraftChange={(path, draft) => changeDraft(current, path, draft)} onPathRenamed={(from, to) => renameDraftPaths(current, from, to)}
+        mention={piMention} /> : null}
     </div> : null}
   </>;
 }

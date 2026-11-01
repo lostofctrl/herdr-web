@@ -15,7 +15,7 @@ const binding = {
   connectionKey: "https://example.test/bridge",
   bridgeIdentity: "host-a",
   rootIdentity: "root-a",
-  bindingIdentity: "live-binding-a",
+  bindingIdentity: "live-binding-a", rootPath: "/srv/root",
 };
 const tab: FileTab = { binding, path: "a.txt", draft: "unsaved", dirty: true, baseContent: "original", baseRevision: "rev-1" };
 
@@ -55,7 +55,7 @@ describe("browser file tabs", () => {
   });
 
   it("quarantines drafts after restart until the current root is explicitly confirmed", () => {
-    const restarted = { ...binding, bindingIdentity: "live-binding-b" };
+    const restarted = { ...binding, bindingIdentity: "live-binding-b", rootPath: "/srv/root" };
     expect(partitionFileTabs([tab], restarted)).toEqual({ matching: [], recovery: [tab] });
     const confirmed = partitionFileTabs([tab], restarted, true);
     expect(confirmed).toEqual({ matching: [{ ...tab, binding: restarted }], recovery: [] });
@@ -100,7 +100,7 @@ describe("browser file tabs", () => {
     const recovered = { ...legacy, needsRecovery: true };
     expect(loadFileTabs(storage)).toEqual({ ok: true, tabs: [recovered, clean] });
     expect(partitionFileTabs([legacy], binding)).toEqual({ matching: [], recovery: [recovered] });
-    const restarted = { ...binding, bindingIdentity: "new-generation" };
+    const restarted = { ...binding, bindingIdentity: "new-generation", rootPath: "/srv/root" };
     expect(partitionFileTabs([recovered, clean], restarted, true)).toEqual({
       matching: [{ ...clean, binding: restarted }], recovery: [recovered],
     });

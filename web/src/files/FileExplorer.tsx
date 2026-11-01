@@ -16,11 +16,13 @@ export interface FileExplorerProps {
    */
   list: (path: string) => Promise<FileExplorerEntry[]>;
   onOpen: (path: string) => void;
+  /** Reports a directory the user selected, so callers can offer directory operations. */
+  onSelectDirectory?: (path: string) => void;
 }
 
 type List = FileExplorerProps["list"];
 type Result = { list: List; attempt: number; entries: FileExplorerEntry[]; error?: never } | { list: List; attempt: number; error: string; entries?: never };
-type TreeContext = { list: List; onOpen: FileExplorerProps["onOpen"]; active: string | null; setActive: (path: string | null) => void };
+type TreeContext = { list: List; onOpen: FileExplorerProps["onOpen"]; onSelectDirectory?: FileExplorerProps["onSelectDirectory"]; active: string | null; setActive: (path: string | null) => void };
 
 function Directory({ path, context, root = false }: { path: string; context: TreeContext; root?: boolean }) {
   const [attempt, setAttempt] = useState(0);
@@ -56,14 +58,14 @@ function Entry({ entry, path, context, first }: { entry: FileExplorerEntry; path
   return <li role="none" className="file-explorer-entry">
     <button type="button" role="treeitem" className="file-explorer-item" aria-expanded={directory ? expanded : undefined} aria-disabled={unavailable || undefined}
       tabIndex={context.active === path || (context.active === null && first) ? 0 : -1}
-      onFocus={() => context.setActive(path)} onClick={() => { context.setActive(path); if (unavailable) return; if (directory) setExpanded((value) => !value); else context.onOpen(path); }}>
+      onFocus={() => context.setActive(path)} onClick={() => { context.setActive(path); if (unavailable) return; if (directory) { setExpanded((value) => !value); context.onSelectDirectory?.(path); } else context.onOpen(path); }}>
       <span aria-hidden="true" className="file-explorer-icon">{directory ? (expanded ? "▾" : "▸") : "·"}</span><span className="file-explorer-name">{entry.name}</span>{link && <span className="file-explorer-link-label">{unavailable ? "(symbolic link, unavailable)" : "(symbolic link)"}</span>}
     </button>
     {directory && expanded && <Directory path={path} context={context} />}
   </li>;
 }
 
-function ExplorerRoot({ list, onOpen }: Omit<FileExplorerProps, "rootId">) {
+function ExplorerRoot({ list, onOpen, onSelectDirectory }: Omit<FileExplorerProps, "rootId">) {
   const [active, setActive] = useState<string | null>(null);
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     const target = event.target;
@@ -89,10 +91,10 @@ function ExplorerRoot({ list, onOpen }: Omit<FileExplorerProps, "rootId">) {
     event.preventDefault();
     next?.focus();
   }
-  return <div className="file-explorer" onKeyDown={onKeyDown}><Directory path="." context={{ list, onOpen, active, setActive }} root /></div>;
+  return <div className="file-explorer" onKeyDown={onKeyDown}><Directory path="." context={{ list, onOpen, onSelectDirectory, active, setActive }} root /></div>;
 }
 
 /** Presentation-only explorer; callers own listing, opening and root identity. */
-export function FileExplorer({ rootId, list, onOpen }: FileExplorerProps) {
-  return <ExplorerRoot key={rootId} list={list} onOpen={onOpen} />;
+export function FileExplorer({ rootId, list, onOpen, onSelectDirectory }: FileExplorerProps) {
+  return <ExplorerRoot key={rootId} list={list} onOpen={onOpen} onSelectDirectory={onSelectDirectory} />;
 }

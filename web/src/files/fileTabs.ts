@@ -5,6 +5,8 @@ export interface FileBinding {
   bridgeIdentity: string;
   rootIdentity: string;
   bindingIdentity: string;
+  /** Absolute path of the configured root, used only for Pi file mentions. */
+  rootPath: string;
 }
 
 /**

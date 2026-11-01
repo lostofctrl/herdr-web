@@ -135,7 +135,7 @@ describe("FileWorkspace", () => {
     await h.click("Rename"); await h.type("New name", "renamed.txt"); await h.click("Confirm rename");
     expect(rename).toHaveBeenCalledExactlyOnceWith("a.txt", "renamed.txt"); expect(onPathRenamed).toHaveBeenCalledExactlyOnceWith("a.txt", "renamed.txt");
     await h.click("b.txt"); await h.click("Delete"); expect(remove).not.toHaveBeenCalled();
-    await h.click("Confirm delete"); expect(remove).toHaveBeenCalledExactlyOnceWith("b.txt"); expect(onPathRemoved).toHaveBeenCalledExactlyOnceWith("b.txt");
+    await h.click("Confirm delete"); expect(remove).toHaveBeenCalledExactlyOnceWith("b.txt", false); expect(onPathRemoved).toHaveBeenCalledExactlyOnceWith("b.txt");
   });
   it("surfaces operation failures and keeps the current selection usable", async () => {
     const remove = vi.fn().mockRejectedValue(new Error("Permission denied"));
@@ -149,6 +149,26 @@ describe("FileWorkspace", () => {
   });
 });
 
+describe("FileWorkspace transfer of file content", () => {
+  it("downloads the open file and uploads a chosen file into the root", async () => {
+    const download = vi.fn(async () => new Blob(["bytes"]));
+    const upload = vi.fn(async () => {});
+    const createObjectURL = vi.fn(() => "blob:local");
+    const revokeObjectURL = vi.fn();
+    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    const h = setup({ download, upload });
+    await h.render(); await h.click("a.txt");
+    await h.click("Download file");
+    expect(download).toHaveBeenCalledExactlyOnceWith("a.txt");
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    const input = [...h.container.querySelectorAll("input")].find((i) => i.getAttribute("aria-label") === "Upload file")!;
+    const file = new File(["payload"], "picked.txt", { type: "text/plain" });
+    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    await act(async () => { input.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(upload).toHaveBeenCalledExactlyOnceWith("picked.txt", file);
+  });
+});
+
 describe("FileWorkspace copy of the open file", () => {
   it("copies the open file to a new name and refreshes the tree", async () => {
     const copy = vi.fn(async () => {});
@@ -159,6 +179,112 @@ describe("FileWorkspace copy of the open file", () => {
     await h.click("Confirm copy");
     expect(copy).toHaveBeenCalledExactlyOnceWith("a.txt", "copy.txt");
     expect(h.list.mock.calls.length).toBeGreaterThan(1);
+  });
+});
+
+describe("FileWorkspace directory entries", () => {
+  it("copies a directory from the explorer and deletes it recursively", async () => {
+    const copy = vi.fn(async () => {}); const remove = vi.fn(async () => {});
+    const h = setup({
+      copy, remove,
+      list: async (path: string) => path === "dir" ? [{ name: "inner.txt", kind: "file" as const }] : [{ name: "dir", kind: "directory" as const }],
+    });
+    await h.render(); await h.click("dir");
+    expect(h.container.textContent).toContain("Directory: dir");
+    await h.click("Copy directory");
+    await h.type("Copy destination", "copied");
+    await h.click("Confirm copy");
+    expect(copy).toHaveBeenCalledExactlyOnceWith("dir", "copied");
+    await h.click("Delete directory");
+    await h.click("Confirm delete");
+    expect(remove).toHaveBeenCalledExactlyOnceWith("dir", true);
+  });
+});
+
+describe("FileWorkspace external change hints", () => {
+  it("reloads a clean file when the bridge reports a change", async () => {
+    let notify: ((event: { kind: "change"; name: string }) => void) | null = null;
+    const read = vi.fn(async (path: string) => ({ content: `remote ${path}`, revision: "r1" }));
+    const h = setup({ read, watch: (_path, onEvent) => { notify = onEvent as typeof notify; return () => {}; } });
+    await h.render(); await h.click("a.txt");
+    const before = read.mock.calls.length;
+    await act(async () => { notify?.({ kind: "change", name: "a.txt" }); });
+    expect(read.mock.calls.length).toBeGreaterThan(before);
+    expect(h.container.textContent).toContain("Reloaded after an external change.");
+  });
+
+  it("keeps the draft and its original revision when changes were dropped", async () => {
+    let notify: ((event: { kind: "overflow" }) => void) | null = null;
+    const read = vi.fn(async (path: string) => ({ content: `remote ${path}`, revision: "r1" }));
+    const save = vi.fn(async () => ({ ok: true as const, revision: "r2" }));
+    const h = setup({ read, save, watch: (_path, onEvent) => { notify = onEvent as typeof notify; return () => {}; } });
+    await h.render(); await h.click("a.txt");
+    await h.change("draft survives overflow");
+    const reads = read.mock.calls.length;
+    await act(async () => { notify?.({ kind: "overflow" }); });
+    expect(read.mock.calls.length).toBe(reads);
+    expect(h.input().value).toBe("draft survives overflow");
+    await h.click("Save");
+    // The draft still saves against the revision it was loaded at, so the bridge
+    // - not the browser - decides whether the dropped change is a conflict.
+    expect(save).toHaveBeenCalledExactlyOnceWith("a.txt", "draft survives overflow", "r1");
+  });
+
+  it("keeps an unsaved draft and its save base when the file changes on disk", async () => {
+    let notify: ((event: { kind: "change"; name: string }) => void) | null = null;
+    const read = vi.fn(async (path: string) => ({ content: `remote ${path}`, revision: "r1" }));
+    const h = setup({ read, watch: (_path, onEvent) => { notify = onEvent as typeof notify; return () => {}; } });
+    await h.render(); await h.click("a.txt");
+    await h.change("local edit");
+    const before = read.mock.calls.length;
+    await act(async () => { notify?.({ kind: "change", name: "a.txt" }); });
+    expect(read.mock.calls.length).toBe(before);
+    expect(h.input().value).toBe("local edit");
+    expect(h.container.textContent).toContain("This file changed on disk.");
+  });
+});
+
+describe("FileWorkspace search", () => {
+  it("searches names or contents and opens a hit", async () => {
+    const search = vi.fn(async (query: string, content: boolean) => content
+      ? [{ path: "dir/b.txt", line: 3 }]
+      : [{ path: "dir/a.txt" }]);
+    const h = setup({ search });
+    await h.render();
+    await h.type("Search files", "a");
+    await h.click("Search");
+    expect(search).toHaveBeenCalledWith("a", false);
+    expect(h.container.textContent).toContain("dir/a.txt");
+    await act(async () => { h.container.querySelector<HTMLInputElement>('input[aria-label="Search file contents"]')!.click(); });
+    await h.click("Search");
+    expect(search).toHaveBeenLastCalledWith("a", true);
+    await h.click("dir/b.txt:3");
+    expect(h.input().value).toBe("remote dir/b.txt");
+  });
+});
+
+describe("FileWorkspace Pi mentions", () => {
+  it("inserts an absolute path and line into the chosen Pi pane without submitting", async () => {
+    const insert = vi.fn(async () => null);
+    const h = setup({ mention: { targets: [{ paneId: "p1", label: "π pane one" }, { paneId: "p2", label: "π pane two" }], insert } });
+    await h.render(); await h.click("a.txt");
+    const select = h.container.querySelector<HTMLSelectElement>('select[aria-label="Pi pane"]')!;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(select, "p2"); select.dispatchEvent(new Event("change", { bubbles: true })); });
+    await h.type("Line number", "12");
+    await h.click("Mention in Pi");
+    expect(insert).toHaveBeenCalledExactlyOnceWith({ paneId: "p2", label: "π pane two" }, "a.txt", 12);
+    expect(h.container.querySelector('[role="status"]')?.textContent).toContain("π pane two");
+  });
+  it("rejects an invalid line number and surfaces insertion failures", async () => {
+    const insert = vi.fn(async () => "That Pi pane is no longer available");
+    const h = setup({ mention: { targets: [{ paneId: "p1", label: "π one" }], insert } });
+    await h.render(); await h.click("a.txt");
+    await h.type("Line number", "0");
+    await h.click("Mention in Pi");
+    expect(insert).not.toHaveBeenCalled();
+    await h.type("Line number", "3");
+    await h.click("Mention in Pi");
+    expect(h.container.querySelector('[role="status"]')?.textContent).toContain("no longer available");
   });
 });
 
