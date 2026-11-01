@@ -9,14 +9,19 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::io;
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 const MAX_FILE_BYTES: usize = 8 * 1024 * 1024;
 // Content and metadata bytes can require six JSON bytes (e.g. \u0001).
 // The eventual HTTP route must enforce this limit and concurrency before buffering.
 const MAX_METADATA_BYTES: usize = 64 * 1024;
+const MAX_UPLOAD_BYTES: usize = 25 * 1024 * 1024;
+const MAX_UPLOAD_TOTAL: u64 = 100 * 1024 * 1024;
+const UPLOAD_MAGIC: &[u8] = b"herdr-file-upload-1\n";
 pub(crate) const MAX_REQUEST_BYTES: usize = 6 * (MAX_FILE_BYTES + MAX_METADATA_BYTES) + 1024;
+pub(crate) const MAX_UPLOAD_REQUEST_BYTES: usize =
+    MAX_UPLOAD_BYTES + MAX_METADATA_BYTES + UPLOAD_MAGIC.len() + 4;
 const MAX_ENTRIES: usize = 10_000;
 const MAX_CONCURRENT: usize = 8;
 
@@ -61,6 +66,20 @@ enum Operation {
         path: String,
         destination: String,
     },
+    Download {
+        path: String,
+    },
+    Search {
+        query: String,
+        #[serde(default)]
+        content: bool,
+        #[serde(default = "default_search_limit")]
+        limit: usize,
+    },
+}
+
+fn default_search_limit() -> usize {
+    crate::file_search::DEFAULT_LIMIT
 }
 
 #[derive(Deserialize)]
@@ -70,11 +89,46 @@ struct Request {
     operation: Operation,
 }
 
+/// A watch request names one root-relative file; the parent directory is watched.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WatchRequest {
+    identity: Identity,
+    path: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UploadRequest {
+    identity: Identity,
+    path: String,
+}
+
+/// Either a JSON protocol reply or raw file content for the download route.
+pub(crate) enum Reply {
+    Json(Vec<u8>),
+    Content { bytes: Vec<u8>, file_name: String },
+}
+
+/// Holds reserved upload bytes so concurrent uploads cannot exceed the aggregate
+/// limit even while their writes are still in flight.
+pub(crate) struct UploadReservation {
+    total: Arc<AtomicU64>,
+    size: u64,
+}
+
+impl Drop for UploadReservation {
+    fn drop(&mut self) {
+        self.total.fetch_sub(self.size, Ordering::AcqRel);
+    }
+}
+
 #[allow(dead_code)]
 pub(crate) struct FileService {
     root: FileRoot,
     binding: Binding,
     active: Arc<AtomicUsize>,
+    uploaded: Arc<AtomicU64>,
 }
 
 pub(crate) struct Permit(Arc<AtomicUsize>);
@@ -91,6 +145,45 @@ impl FileService {
             root,
             binding,
             active: Arc::new(AtomicUsize::new(0)),
+            uploaded: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    fn identity_ok(&self, identity: &Identity) -> bool {
+        [&identity.bridge_id, &identity.root_id, &identity.binding_id]
+            .iter()
+            .all(|part| !part.trim().is_empty())
+            && identity.bridge_id == self.binding.bridge_id
+            && identity.root_id == self.binding.root_id
+            && identity.binding_id == self.binding.live_binding
+    }
+
+    /// Reserves upload bytes against the aggregate limit for the lifetime of the
+    /// guard, so parallel uploads cannot collectively exceed it.
+    fn reserve_upload(&self, size: usize) -> Option<UploadReservation> {
+        let size = size as u64;
+        if size > MAX_UPLOAD_BYTES as u64 {
+            return None;
+        }
+        let mut total = self.uploaded.load(Ordering::Acquire);
+        loop {
+            if total + size > MAX_UPLOAD_TOTAL {
+                return None;
+            }
+            match self.uploaded.compare_exchange_weak(
+                total,
+                total + size,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    return Some(UploadReservation {
+                        total: Arc::clone(&self.uploaded),
+                        size,
+                    })
+                }
+                Err(actual) => total = actual,
+            }
         }
     }
 
@@ -133,6 +226,104 @@ impl FileService {
         serde_json::to_vec(&response).expect("JSON response is serializable")
     }
 
+    /// Download route: returns raw bytes for one file, or a JSON error.
+    /// Opens a bounded watcher on the parent directory of one file. The caller
+    /// keeps the permit for the stream lifetime so a watch cannot outlive its slot.
+    pub(crate) fn watch_admitted(
+        &self,
+        permit: Permit,
+        bytes: &[u8],
+    ) -> Result<(crate::file_watch::Watcher, Permit), Reply> {
+        let Ok(request) = serde_json::from_slice::<WatchRequest>(bytes) else {
+            return Err(Reply::Json(json_bytes(failure(
+                Value::Null,
+                "invalid_request",
+            ))));
+        };
+        let identity = identity_json(&request.identity);
+        if !self.identity_ok(&request.identity) {
+            return Err(Reply::Json(json_bytes(failure(
+                identity,
+                "identity_mismatch",
+            ))));
+        }
+        if !valid_path(&request.path, false) {
+            return Err(Reply::Json(json_bytes(failure(identity, "invalid_path"))));
+        }
+        match crate::file_watch::Watcher::open(&self.root, Path::new(&request.path)) {
+            Ok(watcher) => Ok((watcher, permit)),
+            Err(error) => Err(Reply::Json(json_bytes(failure(
+                identity,
+                error_code(&error),
+            )))),
+        }
+    }
+
+    pub(crate) fn download_admitted(&self, permit: Permit, bytes: &[u8]) -> Reply {
+        if !Arc::ptr_eq(&permit.0, &self.active) {
+            return Reply::Json(json_bytes(failure(Value::Null, "invalid_request")));
+        }
+        let request: Request = match serde_json::from_slice(bytes) {
+            Ok(request) => request,
+            Err(_) => return Reply::Json(json_bytes(failure(Value::Null, "invalid_request"))),
+        };
+        let identity = identity_json(&request.identity);
+        if !self.identity_ok(&request.identity) {
+            return Reply::Json(json_bytes(failure(identity, "identity_mismatch")));
+        }
+        let Operation::Download { path } = &request.operation else {
+            return Reply::Json(json_bytes(failure(identity, "invalid_request")));
+        };
+        if !valid_path(path, false) {
+            return Reply::Json(json_bytes(failure(identity, "invalid_path")));
+        }
+        match self.root.read_file(Path::new(path), MAX_FILE_BYTES) {
+            Ok(bytes) => Reply::Content {
+                bytes,
+                file_name: Path::new(path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("download")
+                    .to_string(),
+            },
+            Err(error) => Reply::Json(json_bytes(failure(identity, error_code(&error)))),
+        }
+    }
+
+    /// Upload route: the body is a framed metadata header followed by raw bytes.
+    pub(crate) fn upload_admitted(&self, permit: Permit, bytes: &[u8]) -> Vec<u8> {
+        if !Arc::ptr_eq(&permit.0, &self.active) {
+            return json_bytes(failure(Value::Null, "invalid_request"));
+        }
+        if bytes.len() > MAX_UPLOAD_REQUEST_BYTES {
+            return json_bytes(failure(Value::Null, "limit_exceeded"));
+        }
+        let Some((metadata, payload)) = split_upload(bytes) else {
+            return json_bytes(failure(Value::Null, "invalid_request"));
+        };
+        let request: UploadRequest = match serde_json::from_slice(metadata) {
+            Ok(request) => request,
+            Err(_) => return json_bytes(failure(Value::Null, "invalid_request")),
+        };
+        let identity = identity_json(&request.identity);
+        if !self.identity_ok(&request.identity) {
+            return json_bytes(failure(identity, "identity_mismatch"));
+        }
+        if !valid_path(&request.path, false) {
+            return json_bytes(failure(identity, "invalid_path"));
+        }
+        if payload.len() > MAX_UPLOAD_BYTES {
+            return json_bytes(failure(identity, "limit_exceeded"));
+        }
+        let Some(_reservation) = self.reserve_upload(payload.len()) else {
+            return json_bytes(failure(identity, "limit_exceeded"));
+        };
+        match self.root.create_file(Path::new(&request.path), payload) {
+            Ok(()) => json_bytes(json!({"identity": identity, "result": {}})),
+            Err(error) => json_bytes(failure(identity, error_code(&error))),
+        }
+    }
+
     fn respond(&self, bytes: &[u8]) -> Value {
         if bytes.len() > MAX_REQUEST_BYTES {
             return failure(Value::Null, "limit_exceeded");
@@ -142,17 +333,7 @@ impl FileService {
             Err(_) => return failure(Value::Null, "invalid_request"),
         };
         let identity = json!({"bridge_id": request.identity.bridge_id, "root_id": request.identity.root_id, "binding_id": request.identity.binding_id});
-        if [
-            &request.identity.bridge_id,
-            &request.identity.root_id,
-            &request.identity.binding_id,
-        ]
-        .iter()
-        .any(|part| part.trim().is_empty())
-            || request.identity.bridge_id != self.binding.bridge_id
-            || request.identity.root_id != self.binding.root_id
-            || request.identity.binding_id != self.binding.live_binding
-        {
+        if !self.identity_ok(&request.identity) {
             return failure(identity, "identity_mismatch");
         }
         let (path, list) = match &request.operation {
@@ -163,7 +344,9 @@ impl FileService {
             | Operation::CreateDirectory { path }
             | Operation::Rename { path, .. }
             | Operation::Copy { path, .. }
+            | Operation::Download { path }
             | Operation::Remove { path, .. } => (path.as_str(), false),
+            Operation::Search { .. } => ("", true),
         };
         let destination = match &request.operation {
             Operation::Rename { destination, .. } | Operation::Copy { destination, .. } => {
@@ -171,11 +354,16 @@ impl FileService {
             }
             _ => None,
         };
+        let search_bytes = match &request.operation {
+            Operation::Search { query, .. } => query.len(),
+            _ => 0,
+        };
         if request.identity.bridge_id.len()
             + request.identity.root_id.len()
             + request.identity.binding_id.len()
             + path.len()
             + destination.map_or(0, str::len)
+            + search_bytes
             > MAX_METADATA_BYTES
         {
             return failure(identity, "limit_exceeded");
@@ -225,6 +413,8 @@ impl FileService {
             Operation::CreateFile { .. } => self.root.create_file(Path::new(path), b"").map(|()| json!({})),
             Operation::CreateDirectory { .. } => self.root.create_directory(Path::new(path)).map(|()| json!({})),
             Operation::Rename { destination, .. } => self.root.rename_entry(Path::new(path), Path::new(destination)).map(|()| json!({})),
+            // Downloads are served by the dedicated streaming route.
+            Operation::Download { .. } => return failure(identity, "invalid_request"),
             Operation::Remove { recursive, .. } => {
                 let target = Path::new(path);
                 if *recursive {
@@ -237,6 +427,21 @@ impl FileService {
                 .root
                 .copy_tree(Path::new(path), Path::new(destination))
                 .map(|()| json!({})),
+            Operation::Search {
+                query,
+                content,
+                limit,
+            } => self.root.search(query, *content, *limit).map(|hits| {
+                json!({
+                    "results": hits
+                        .into_iter()
+                        .map(|hit| match hit.line {
+                            Some(line) => json!({"path": hit.path, "line": line}),
+                            None => json!({"path": hit.path}),
+                        })
+                        .collect::<Vec<_>>(),
+                })
+            }),
         };
         match result {
             Ok(result) => json!({"identity": identity, "result": result}),
@@ -253,6 +458,32 @@ fn valid_path(path: &str, allow_root: bool) -> bool {
         && path
             .split('/')
             .all(|part| !part.is_empty() && part != "." && part != "..")
+}
+
+fn json_bytes(value: Value) -> Vec<u8> {
+    serde_json::to_vec(&value).expect("JSON response is serializable")
+}
+
+fn identity_json(identity: &Identity) -> Value {
+    json!({
+        "bridge_id": identity.bridge_id,
+        "root_id": identity.root_id,
+        "binding_id": identity.binding_id,
+    })
+}
+
+/// Upload bodies are a fixed magic, a u32 big-endian metadata length, the JSON
+/// metadata, then the raw file bytes. Framing keeps path strings literal instead
+/// of URL-decoding them in a query or header.
+fn split_upload(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
+    let rest = bytes.strip_prefix(UPLOAD_MAGIC)?;
+    let length = u32::from_be_bytes(rest.get(..4)?.try_into().ok()?) as usize;
+    if length > MAX_METADATA_BYTES {
+        return None;
+    }
+    let metadata = rest.get(4..4usize.checked_add(length)?)?;
+    let payload = rest.get(4 + length..)?;
+    Some((metadata, payload))
 }
 
 fn error_code(error: &io::Error) -> &'static str {
@@ -615,7 +846,123 @@ mod tests {
         assert_eq!(fs::read(f.0.join("file")).unwrap(), b"abc");
     }
 
+    fn framed_upload(identity: Value, path: &str, payload: &[u8]) -> Vec<u8> {
+        let metadata = json!({"identity": identity, "path": path}).to_string();
+        let mut body = UPLOAD_MAGIC.to_vec();
+        body.extend_from_slice(&(metadata.len() as u32).to_be_bytes());
+        body.extend_from_slice(metadata.as_bytes());
+        body.extend_from_slice(payload);
+        body
+    }
+
     #[test]
+    fn contract_uploads_new_files_and_bounds_aggregate_bytes() {
+        let f = Fixture::new();
+        let service = f.service();
+        let identity = request("list", "")["identity"].clone();
+        let upload = |identity: Value, path: &str, payload: &[u8]| {
+            let permit = service.try_acquire().expect("admission");
+            let reply: Value = serde_json::from_slice(
+                &service.upload_admitted(permit, &framed_upload(identity, path, payload)),
+            )
+            .expect("JSON reply");
+            reply
+        };
+        assert_eq!(
+            upload(identity.clone(), "new", b"content")["result"],
+            json!({})
+        );
+        assert_eq!(fs::read(f.0.join("new")).unwrap(), b"content");
+        error(&upload(identity.clone(), "new", b"other"), "already_exists");
+        error(&upload(identity.clone(), "../escape", b"x"), "invalid_path");
+        let mut stale = identity.clone();
+        stale["binding_id"] = json!("stale");
+        error(&upload(stale, "another", b"x"), "identity_mismatch");
+        error(
+            &upload(identity.clone(), "big", &vec![b'x'; MAX_UPLOAD_BYTES + 1]),
+            "limit_exceeded",
+        );
+
+        let reservations: Vec<_> = (0..4)
+            .map(|_| {
+                service
+                    .reserve_upload(MAX_UPLOAD_BYTES)
+                    .expect("within total")
+            })
+            .collect();
+        assert!(service.reserve_upload(1).is_none());
+        drop(reservations);
+        assert!(service.reserve_upload(MAX_UPLOAD_BYTES).is_some());
+        assert!(service.reserve_upload(MAX_UPLOAD_BYTES + 1).is_none());
+    }
+
+    #[test]
+    fn contract_downloads_bytes_through_the_dedicated_route() {
+        let f = Fixture::new();
+        fs::write(f.0.join("binary.dat"), [0u8, 7, 255]).unwrap();
+        let service = f.service();
+        let identity = request("list", "")["identity"].clone();
+        let download = |path: &str| {
+            let permit = service.try_acquire().expect("admission");
+            let body =
+                json!({"identity": identity, "operation": {"type": "download", "path": path}})
+                    .to_string();
+            service.download_admitted(permit, body.as_bytes())
+        };
+        match download("binary.dat") {
+            Reply::Content { bytes, file_name } => {
+                assert_eq!(bytes, vec![0u8, 7, 255]);
+                assert_eq!(file_name, "binary.dat");
+            }
+            Reply::Json(_) => panic!("expected content"),
+        }
+        let error_body = |reply: Reply| match reply {
+            Reply::Json(bytes) => serde_json::from_slice::<Value>(&bytes).expect("JSON"),
+            Reply::Content { .. } => panic!("expected JSON error"),
+        };
+        assert_eq!(error_body(download("absent"))["error"]["code"], "not_found");
+        assert_eq!(error_body(download(""))["error"]["code"], "invalid_path");
+    }
+
+    #[test]
+    fn contract_searches_names_and_contents_with_bounded_results() {
+        let f = Fixture::new();
+        let service = f.service();
+        let identity = request("list", "")["identity"].clone();
+        let op =
+            |operation: Value| call(&service, json!({"identity":identity,"operation":operation}));
+        fs::create_dir_all(f.0.join("dir/nested")).unwrap();
+        fs::write(
+            f.0.join("dir/nested/notes.md"),
+            b"first line\nsecond Needle line\n",
+        )
+        .unwrap();
+        fs::write(f.0.join("dir/other.txt"), b"nothing here\n").unwrap();
+        fs::create_dir_all(f.0.join(".git")).unwrap();
+        fs::write(f.0.join(".git/hidden-needle"), b"needle\n").unwrap();
+        assert_eq!(
+            op(json!({"type":"search","query":"notes"}))["result"],
+            json!({"results":[{"path":"dir/nested/notes.md"}]})
+        );
+        assert_eq!(
+            op(json!({"type":"search","query":"needle","content":true}))["result"],
+            json!({"results":[{"path":"dir/nested/notes.md","line":2}]})
+        );
+        assert_eq!(
+            op(json!({"type":"search","query":"needle"}))["result"],
+            json!({"results":[]})
+        );
+        error(&op(json!({"type":"search","query":""})), "unsupported_data");
+        error(
+            &op(json!({"type":"search","query":"x","limit":0})),
+            "unsupported_data",
+        );
+        error(
+            &op(json!({"type":"search","query":"x","limit":201})),
+            "unsupported_data",
+        );
+    }
+
     fn contract_copies_trees_and_removes_them_recursively() {
         let f = Fixture::new();
         let service = f.service();

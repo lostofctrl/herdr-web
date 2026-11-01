@@ -142,6 +142,16 @@ impl Drop for Directory {
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
 impl FileRoot {
+    /// Reopens a pinned directory for watching; the caller must drop it promptly.
+    pub(crate) fn open_watch_directory(&self, path: &Path) -> io::Result<std::fs::File> {
+        let pinned = if path.as_os_str().is_empty() {
+            self.root.try_clone()?
+        } else {
+            self.resolve(path)?
+        };
+        reopen(&pinned, true)
+    }
+
     pub(crate) fn read_file(&self, path: &Path, limit: usize) -> io::Result<Vec<u8>> {
         read_pinned(&self.resolve(path)?, limit)
     }
@@ -274,6 +284,13 @@ impl FileRoot {
 #[cfg(not(target_os = "linux"))]
 #[allow(dead_code)]
 impl FileRoot {
+    pub(crate) fn open_watch_directory(&self, _path: &Path) -> io::Result<std::fs::File> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "confined file watching requires Linux",
+        ))
+    }
+
     pub(crate) fn read_file(&self, _path: &Path, _limit: usize) -> io::Result<Vec<u8>> {
         Err(io::Error::new(
             io::ErrorKind::Unsupported,

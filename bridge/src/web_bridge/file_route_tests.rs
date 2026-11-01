@@ -94,6 +94,7 @@ fn state(fixture: &Fixture, binding: &Binding, service: Arc<FileService>) -> Bri
         upload_dir: fixture.state_dir.join("uploads"),
         file_service: Some(service),
         file_capability: Some(FileCapability {
+            root_path: fixture.root.to_string_lossy().into_owned(),
             version: 1,
             bridge_id: binding.bridge_id.clone(),
             root_id: binding.root_id.clone(),
@@ -106,6 +107,7 @@ fn app(state: BridgeState) -> Router {
     Router::new()
         .route("/api/capabilities", get(capabilities_handler))
         .route("/api/files", post(file_handler))
+        .route("/api/files/watch", post(file_watch_handler))
         .with_state(state)
 }
 
@@ -145,6 +147,56 @@ fn operation(binding: &Binding, value: Value) -> String {
         "operation": value,
     })
     .to_string()
+}
+
+#[tokio::test]
+async fn streams_change_hints_for_a_watched_file() {
+    use futures_util::StreamExt;
+    let fixture = Fixture::new();
+    let binding = fixture.binding();
+    std::fs::write(fixture.root.join("a.txt"), b"one").unwrap();
+    let app = app(state(&fixture, &binding, fixture.service(&binding)));
+    let body = serde_json::json!({"identity": {
+        "bridge_id": binding.bridge_id,
+        "root_id": binding.root_id,
+        "binding_id": binding.live_binding,
+    }, "path": "a.txt"})
+    .to_string();
+    let request = call(
+        "POST",
+        "/api/files/watch",
+        "127.0.0.1:8787",
+        None,
+        Some(body),
+    );
+    let response = app.oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get("content-type").unwrap(),
+        "text/event-stream; charset=utf-8"
+    );
+    let root = fixture.root.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        std::fs::write(root.join("a.txt"), b"two").unwrap();
+    });
+    let mut stream = response.into_body().into_data_stream();
+    let mut seen = String::new();
+    while let Ok(Some(chunk)) =
+        tokio::time::timeout(std::time::Duration::from_secs(10), stream.next()).await
+    {
+        if let Ok(chunk) = chunk {
+            seen.push_str(&String::from_utf8_lossy(&chunk));
+        }
+        if seen.contains("event: change") && seen.contains("a.txt") {
+            break;
+        }
+    }
+    assert!(
+        seen.contains("event: change"),
+        "expected a change event, saw {seen:?}"
+    );
+    assert!(seen.contains("a.txt"));
 }
 
 #[tokio::test]

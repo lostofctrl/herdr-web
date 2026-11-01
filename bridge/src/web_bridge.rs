@@ -154,6 +154,8 @@ struct FileCapability {
     bridge_id: String,
     root_id: String,
     binding_id: String,
+    /// Absolute path of the configured root, so file mentions can be addressed for Pi.
+    root_path: String,
 }
 
 #[derive(Debug, Clone)]
@@ -1168,6 +1170,7 @@ fn build_file_service(
         bridge_id: binding.bridge_id.clone(),
         root_id: binding.root_id.clone(),
         binding_id: binding.live_binding.clone(),
+        root_path: root_path.to_string_lossy().into_owned(),
     };
     Ok((
         Some(Arc::new(crate::file_service::FileService::new(
@@ -1326,6 +1329,18 @@ async fn run_server(options: BridgeOptions) -> io::Result<()> {
             post(upload_handler).options(preflight_handler),
         )
         .route("/api/files", post(file_handler).options(preflight_handler))
+        .route(
+            "/api/files/download",
+            post(file_download_handler).options(preflight_handler),
+        )
+        .route(
+            "/api/files/upload",
+            post(file_upload_handler).options(preflight_handler),
+        )
+        .route(
+            "/api/files/watch",
+            post(file_watch_handler).options(preflight_handler),
+        )
         .route("/ws/events", get(events_ws_handler))
         .route("/ws/activity", get(activity_ws_handler))
         .route("/ws/ui-events", get(ui_events_ws_handler))
@@ -4333,7 +4348,43 @@ async fn pi_sidepanel_buttons_put(
 }
 
 async fn file_handler(State(state): State<BridgeState>, request: AxumRequest) -> Response {
-    file_http::handle_request(state.file_service.clone(), &state.request_policy, request).await
+    file_http::handle(
+        file_http::Route::Json,
+        state.file_service.clone(),
+        &state.request_policy,
+        request,
+    )
+    .await
+}
+
+async fn file_download_handler(State(state): State<BridgeState>, request: AxumRequest) -> Response {
+    file_http::handle(
+        file_http::Route::Download,
+        state.file_service.clone(),
+        &state.request_policy,
+        request,
+    )
+    .await
+}
+
+async fn file_watch_handler(State(state): State<BridgeState>, request: AxumRequest) -> Response {
+    file_http::handle(
+        file_http::Route::Watch,
+        state.file_service.clone(),
+        &state.request_policy,
+        request,
+    )
+    .await
+}
+
+async fn file_upload_handler(State(state): State<BridgeState>, request: AxumRequest) -> Response {
+    file_http::handle(
+        file_http::Route::Upload,
+        state.file_service.clone(),
+        &state.request_policy,
+        request,
+    )
+    .await
 }
 
 async fn agent_activity_list_handler(

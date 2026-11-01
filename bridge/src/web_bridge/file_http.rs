@@ -1,7 +1,9 @@
-//! File HTTP adapter. Not registered with the production router.
+//! File HTTP adapter: JSON operations, raw downloads, framed uploads and a
+//! bounded change stream. Every route enforces the bridge host/origin policy
+//! before the body is read.
 
 use super::{ensure_allowed_request, RequestPolicy};
-use crate::file_service::{FileService, MAX_REQUEST_BYTES};
+use crate::file_service::{FileService, Reply, MAX_REQUEST_BYTES, MAX_UPLOAD_REQUEST_BYTES};
 use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::http::{header, StatusCode};
@@ -42,12 +44,12 @@ enum BodyError {
     Disconnected,
 }
 
-async fn bounded_body(body: Body) -> Result<Vec<u8>, BodyError> {
+async fn bounded_body(body: Body, limit: usize) -> Result<Vec<u8>, BodyError> {
     let mut stream = body.into_data_stream();
     let mut bytes = Vec::new();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|_| BodyError::Disconnected)?;
-        if chunk.len() > MAX_REQUEST_BYTES - bytes.len() {
+        if chunk.len() > limit.saturating_sub(bytes.len()) {
             return Err(BodyError::TooLarge);
         }
         bytes.extend_from_slice(&chunk);
@@ -55,9 +57,68 @@ async fn bounded_body(body: Body) -> Result<Vec<u8>, BodyError> {
     Ok(bytes)
 }
 
+/// Which protocol a request uses. Uploads allow a larger body; downloads return
+/// raw bytes instead of the JSON protocol reply.
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum Route {
+    Json,
+    Download,
+    Upload,
+    Watch,
+}
+
+/// Percent-encodes a download filename for the RFC 5987 `filename*` parameter so
+/// arbitrary bytes never reach the header verbatim.
+fn encode_file_name(name: &str) -> String {
+    let mut encoded = String::new();
+    for byte in name.as_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~' | b' ') {
+            encoded.push(if *byte == b' ' { '%' } else { *byte as char });
+            if *byte == b' ' {
+                encoded.pop();
+                encoded.push_str("%20");
+            }
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
+}
+
+fn content_response(bytes: Vec<u8>, file_name: &str) -> Response {
+    let ascii: String = file_name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_graphic() && c != '"' && c != '\\' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "application/octet-stream".to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!(
+                    "attachment; filename=\"{ascii}\"; filename*=UTF-8''{}",
+                    encode_file_name(file_name)
+                ),
+            ),
+            (header::CACHE_CONTROL, "no-store".to_string()),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
+        ],
+        bytes,
+    )
+        .into_response()
+}
+
 /// Admission is acquired before body consumption and moved into the blocking
 /// worker, which retains it even if the requesting client disconnects.
-pub(super) async fn handle_request(
+pub(super) async fn handle(
+    route: Route,
     service: Option<Arc<FileService>>,
     policy: &RequestPolicy,
     request: Request,
@@ -79,9 +140,14 @@ pub(super) async fn handle_request(
             "File service is busy",
         );
     };
+    let limit = if route == Route::Upload {
+        MAX_UPLOAD_REQUEST_BYTES
+    } else {
+        MAX_REQUEST_BYTES
+    };
     let bytes = match tokio::time::timeout(
-        Duration::from_secs(15),
-        bounded_body(request.into_body()),
+        Duration::from_secs(if route == Route::Upload { 60 } else { 15 }),
+        bounded_body(request.into_body(), limit),
     )
     .await
     {
@@ -108,19 +174,126 @@ pub(super) async fn handle_request(
             )
         }
     };
-    match tokio::task::spawn_blocking(move || service.handle_admitted(permit, &bytes)).await {
-        Ok(bytes) => json_response(StatusCode::OK, bytes),
-        Err(_) => early_error(
+    let result = match route {
+        Route::Json => tokio::task::spawn_blocking(move || service.handle_admitted(permit, &bytes))
+            .await
+            .map(|bytes| json_response(StatusCode::OK, bytes)),
+        Route::Upload => {
+            tokio::task::spawn_blocking(move || service.upload_admitted(permit, &bytes))
+                .await
+                .map(|bytes| json_response(StatusCode::OK, bytes))
+        }
+        Route::Watch => return watch_stream(service, permit, bytes).await,
+        Route::Download => {
+            tokio::task::spawn_blocking(move || service.download_admitted(permit, &bytes))
+                .await
+                .map(|reply| match reply {
+                    Reply::Json(bytes) => json_response(StatusCode::OK, bytes),
+                    Reply::Content { bytes, file_name } => content_response(bytes, &file_name),
+                })
+        }
+    };
+    result.unwrap_or_else(|_| {
+        early_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "io_error",
             "File operation failed",
-        ),
-    }
+        )
+    })
 }
 
-#[allow(dead_code)]
 pub(super) async fn file_request(State(state): State<FileHttpState>, request: Request) -> Response {
-    handle_request(state.service, &state.policy, request).await
+    handle(Route::Json, state.service, &state.policy, request).await
+}
+
+pub(super) async fn file_download(
+    State(state): State<FileHttpState>,
+    request: Request,
+) -> Response {
+    handle(Route::Download, state.service, &state.policy, request).await
+}
+
+pub(super) async fn file_upload(State(state): State<FileHttpState>, request: Request) -> Response {
+    handle(Route::Upload, state.service, &state.policy, request).await
+}
+
+pub(super) async fn file_watch(State(state): State<FileHttpState>, request: Request) -> Response {
+    handle(Route::Watch, state.service, &state.policy, request).await
+}
+
+/// Streams bounded change hints as server-sent events. Every event is only a
+/// hint: the client must resynchronize, and an `overflow` event demands a full
+/// reload because the kernel queue dropped entries.
+async fn watch_stream(
+    service: Arc<FileService>,
+    permit: crate::file_service::Permit,
+    bytes: Vec<u8>,
+) -> Response {
+    let (watcher, permit) = match service.watch_admitted(permit, &bytes) {
+        Ok(opened) => opened,
+        Err(Reply::Json(bytes)) => return json_response(StatusCode::OK, bytes),
+        Err(Reply::Content { .. }) => {
+            return early_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "io_error",
+                "File watch failed",
+            )
+        }
+    };
+    let (sender, receiver) = tokio::sync::mpsc::channel::<String>(16);
+    tokio::task::spawn_blocking(move || {
+        let deadline =
+            std::time::Instant::now() + Duration::from_secs(crate::file_watch::MAX_WATCH_SECONDS);
+        while std::time::Instant::now() < deadline {
+            match watcher.poll(5_000) {
+                Ok(Some(batch)) => {
+                    let mut lines = String::new();
+                    if batch.overflow {
+                        lines.push_str("event: overflow\ndata: {}\n\n");
+                    }
+                    for name in batch.names {
+                        let Ok(payload) =
+                            serde_json::to_string(&serde_json::json!({ "name": name }))
+                        else {
+                            continue;
+                        };
+                        lines.push_str(&format!("event: change\ndata: {payload}\n\n"));
+                    }
+                    if !lines.is_empty() && sender.blocking_send(lines).is_err() {
+                        break;
+                    }
+                }
+                Ok(None) => {
+                    if sender.blocking_send(": keepalive\n\n".to_owned()).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        drop(permit);
+    });
+    let stream = futures_util::stream::unfold(receiver, |mut receiver| async move {
+        receiver.recv().await.map(|chunk| {
+            (
+                Ok::<_, std::convert::Infallible>(axum::body::Bytes::from(chunk)),
+                receiver,
+            )
+        })
+    });
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/event-stream; charset=utf-8")
+        .header(header::CACHE_CONTROL, "no-store")
+        .header("x-content-type-options", "nosniff")
+        .body(Body::from_stream(stream))
+        .unwrap_or_else(|_| {
+            early_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "io_error",
+                "File watch failed",
+            )
+        })
 }
 
 #[cfg(all(test, target_os = "linux"))]
@@ -169,6 +342,8 @@ mod tests {
     fn app(service: Option<Arc<FileService>>) -> Router {
         Router::new()
             .route("/api/files", post(file_request))
+            .route("/api/files/download", post(file_download))
+            .route("/api/files/upload", post(file_upload))
             .with_state(FileHttpState {
                 service,
                 policy: RequestPolicy {
@@ -272,6 +447,101 @@ mod tests {
         )
         .await;
         assert_eq!(result(response).await["error"]["code"], "invalid_path");
+    }
+
+    fn upload_body(path: &str, payload: &[u8]) -> Vec<u8> {
+        let metadata = json!({"identity":{"bridge_id":"bridge","root_id":"root","binding_id":"binding"},"path":path}).to_string();
+        let mut body = b"herdr-file-upload-1\n".to_vec();
+        body.extend_from_slice(&(metadata.len() as u32).to_be_bytes());
+        body.extend_from_slice(metadata.as_bytes());
+        body.extend_from_slice(payload);
+        body
+    }
+
+    async fn post_to(
+        path: &'static str,
+        service: Arc<FileService>,
+        body: Body,
+    ) -> axum::response::Response {
+        let router = app(Some(service));
+        router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(path)
+                    .header("host", "127.0.0.1:8787")
+                    .body(body)
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn downloads_raw_bytes_with_attachment_headers_and_confined_errors() {
+        let f = Fixture::new();
+        std::fs::write(f.0.join("bin"), [0u8, 1, 2, 255]).unwrap();
+        let service = f.service();
+        let request = json!({"identity":{"bridge_id":"bridge","root_id":"root","binding_id":"binding"},"operation":{"type":"download","path":"bin"}}).to_string();
+        let response = post_to("/api/files/download", service.clone(), Body::from(request)).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()["content-type"],
+            "application/octet-stream"
+        );
+        assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        let disposition = response.headers()["content-disposition"]
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(disposition.starts_with("attachment; filename=\"bin\""));
+        assert_eq!(
+            to_bytes(response.into_body(), 1024).await.unwrap().as_ref(),
+            &[0u8, 1, 2, 255]
+        );
+        let missing = json!({"identity":{"bridge_id":"bridge","root_id":"root","binding_id":"binding"},"operation":{"type":"download","path":"absent"}}).to_string();
+        let response = post_to("/api/files/download", service.clone(), Body::from(missing)).await;
+        assert_eq!(result(response).await["error"]["code"], "not_found");
+        let traversal = json!({"identity":{"bridge_id":"bridge","root_id":"root","binding_id":"binding"},"operation":{"type":"download","path":"../escape"}}).to_string();
+        let response = post_to("/api/files/download", service, Body::from(traversal)).await;
+        assert_eq!(result(response).await["error"]["code"], "invalid_path");
+    }
+
+    #[tokio::test]
+    async fn uploads_create_new_files_without_overwriting_or_exceeding_limits() {
+        let f = Fixture::new();
+        let service = f.service();
+        let response = post_to(
+            "/api/files/upload",
+            service.clone(),
+            Body::from(upload_body("uploaded", b"payload")),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(result(response).await["result"], json!({}));
+        assert_eq!(std::fs::read(f.0.join("uploaded")).unwrap(), b"payload");
+        let response = post_to(
+            "/api/files/upload",
+            service.clone(),
+            Body::from(upload_body("uploaded", b"replacement")),
+        )
+        .await;
+        assert_eq!(result(response).await["error"]["code"], "already_exists");
+        assert_eq!(std::fs::read(f.0.join("uploaded")).unwrap(), b"payload");
+        let oversized = oversized_upload_body(MAX_UPLOAD_REQUEST_BYTES + 1);
+        let response = post_to("/api/files/upload", service.clone(), Body::from(oversized)).await;
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let mut unframed = b"not a framed upload".to_vec();
+        unframed.extend_from_slice(b"payload");
+        let response = post_to("/api/files/upload", service, Body::from(unframed)).await;
+        assert_eq!(result(response).await["error"]["code"], "invalid_request");
+    }
+
+    fn oversized_upload_body(size: usize) -> Vec<u8> {
+        let mut bytes = b"herdr-file-upload-1\n".to_vec();
+        bytes.resize(size, b' ');
+        bytes
     }
 
     #[tokio::test]
