@@ -1105,9 +1105,8 @@ export function FileShellNavigation({ selectedRuntime, bridgeViews, returnToken 
         ? `Pi read target: path="${absolute}"`
         : `Pi read target: path="${absolute}", offset=${line}, limit=1`;
       const result = insertPiComposerText(owner.runtime.id, target.paneId, text);
-      return result === "applied" ? null
-        : result === "rejected_busy" ? "That Pi draft is busy; retry when it is idle"
-        : result === "rejected_empty" ? "Nothing to insert"
+      return result === "inserted" ? null
+        : result === "blocked" ? "That Pi draft is busy; retry when it is idle"
         : "Could not store the Pi draft";
     },
   };

@@ -92,6 +92,7 @@ fn state(fixture: &Fixture, binding: &Binding, service: Arc<FileService>) -> Bri
         ui_event_tx: tokio::sync::broadcast::channel(256).0,
         activity_tx: tokio::sync::broadcast::channel(512).0,
         upload_dir: fixture.state_dir.join("uploads"),
+        pi_sidepanel_buttons: None,
         file_service: Some(service),
         file_capability: Some(FileCapability {
             root_path: fixture.root.to_string_lossy().into_owned(),

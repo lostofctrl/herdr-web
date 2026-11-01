@@ -3477,6 +3477,8 @@ mod note_image_tests {
                 ui_event_tx: tokio::sync::broadcast::channel(256).0,
                 activity_tx: tokio::sync::broadcast::channel(512).0,
                 upload_dir: self.0.join("uploads"),
+                file_service: None,
+                file_capability: None,
             };
             note_image_routes()
                 .route(

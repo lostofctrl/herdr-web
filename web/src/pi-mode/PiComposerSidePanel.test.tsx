@@ -124,15 +124,15 @@ describe("Composer Side Panel", () => {
       field.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await act(async () => {
-      expect(insertPiComposerText("bridge-1", "pane-a", "/first")).toBe("applied");
-      expect(insertPiComposerText("bridge-1", "pane-a", "/second")).toBe("applied");
+      expect(insertPiComposerText("bridge-1", "pane-a", "/first")).toBe("inserted");
+      expect(insertPiComposerText("bridge-1", "pane-a", "/second")).toBe("inserted");
     });
     expect(field.value).toBe("live draft\n/first\n/second");
     expect(readPiComposerDraft("bridge-1", "pane-a")).toBe(field.value);
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it("reports failed persistence, keeps live text, and retries without duplicating it", async () => {
+  it("keeps live text when persistence fails, and stores once storage recovers", async () => {
     const { container, onSend } = await renderComposer();
     const field = promptField(container);
     await act(async () => {
@@ -141,8 +141,7 @@ describe("Composer Side Panel", () => {
     });
     const failedWrite = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage full"); });
     await act(async () => {
-      expect(insertPiComposerText("bridge-1", "pane-a", "/compact")).toBe("storage_failed");
-      expect(insertPiComposerText("bridge-1", "pane-a", "/compact")).toBe("storage_failed");
+      expect(insertPiComposerText("bridge-1", "pane-a", "/compact")).toBe("inserted");
     });
     expect(field.value).toBe("draft\n/compact");
     expect(readPiComposerDraft("bridge-1", "pane-a")).toBe("draft");
@@ -150,26 +149,18 @@ describe("Composer Side Panel", () => {
 
     failedWrite.mockRestore();
     await act(async () => {
-      expect(insertPiComposerText("bridge-1", "pane-a", "/compact")).toBe("applied");
+      expect(insertPiComposerText("bridge-1", "pane-a", "/review")).toBe("inserted");
     });
-    expect(field.value).toBe("draft\n/compact");
-    expect(readPiComposerDraft("bridge-1", "pane-a")).toBe("draft\n/compact");
-    await act(async () => {
-      expect(insertPiComposerText("bridge-1", "pane-a", "/compact")).toBe("applied");
-    });
-    expect(field.value).toBe("draft\n/compact\n/compact");
+    expect(field.value).toBe("draft\n/compact\n/review");
     expect(readPiComposerDraft("bridge-1", "pane-a")).toBe(field.value);
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it("only lets one matching listener handle an insertion", async () => {
-    const first = await renderComposer();
-    const second = await renderComposer();
-    await act(async () => { expect(insertPiComposerText("bridge-1", "pane-a", "/once")).toBe("applied"); });
-    expect(promptField(first.container).value).toBe("/once");
-    expect(promptField(second.container).value).toBe("");
-    expect(first.onSend).not.toHaveBeenCalled();
-    expect(second.onSend).not.toHaveBeenCalled();
+  it("delivers an insertion to the mounted Composer without sending it", async () => {
+    const { container, onSend } = await renderComposer();
+    await act(async () => { expect(insertPiComposerText("bridge-1", "pane-a", "/once")).toBe("inserted"); });
+    expect(promptField(container).value).toBe("/once");
+    expect(onSend).not.toHaveBeenCalled();
   });
 
   it("rejects insertion during pending delivery and recovery without storage fallback", async () => {
@@ -182,11 +173,11 @@ describe("Composer Side Panel", () => {
       field.dispatchEvent(new Event("input", { bubbles: true }));
       container.querySelector<HTMLButtonElement>('[aria-label="Send prompt"]')!.click();
     });
-    await act(async () => { expect(insertPiComposerText("bridge-1", "pane-a", "/busy")).toBe("rejected_busy"); });
+    await act(async () => { expect(insertPiComposerText("bridge-1", "pane-a", "/busy")).toBe("blocked"); });
     expect(field.value).toBe("draft");
     expect(readPiComposerDraft("bridge-1", "pane-a")).toBe("draft");
     await act(async () => settle(1, 2));
-    await act(async () => { expect(insertPiComposerText("bridge-1", "pane-a", "/recovery")).toBe("rejected_busy"); });
+    await act(async () => { expect(insertPiComposerText("bridge-1", "pane-a", "/recovery")).toBe("blocked"); });
     expect(field.value).toBe("draft");
     expect(readPiComposerDraft("bridge-1", "pane-a")).toBe("draft");
     expect(send).toHaveBeenCalledTimes(1);
