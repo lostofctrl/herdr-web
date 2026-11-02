@@ -1,0 +1,110 @@
+/* File explorer, matched to the pi-web reference: compact 22 px rows, 11 px
+   labels, monospace paths, hover-revealed affordances, accent focus ring. */
+.file-explorer {
+  min-width: 0;
+  min-height: 100%;
+  overflow: auto;
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.45;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.file-explorer:focus { outline: none; }
+.file-explorer:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.file-explorer::-webkit-scrollbar { width: 8px; height: 8px; }
+.file-explorer::-webkit-scrollbar-track { background: transparent; }
+.file-explorer::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+.file-explorer::-webkit-scrollbar-thumb:hover { background: var(--overlay0); }
+
+.file-explorer-tree,
+.file-explorer-group {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.file-explorer-group { padding-inline-start: 10px; }
+
+.file-explorer-entry { position: relative; }
+
+/* Global `button` rules set their own padding, radius and height; keep the tree
+   rows compact by winning on specificity instead of fighting the cascade. */
+.file-explorer .file-explorer-item {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+  width: 100%;
+  height: 22px;
+  min-height: 22px;
+  max-height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted, var(--subtext0));
+  font: inherit;
+  font-size: 11px;
+  line-height: 20px;
+  text-align: start;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.file-explorer .file-explorer-item:hover { background: var(--row-hover); color: var(--text); }
+.file-explorer .file-explorer-item:active { background: var(--row-active); }
+.file-explorer-item[aria-current="true"],
+.file-explorer-item[data-active="true"] {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.file-explorer-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.file-explorer-item[aria-disabled="true"] { cursor: not-allowed; color: var(--subtext0); }
+
+.file-explorer-icon {
+  flex: none;
+  width: 12px;
+  font-size: 10px;
+  color: var(--overlay1);
+  text-align: center;
+}
+
+.file-explorer-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-explorer-link-label {
+  flex: none;
+  font-size: 10px;
+  color: var(--overlay1);
+}
+
+.file-explorer-message {
+  padding: 2px 6px;
+  color: var(--subtext0);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.file-explorer-message button {
+  min-height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.file-explorer-message button:hover { background: var(--row-hover); }
+
+@media (pointer: coarse) {
+  .file-explorer .file-explorer-item { height: 30px; min-height: 30px; max-height: 30px; line-height: 28px; }
+}

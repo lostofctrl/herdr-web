@@ -362,6 +362,19 @@ describe("capabilities", () => {
     });
   });
 
+  it("accepts only a complete supported file capability", () => {
+    const files = { version: 1, bridge_id: "server-a", root_id: "root-a", binding_id: "binding-a", root_path: "/srv/root" };
+    expect(parseCapabilities({ files }).files).toEqual(files);
+    for (const invalid of [
+      undefined, null, {}, { ...files, version: 2 }, { ...files, bridge_id: "" },
+      { ...files, root_id: "" }, { ...files, binding_id: "" },
+      { ...files, root_id: 1 },
+      { ...files, root_path: "" }, { ...files, root_path: "relative/path" }, { ...files, root_path: 1 },
+    ]) {
+      expect(parseCapabilities({ files: invalid }).files).toBeUndefined();
+    }
+  });
+
   it("probes configured bridge capabilities", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ commands: ["pane.move"] }), { status: 200 }),

@@ -1,0 +1,69 @@
+/* Editor, matched to the pi-web reference: borderless monospace text surface,
+   11 px type with roomy line height, and a 24 px control row. */
+.file-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  flex: 1;
+}
+
+.file-editor-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 8px 4px;
+  font-size: 11px;
+  color: var(--subtext0);
+}
+
+.file-editor-controls > button {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--subtext0);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.file-editor-controls > button:hover { background: var(--row-hover); color: var(--text); }
+.file-editor-controls > button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.file-editor-controls > button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.file-editor [role="status"],
+.file-editor [role="alert"] {
+  margin: 0;
+  font-size: 11px;
+  color: var(--subtext0);
+}
+
+.file-editor [role="alert"] { color: var(--yellow); }
+
+.file-editor textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 16rem;
+  flex: 1;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--term-bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  tab-size: 2;
+  resize: vertical;
+  outline: none;
+  white-space: pre;
+  overflow: auto;
+}
+
+.file-editor textarea:focus-visible { border-color: var(--accent); }
+.file-editor textarea:read-only { color: var(--subtext0); }

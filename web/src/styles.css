@@ -1016,6 +1016,54 @@ button {
   background: var(--mantle);
 }
 
+.file-shell-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--sidebar-bg);
+}
+
+.file-shell-bar [role="tablist"] {
+  display: flex;
+  min-width: 0;
+  gap: 4px;
+  overflow-x: auto;
+}
+
+.file-shell-item {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.file-shell-bar button, .file-shell-placeholder button {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  background: var(--mantle);
+}
+
+.file-shell-bar button[aria-selected="true"] {
+  background: var(--row-active);
+}
+
+.file-shell-bar button:disabled {
+  opacity: 0.55;
+}
+
+.file-shell-placeholder {
+  padding: 20px;
+  color: var(--text);
+}
+
+.file-shell-placeholder button + button {
+  margin-left: 8px;
+}
+
 /* horizontal tab strip at the top of the stage (desktop only) */
 .tabbar {
   display: flex;

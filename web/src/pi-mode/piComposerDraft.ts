@@ -43,7 +43,7 @@ export function writePiComposerDraft(
   storage: Storage | null = storageOrNull(),
 ) {
   if (!storage) {
-    return;
+    return false;
   }
   try {
     if (value) {
@@ -51,8 +51,27 @@ export function writePiComposerDraft(
     } else {
       storage.removeItem(piComposerDraftKey(bridgeId, paneId));
     }
+    return true;
   } catch {
     // A full or unavailable storage must never block sending a prompt.
+    return false;
+  }
+}
+
+/** Append only when the durable draft and input marker can both be read. */
+export function appendPiComposerDraft(bridgeId: string, paneId: string, text: string): "applied" | "rejected_busy" | "storage_failed" {
+  const storage = storageOrNull();
+  if (!storage) return "storage_failed";
+  try {
+    const draft = storage.getItem(piComposerDraftKey(bridgeId, paneId)) ?? "";
+    // Probe explicitly: the normal marker reader conservatively treats errors as unresolved.
+    storage.getItem(inputMarkerKey(bridgeId, paneId));
+    if (readPiComposerInputUnresolved(bridgeId, paneId, storage)) return "rejected_busy";
+    const value = `${draft}${draft && !/\s$/.test(draft) ? "\n" : ""}${text}`;
+    if (!writePiComposerDraft(bridgeId, paneId, value, storage)) return "storage_failed";
+    return storage.getItem(piComposerDraftKey(bridgeId, paneId)) === value ? "applied" : "storage_failed";
+  } catch {
+    return "storage_failed";
   }
 }
 
@@ -150,7 +169,7 @@ export function usePiComposerDraft(bridgeId: string, paneId: string) {
   const update = useCallback(
     (next: string) => {
       setValue(next);
-      writePiComposerDraft(bridgeId, paneId, next);
+      return writePiComposerDraft(bridgeId, paneId, next);
     },
     [bridgeId, paneId],
   );

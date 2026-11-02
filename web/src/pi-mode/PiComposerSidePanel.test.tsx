@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PiComposer } from "./PiComposer";
 import { PI_ESCAPE_KEY } from "../pi/piKeys";
-import { retainPiComposerDrafts } from "./piComposerDraft";
+import { readPiComposerDraft, retainPiComposerDrafts } from "./piComposerDraft";
+import { insertPiComposerText } from "../pi/sidepanel/piComposerInsert";
 
 /**
  * The Composer floats the Side Panel instead of hosting a second copy of its
@@ -115,6 +116,78 @@ function promptField(container: HTMLElement) {
 }
 
 describe("Composer Side Panel", () => {
+  it("acknowledges consecutive live merges without submitting", async () => {
+    const { container, onSend } = await renderComposer();
+    const field = promptField(container);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, "live draft");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      expect(insertPiComposerText("bridge-1", "pane-a", "/first")).toBe("inserted");
+      expect(insertPiComposerText("bridge-1", "pane-a", "/second")).toBe("inserted");
+    });
+    expect(field.value).toBe("live draft\n/first\n/second");
+    expect(readPiComposerDraft("bridge-1", "pane-a")).toBe(field.value);
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("keeps live text when persistence fails, and stores once storage recovers", async () => {
+    const { container, onSend } = await renderComposer();
+    const field = promptField(container);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, "draft");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const failedWrite = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage full"); });
+    await act(async () => {
+      expect(insertPiComposerText("bridge-1", "pane-a", "/compact")).toBe("inserted");
+    });
+    expect(field.value).toBe("draft\n/compact");
+    expect(readPiComposerDraft("bridge-1", "pane-a")).toBe("draft");
+    expect(onSend).not.toHaveBeenCalled();
+
+    // A mounted Composer never reports a storage failure, so it cannot tell the
+    // caller to retry; retrying the same text would append it twice by design.
+    // Recovery is proven by the next insertion reaching both live text and storage.
+    failedWrite.mockRestore();
+    await act(async () => {
+      expect(insertPiComposerText("bridge-1", "pane-a", "/review")).toBe("inserted");
+    });
+    expect(field.value).toBe("draft\n/compact\n/review");
+    expect(readPiComposerDraft("bridge-1", "pane-a")).toBe(field.value);
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("delivers an insertion only to the Composer that owns that pane", async () => {
+    const first = await renderComposer();
+    const other = await renderComposer({ paneId: "pane-b" });
+    await act(async () => { expect(insertPiComposerText("bridge-1", "pane-a", "/once")).toBe("inserted"); });
+    expect(promptField(first.container).value).toBe("/once");
+    expect(promptField(other.container).value).toBe("");
+    expect(first.onSend).not.toHaveBeenCalled();
+    expect(other.onSend).not.toHaveBeenCalled();
+  });
+
+  it("rejects insertion during pending delivery and recovery without storage fallback", async () => {
+    let settle!: (count: number, total: number) => void;
+    const send = vi.fn((_parts: string[], done: typeof settle) => { settle = done; return true; });
+    const { container } = await renderComposer({ onSend: send });
+    const field = promptField(container);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, "draft");
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      container.querySelector<HTMLButtonElement>('[aria-label="Send prompt"]')!.click();
+    });
+    await act(async () => { expect(insertPiComposerText("bridge-1", "pane-a", "/busy")).toBe("blocked"); });
+    expect(field.value).toBe("draft");
+    expect(readPiComposerDraft("bridge-1", "pane-a")).toBe("draft");
+    await act(async () => settle(1, 2));
+    await act(async () => { expect(insertPiComposerText("bridge-1", "pane-a", "/recovery")).toBe("blocked"); });
+    expect(field.value).toBe("draft");
+    expect(readPiComposerDraft("bridge-1", "pane-a")).toBe("draft");
+    expect(send).toHaveBeenCalledTimes(1);
+  });
   it("floats the shared Side Panel view from a Composer control", async () => {
     const { container } = await renderComposer();
     const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Toggle Pi Side Panel"]')!;
