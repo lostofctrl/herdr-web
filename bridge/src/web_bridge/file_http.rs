@@ -202,25 +202,6 @@ pub(super) async fn handle(
     })
 }
 
-pub(super) async fn file_request(State(state): State<FileHttpState>, request: Request) -> Response {
-    handle(Route::Json, state.service, &state.policy, request).await
-}
-
-pub(super) async fn file_download(
-    State(state): State<FileHttpState>,
-    request: Request,
-) -> Response {
-    handle(Route::Download, state.service, &state.policy, request).await
-}
-
-pub(super) async fn file_upload(State(state): State<FileHttpState>, request: Request) -> Response {
-    handle(Route::Upload, state.service, &state.policy, request).await
-}
-
-pub(super) async fn file_watch(State(state): State<FileHttpState>, request: Request) -> Response {
-    handle(Route::Watch, state.service, &state.policy, request).await
-}
-
 /// Streams bounded change hints as server-sent events. Every event is only a
 /// hint: the client must resynchronize, and an `overflow` event demands a full
 /// reload because the kernel queue dropped entries.
@@ -339,11 +320,23 @@ mod tests {
             std::fs::remove_dir_all(&self.0).unwrap();
         }
     }
+    /// Mirrors the route table in `web_bridge.rs`; the binary calls `handle`
+    /// through its own handlers, so the test routes are declared here.
+    macro_rules! file_route {
+        ($route:expr) => {
+            post(
+                |State(state): State<FileHttpState>, request: axum::extract::Request| async move {
+                    handle($route, state.service, &state.policy, request).await
+                },
+            )
+        };
+    }
+
     fn app(service: Option<Arc<FileService>>) -> Router {
         Router::new()
-            .route("/api/files", post(file_request))
-            .route("/api/files/download", post(file_download))
-            .route("/api/files/upload", post(file_upload))
+            .route("/api/files", file_route!(Route::Json))
+            .route("/api/files/download", file_route!(Route::Download))
+            .route("/api/files/upload", file_route!(Route::Upload))
             .with_state(FileHttpState {
                 service,
                 policy: RequestPolicy {

@@ -963,6 +963,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn contract_copies_trees_and_removes_them_recursively() {
         let f = Fixture::new();
         let service = f.service();
@@ -989,6 +990,7 @@ mod tests {
         assert_eq!(fs::read(f.0.join("copy/nested/file")).unwrap(), b"payload");
     }
 
+    #[test]
     fn contract_creates_renames_and_deletes_without_overwrite() {
         let f = Fixture::new();
         let service = f.service();
